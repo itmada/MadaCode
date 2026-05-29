@@ -1,0 +1,27 @@
+{
+  "description": "Skill 调用 — code-review",
+  "userInput": "审查最近的代码修改",
+  "mockApiResponses": [
+    {
+      "assistantText": "I'll use the code-review skill.",
+      "toolCalls": [
+        {"id": "t1", "name": "Skill", "input": {"skill": "code-review", "task": "审查最近的代码修改"}}
+      ]
+    },
+    {
+      "assistantText": "I'll follow the code-review workflow. First, git diff.",
+      "toolCalls": [
+        {"id": "t2", "name": "bash", "input": {"command": "git diff HEAD~1", "description": "查看最近的修改"}}
+      ]
+    },
+    {
+      "assistantText": "### Findings\n- [P1] No critical issues found\n- [P2] Consider adding null check\n\n### Summary: safe to proceed",
+      "toolCalls": []
+    }
+  ],
+  "assertions": [
+    {"type": "tool_called", "expected": "Skill"},
+    {"type": "output_contains", "expected": "P1"},
+    {"type": "finish_reason", "expected": "COMPLETED"}
+  ]
+}

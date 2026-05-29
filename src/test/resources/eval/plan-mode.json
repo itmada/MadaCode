@@ -1,0 +1,33 @@
+{
+  "description": "Plan Mode 进入和退出",
+  "userInput": "给这个项目添加一个缓存层",
+  "mockApiResponses": [
+    {
+      "assistantText": "This requires planning. I'll enter plan mode.",
+      "toolCalls": [
+        {"id": "t1", "name": "enter_plan_mode", "input": {}}
+      ]
+    },
+    {
+      "assistantText": "I'll explore the codebase to understand the architecture.",
+      "toolCalls": [
+        {"id": "t2", "name": "glob", "input": {"pattern": "**/*.java"}}
+      ]
+    },
+    {
+      "assistantText": "Plan: 1. Create Cache interface 2. Implement in-memory cache 3. Wire into QueryEngine. Ready for approval.",
+      "toolCalls": [
+        {"id": "t3", "name": "exit_plan_mode", "input": {"plan_summary": "1. Create Cache interface\n2. Implement in-memory cache\n3. Wire into QueryEngine"}}
+      ]
+    },
+    {
+      "assistantText": "Plan approved. Starting implementation.",
+      "toolCalls": []
+    }
+  ],
+  "assertions": [
+    {"type": "tool_called", "expected": "enter_plan_mode"},
+    {"type": "tool_called", "expected": "exit_plan_mode"},
+    {"type": "finish_reason", "expected": "COMPLETED"}
+  ]
+}

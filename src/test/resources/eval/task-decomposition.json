@@ -1,0 +1,34 @@
+{
+  "description": "任务分解与执行",
+  "userInput": "把 README.md 里的英文标题替换成中文",
+  "mockApiResponses": [
+    {
+      "assistantText": "I'll break this into tasks.",
+      "toolCalls": [
+        {"id": "t1", "name": "TaskCreate", "input": {
+          "tasks": [
+            {"title": "读取 README.md", "description": "找到所有英文标题"},
+            {"title": "替换为中文", "description": "逐个替换", "dependencies": ["1"]}
+          ]
+        }}
+      ]
+    },
+    {
+      "assistantText": "Task 1 in progress.",
+      "toolCalls": [
+        {"id": "t2", "name": "TaskUpdate", "input": {"id": "1", "status": "in_progress"}},
+        {"id": "t3", "name": "file_read", "input": {"file_path": "README.md"}}
+      ]
+    },
+    {
+      "assistantText": "All tasks complete.",
+      "toolCalls": []
+    }
+  ],
+  "assertions": [
+    {"type": "tool_called", "expected": "TaskCreate"},
+    {"type": "tool_called", "expected": "TaskUpdate"},
+    {"type": "tool_called", "expected": "file_read"},
+    {"type": "finish_reason", "expected": "COMPLETED"}
+  ]
+}

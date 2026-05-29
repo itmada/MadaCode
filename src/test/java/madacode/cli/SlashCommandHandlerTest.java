@@ -1,0 +1,353 @@
+package madacode.cli;
+
+import madacode.cli.slash.SlashAction;
+import madacode.cli.slash.SlashCommandRegistry;
+import madacode.core.ConversationSession;
+import madacode.core.Message;
+import madacode.core.MetaEvent;
+import madacode.provider.Model;
+import madacode.provider.Provider;
+import madacode.provider.ProviderRegistry;
+import madacode.core.SessionStorage;
+import madacode.core.TokenUsage;
+import madacode.services.compact.CompactBudget;
+import madacode.services.compact.CompactPlanner;
+import madacode.services.compact.TokenEstimator;
+import madacode.tui.TextScreen;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.net.URI;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+public class SlashCommandHandlerTest {
+
+    @TempDir
+    Path tempDir;
+
+    private SessionStorage storage;
+    private ByteArrayOutputStream outBytes;
+    private PrintStream out;
+    private SlashCommandHandler handler;
+    private ConversationSession current;
+
+    @BeforeEach
+    void setUp() {
+        storage = new SessionStorage(tempDir);
+        outBytes = new ByteArrayOutputStream();
+        out = new PrintStream(outBytes);
+        ProviderRegistry registry = createTestRegistry();
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .registry(SlashCommandRegistry.create(null))
+                .providerRegistry(registry)
+                .build();
+        current = newSession("current", "init message");
+    }
+
+    private static ProviderRegistry createTestRegistry() {
+        return ProviderRegistry.singleProvider(
+                new Provider("test", "test-token",
+                        URI.create("https://api.anthropic.com"),
+                        "claude-opus-4-7",
+                        List.of(
+                                new Model("claude-opus-4-7", 200_000),
+                                new Model("claude-sonnet-4-6", 200_000),
+                                new Model("claude-haiku-4-5", 200_000))));
+    }
+
+    @AfterEach
+    void tearDown() {
+        out.close();
+    }
+
+    @Test
+    void nonSlashLineReturnsContinue() {
+        var action = handler.handle("normal input", current);
+        assertInstanceOf(SlashAction.Continue.class, action);
+    }
+
+    @Test
+    void emptySlashWithSpacesReturnsHandled() {
+        var action = handler.handle("/  ", current);
+        assertInstanceOf(SlashAction.Handled.class, action);
+    }
+
+    @Test
+    void helpCommand() {
+        var action = handler.handle("/help", current);
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.contains("/sessions"));
+        assertTrue(output.contains("/resume"));
+        assertTrue(output.contains("/new"));
+        assertTrue(output.contains("/delete"));
+    }
+
+    @Test
+    void commandsOnlyMatchByPrimaryName() {
+        // Aliases have been removed — only primary command names work.
+        var h = handler.handle("/h", current);
+        assertInstanceOf(SlashAction.Handled.class, h);
+        assertTrue(outBytes.toString().contains("Unknown command"));
+
+        var quit = handler.handle("/quit", current);
+        assertInstanceOf(SlashAction.Handled.class, quit);
+        assertTrue(outBytes.toString().contains("Unknown command"));
+    }
+
+    @Test
+    void newCommandSavesCurrentAndSwitches() {
+        storage.save(current); // pre-populate
+
+        var action = handler.handle("/new", current);
+
+        assertInstanceOf(SlashAction.SwitchSession.class, action);
+        var ss = (SlashAction.SwitchSession) action;
+        assertTrue(!ss.session().sessionId().equals("current"),
+                "Should create a new session, not return current");
+        String output = outBytes.toString();
+        assertTrue(output.contains("saved current session") || output.contains("New session:"));
+    }
+
+    @Test
+    void resumeSwitchesToExistingSession() {
+        ConversationSession other = newSession("target-session", "hello target");
+        storage.save(current);
+        storage.save(other);
+
+        var action = handler.handle("/resume target-session", current);
+
+        assertInstanceOf(SlashAction.SwitchSession.class, action);
+        var ss = (SlashAction.SwitchSession) action;
+        assertEquals("target-session", ss.session().sessionId());
+        assertTrue(outBytes.toString().contains("saved current session"));
+    }
+
+    @Test
+    void resumeWithPrefixMatch() {
+        ConversationSession other = newSession("abc123-def456", "unique prefix");
+        storage.save(current);
+        storage.save(other);
+
+        var action = handler.handle("/resume abc123", current);
+
+        assertInstanceOf(SlashAction.SwitchSession.class, action);
+        var ss = (SlashAction.SwitchSession) action;
+        assertEquals("abc123-def456", ss.session().sessionId());
+    }
+
+    @Test
+    void resumeWithoutIdUsesChooserWhenAvailable() {
+        ConversationSession other = newSession("chosen-session", "chosen");
+        storage.save(current);
+        storage.save(other);
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .sessionChooser((sessions, currentSessionId) -> Optional.of("chosen-session"))
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/resume", current);
+
+        assertInstanceOf(SlashAction.SwitchSession.class, action);
+        var ss = (SlashAction.SwitchSession) action;
+        assertEquals("chosen-session", ss.session().sessionId());
+    }
+
+    @Test
+    void resumeWithoutIdCancelsWhenChooserCancels() {
+        storage.save(current);
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .sessionChooser((sessions, currentSessionId) -> Optional.empty())
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/resume", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("Resume cancelled"));
+    }
+
+    @Test
+    void resumeNonExistentPrintsError() {
+        storage.save(current);
+
+        var action = handler.handle("/resume nonexistent", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("No session found"));
+    }
+
+    @Test
+    void resumeInvalidSessionIdPrintsError() {
+        storage.save(current);
+
+        var action = handler.handle("/resume ../escape", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("No session found"));
+    }
+
+    @Test
+    void resumeSameSessionDoesNothing() {
+        storage.save(current);
+
+        var action = handler.handle("/resume current", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("Already in that session"));
+    }
+
+    @Test
+    void deleteRemovesOtherSession() {
+        ConversationSession other = newSession("to-delete", "bye");
+        storage.save(current);
+        storage.save(other);
+
+        var action = handler.handle("/delete to-delete", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("Deleted"));
+        assertTrue(storage.loadIfExists("to-delete").isEmpty());
+    }
+
+    @Test
+    void deleteCurrentSessionRefused() {
+        storage.save(current);
+
+        var action = handler.handle("/delete current", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("Cannot delete the current session"));
+        assertTrue(storage.loadIfExists("current").isPresent());
+    }
+
+    @Test
+    void exitCommand() {
+        var action = handler.handle("/exit", current);
+        assertInstanceOf(SlashAction.Exit.class, action);
+    }
+
+    @Test
+    void modelCommandListsModelsWithoutInteractiveChooser() {
+        var action = handler.handle("/model", current);
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("claude-opus-4-7"),
+                "expected claude-opus-4-7 in output but got: " + outBytes.toString());
+    }
+
+    @Test
+    void compactCommandDegradesWhenPlannerUnavailable() {
+        var action = handler.handle("/compact", current);
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("Compaction is not available"));
+    }
+
+    @Test
+    void compactCommandReturnsLocalTurnWhenPlannerAvailable() {
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .registry(SlashCommandRegistry.create(null))
+                .compactPlanner(new CompactPlanner(
+                        new TokenEstimator(),
+                        CompactBudget.defaults(),
+                        List.of()))
+                .build();
+
+        var action = handler.handle("/compact", current);
+
+        SlashAction.RunLocalTurn run = assertInstanceOf(SlashAction.RunLocalTurn.class, action);
+        assertEquals("slash:/compact", run.label());
+    }
+
+    @Test
+    void clearCommandClearsMessagesAndPersists() {
+        storage.save(current);
+        current.fireMetaEvent(new MetaEvent.TokenReport(new TokenUsage(10, 20, 30, 40), 1, 2));
+
+        var action = handler.handle("/clear", current);
+
+        assertInstanceOf(SlashAction.Cleared.class, action);
+        assertEquals(1, current.messages().size());
+        assertEquals(TokenUsage.ZERO, current.tokenUsage());
+        assertTrue(outBytes.toString().contains("Session messages cleared"));
+        assertEquals(1, storage.load("current").messages().size());
+    }
+
+    @Test
+    void costCommandShowsAccumulatedTokenUsage() {
+        current.fireMetaEvent(new MetaEvent.TokenReport(new TokenUsage(10, 20, 30, 40), 1, 2));
+
+        var action = handler.handle("/cost", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.contains("input"));
+        assertTrue(output.contains("10"));
+        assertTrue(output.contains("Token usage"));
+    }
+
+    @Test
+    void statusCommandShowsSessionSummary() {
+        var action = handler.handle("/status", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.contains("session"));
+        assertTrue(output.contains("current"));
+        assertTrue(output.contains("messages"));
+        assertTrue(!output.contains("configured at startup"));
+        assertTrue(!output.contains("active gate"));
+    }
+
+    @Test
+    void themeCommandListsThemesWithoutInteractiveChooser() {
+        var action = handler.handle("/theme", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("dark"));
+    }
+
+    @Test
+    void helpCommandCanShowOneCommand() {
+        var action = handler.handle("/help status", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("Usage: /status"));
+    }
+
+    @Test
+    void replayAllCommandReturnsReplayAction() {
+        var action = handler.handle("/replay-all", current);
+
+        assertInstanceOf(SlashAction.ReplayAll.class, action);
+    }
+
+    @Test
+    void unknownCommand() {
+        var action = handler.handle("/foobar", current);
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(outBytes.toString().contains("Unknown command"));
+    }
+
+    private static ConversationSession newSession(String id, String firstUserMessage) {
+        return new ConversationSession(
+                id,
+                Instant.now(),
+                Path.of("."),
+                List.of(Message.system("Init"), Message.user(firstUserMessage)));
+    }
+}

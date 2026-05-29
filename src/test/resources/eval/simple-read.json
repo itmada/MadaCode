@@ -1,0 +1,22 @@
+{
+  "description": "简单文件读取",
+  "userInput": "读取 pom.xml 的内容",
+  "mockApiResponses": [
+    {
+      "assistantText": "I'll read the pom.xml file.",
+      "toolCalls": [
+        {"id": "t1", "name": "file_read", "input": {"file_path": "pom.xml"}}
+      ]
+    },
+    {
+      "assistantText": "pom.xml contains Maven build configuration with Jackson and Jsoup dependencies.",
+      "toolCalls": []
+    }
+  ],
+  "assertions": [
+    {"type": "tool_called", "expected": "file_read"},
+    {"type": "output_contains", "expected": "pom.xml"},
+    {"type": "finish_reason", "expected": "COMPLETED"},
+    {"type": "iteration_count", "expected": "2"}
+  ]
+}

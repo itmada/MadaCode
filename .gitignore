@@ -1,0 +1,32 @@
+# Compiled class files
+target/
+dependency-reduced-pom.xml
+
+# Maven wrapper (optional, keep if you use it)
+# .mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+*.swp
+*.swo
+*~
+
+# Local agent/worktree state
+.claude/
+
+# OS
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Secrets / env
+.env
+.env.*
+.mada/settings.local.json

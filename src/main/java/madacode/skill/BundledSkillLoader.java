@@ -1,0 +1,117 @@
+package madacode.skill;
+
+import madacode.events.AppEvents;
+import madacode.events.DiagnosticEvent;
+import madacode.events.EventContext;
+import madacode.util.ToolNameNormalizer;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+
+/**
+ * Loads bundled skills from {@code src/main/resources/skills/} inside the jar.
+ *
+ * <p>Each subdirectory with a {@code SKILL.md} becomes a skill. The directory
+ * name is used as the skill name if the frontmatter doesn't specify one.
+ */
+public final class BundledSkillLoader implements SkillLoader {
+
+    private static final String BUNDLED_DIR = "skills";
+
+    @Override
+    public List<Skill> load() {
+        try {
+            return loadFromClasspath();
+        } catch (IOException | URISyntaxException e) {
+            AppEvents.publisher().publish(DiagnosticEvent.warn(
+                    EventContext.bootstrap("BundledSkillLoader"),
+                    "Failed to load bundled skills: " + e.getMessage(), e));
+            return List.of();
+        }
+    }
+
+    private static List<Skill> loadFromClasspath() throws IOException, URISyntaxException {
+        var url = BundledSkillLoader.class.getClassLoader().getResource(BUNDLED_DIR);
+        if (url == null) return List.of();
+
+        if ("jar".equals(url.getProtocol())) {
+            return loadFromJar(url);
+        }
+        return loadFromDirectory(Path.of(url.toURI()));
+    }
+
+    private static List<Skill> loadFromJar(java.net.URL dirUrl) throws IOException {
+        List<Skill> skills = new ArrayList<>();
+        String jarPath = dirUrl.getPath().substring(5, dirUrl.getPath().indexOf('!'));
+        try (FileSystem fs = FileSystems.newFileSystem(
+                URI.create("jar:file:" + jarPath), Collections.emptyMap())) {
+            Path skillsRoot = fs.getPath(BUNDLED_DIR);
+            if (!Files.isDirectory(skillsRoot)) return List.of();
+            skills.addAll(loadFromDirectory(skillsRoot));
+        }
+        return skills;
+    }
+
+    private static List<Skill> loadFromDirectory(Path dir) throws IOException {
+        List<Skill> skills = new ArrayList<>();
+        try (Stream<Path> entries = Files.list(dir)) {
+            for (Path entry : entries.filter(Files::isDirectory).sorted().toList()) {
+                Path skillMd = entry.resolve("SKILL.md");
+                if (!Files.isRegularFile(skillMd)) continue;
+
+                String content = Files.readString(skillMd, StandardCharsets.UTF_8);
+                Skill s = buildSkill(content, entry.getFileName().toString(),
+                        SkillSource.BUNDLED, skillMd, entry);
+                if (s != null) skills.add(s);
+            }
+        }
+        return skills;
+    }
+
+    static Skill buildSkill(String content, String dirName,
+                            SkillSource source, Path mdPath, Path dirPath) {
+        SkillFrontmatterParser.Result parsed = SkillFrontmatterParser.parse(content);
+        for (String w : parsed.warnings()) {
+            AppEvents.publisher().publish(DiagnosticEvent.warn(
+                    EventContext.bootstrap("BundledSkillLoader"),
+                    mdPath + ": " + w));
+        }
+
+        Map<String, Object> fm = parsed.frontmatter();
+
+        String name = SkillFrontmatterParser.stringField(fm, "name");
+        if (name == null || name.isBlank()) name = dirName;
+
+        String desc = SkillFrontmatterParser.stringField(fm, "description");
+        if (desc == null) desc = "";
+
+        String when = SkillFrontmatterParser.stringField(fm, "when_to_use");
+        if (when == null) when = "";
+
+        List<String> tags = SkillFrontmatterParser.stringListField(fm, "tags");
+
+        String mode = SkillFrontmatterParser.stringField(fm, "mode");
+        if (mode == null) mode = "inline";
+
+        List<String> allowed = ToolNameNormalizer.normalize(
+                SkillFrontmatterParser.stringListField(fm, "allowed_tools"));
+        List<String> disallowed = ToolNameNormalizer.normalize(
+                SkillFrontmatterParser.stringListField(fm, "disallowed_tools"));
+        int maxIter = SkillFrontmatterParser.intField(fm, "max_iterations", 15);
+        int maxCalls = SkillFrontmatterParser.intField(fm, "max_tool_calls", 50);
+
+        return new Skill(name, desc, when, tags, source, parsed.body(),
+                mdPath, dirPath, mode, allowed, disallowed, maxIter, maxCalls);
+    }
+}

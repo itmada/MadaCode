@@ -1,0 +1,19 @@
+{
+  "description": "未知工具错误处理",
+  "userInput": "用 nonexistent_tool 做某事",
+  "mockApiResponses": [
+    {
+      "assistantText": "Let me try this tool.",
+      "toolCalls": [
+        {"id": "t1", "name": "nonexistent_tool", "input": {"foo": "bar"}}
+      ]
+    },
+    {
+      "assistantText": "Sorry, that tool doesn't exist. Let me try another approach.",
+      "toolCalls": []
+    }
+  ],
+  "assertions": [
+    {"type": "finish_reason", "expected": "COMPLETED"}
+  ]
+}
