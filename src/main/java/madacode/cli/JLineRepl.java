@@ -103,6 +103,7 @@ public final class JLineRepl extends Repl {
 
         SlashContext.ModelChooser modelChooser = inlineModelChooser(screen, terminal);
         SlashContext.ThemeChooser themeChooser = inlineThemeChooser(screen, terminal);
+        SlashContext.ProviderChooser providerChooser = inlineProviderChooser(screen, terminal);
         SessionChooser sessionChooser = inlineSessionChooser(sessionStorage, screen, terminal);
 
         Runnable clearScreen = () -> {
@@ -114,7 +115,7 @@ public final class JLineRepl extends Repl {
         SlashContext slashCtx = new SlashContext(
                 session, screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
                 compactPlanner, ctx, Optional.ofNullable(sessionChooser),
-                Optional.of(modelChooser), Optional.of(themeChooser),
+                Optional.of(modelChooser), Optional.of(themeChooser), Optional.of(providerChooser),
                 clearScreen);
         SlashComposer slashComposer = new SlashComposer(
                 slashRegistry, slashCtx, screen, screen, terminal);
@@ -155,6 +156,7 @@ public final class JLineRepl extends Repl {
         config.sessionContext = ctx;
         config.modelChooser = modelChooser;
         config.themeChooser = themeChooser;
+        config.providerChooser = providerChooser;
         config.clearScreen = clearScreen;
         config.notifications = notifications;
         config.expandableHistory = expandableHistory;
@@ -344,6 +346,12 @@ public final class JLineRepl extends Repl {
             JLineScreen screen, Terminal terminal) {
         return themes -> chooseFromList(screen, terminal,
                 "Theme", "Choose terminal theme", themes);
+    }
+
+    private static SlashContext.ProviderChooser inlineProviderChooser(
+            JLineScreen screen, Terminal terminal) {
+        return providers -> chooseFromList(screen, terminal,
+                "Provider", "Choose active provider", providers);
     }
 
     private static SessionChooser inlineSessionChooser(

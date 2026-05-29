@@ -74,4 +74,80 @@ class ProviderRegistryTest {
         assertTrue(store.readActiveProvider().isEmpty(),
                 "reset must clear persisted state");
     }
+
+    @Test
+    void addProviderSuccess() {
+        ProviderRegistry reg = new ProviderRegistry(
+                List.of(provider("a")), ProviderStateStore.inMemory());
+        String activeBefore = reg.active().provider().name();
+
+        Provider newProvider = provider("deepseek");
+        reg.addProvider(newProvider);
+
+        assertTrue(reg.names().contains("deepseek"));
+        assertTrue(reg.find("deepseek").isPresent());
+        assertEquals(newProvider, reg.find("deepseek").get());
+        assertEquals(activeBefore, reg.active().provider().name(),
+                "active provider must not change");
+    }
+
+    @Test
+    void addProviderDuplicateNameThrows() {
+        ProviderRegistry reg = new ProviderRegistry(
+                List.of(provider("a")), ProviderStateStore.inMemory());
+
+        ProviderException ex = assertThrows(ProviderException.class,
+                () -> reg.addProvider(provider("a")));
+        assertTrue(ex.getMessage().contains("duplicate"));
+    }
+
+    @Test
+    void addProviderReservedNameResetThrows() {
+        ProviderRegistry reg = new ProviderRegistry(
+                List.of(provider("a")), ProviderStateStore.inMemory());
+
+        assertThrows(ProviderException.class, () -> reg.addProvider(provider("reset")));
+        assertThrows(ProviderException.class, () -> reg.addProvider(provider("RESET")));
+        assertThrows(ProviderException.class, () -> reg.addProvider(provider("Reset")));
+    }
+
+    @Test
+    void removeProviderSuccess() {
+        ProviderRegistry reg = new ProviderRegistry(
+                List.of(provider("a"), provider("b")), ProviderStateStore.inMemory());
+        reg.removeProvider("b");
+
+        assertFalse(reg.find("b").isPresent());
+        assertEquals(1, reg.names().size());
+    }
+
+    @Test
+    void removeActiveProviderThrows() {
+        ProviderRegistry reg = new ProviderRegistry(
+                List.of(provider("a"), provider("b")), ProviderStateStore.inMemory());
+        // "a" is the active provider by default
+
+        ProviderException ex = assertThrows(ProviderException.class,
+                () -> reg.removeProvider("a"));
+        assertTrue(ex.getMessage().contains("active"));
+    }
+
+    @Test
+    void removeLastProviderThrows() {
+        ProviderRegistry reg = new ProviderRegistry(
+                List.of(provider("a")), ProviderStateStore.inMemory());
+
+        ProviderException ex = assertThrows(ProviderException.class,
+                () -> reg.removeProvider("a"));
+        assertTrue(ex.getMessage().contains("only provider"));
+    }
+
+    @Test
+    void removeNonExistentNameIsNoOp() {
+        ProviderRegistry reg = new ProviderRegistry(
+                List.of(provider("a")), ProviderStateStore.inMemory());
+
+        reg.removeProvider("nonexistent"); // should not throw
+        assertEquals(1, reg.names().size());
+    }
 }

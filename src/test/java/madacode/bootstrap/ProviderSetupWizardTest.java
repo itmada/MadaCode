@@ -48,7 +48,7 @@ class ProviderSetupWizardTest {
         assertTrue(text.indexOf("Auth token") < text.indexOf("Default model"));
         assertTrue(text.indexOf("Default model") < text.indexOf("Other models"));
         assertFalse(text.contains("sk-test"));
-        assertTrue(text.contains("********"));
+        assertTrue(text.contains("*******"));
         assertFalse(text.toLowerCase().contains("claude"));
         assertFalse(text.toLowerCase().contains("anthropic"));
     }
@@ -105,7 +105,7 @@ class ProviderSetupWizardTest {
         draft.set(ProviderSetupWizard.Field.BASE_URL, "https://example.com");
         draft.set(ProviderSetupWizard.Field.AUTH_TOKEN, "sk-test");
         draft.set(ProviderSetupWizard.Field.DEFAULT_MODEL, "model-main");
-        draft.set(ProviderSetupWizard.Field.OTHER_MODELS, " model-fast , model-main , model-fast , model-extra ");
+        draft.set(ProviderSetupWizard.Field.OTHER_MODELS, " model-fast model-main  model-fast   model-extra ");
 
         Provider provider = draft.toProvider();
 

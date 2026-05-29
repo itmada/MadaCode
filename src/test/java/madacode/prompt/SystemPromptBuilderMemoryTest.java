@@ -26,7 +26,7 @@ public class SystemPromptBuilderMemoryTest {
     Path tempDir;
 
     @Test
-    void injectsMemorySectionAfterToolListAndBeforeAgentContext() throws IOException {
+    void injectsMemorySectionAfterPromptGuidanceAndBeforeAgentContext() throws IOException {
         Path cwd = tempDir.resolve("project");
         Files.createDirectories(cwd);
         Files.writeString(cwd.resolve("MADA.md"), "Always prefer small commits.");
@@ -49,6 +49,37 @@ public class SystemPromptBuilderMemoryTest {
         assertTrue(prompt.contains("Always prefer small commits."));
         assertTrue(prompt.contains("<memory-index>"));
         assertTrue(prompt.contains("[Commit Style]"));
+    }
+
+    @Test
+    void includesClaudeCodeStyleCommunicationGuidance() {
+        String prompt = new SystemPromptBuilder().build(List.of(new StubTool("file_read")));
+
+        assertTrue(prompt.contains("## Communication"));
+        assertTrue(prompt.contains("Optimize for the user understanding the result"));
+        assertTrue(prompt.contains("flowing, grammatically complete prose"));
+        assertTrue(prompt.contains("Lead with the action, result, or decision"));
+        assertTrue(prompt.contains("Use short bullets when they improve scanability"));
+        assertTrue(prompt.contains("Use tables only when they are the clearest way"));
+        assertTrue(prompt.contains("## Final Responses"));
+        assertTrue(prompt.contains("Lead with the outcome"));
+    }
+
+    @Test
+    void includesToolSpecificGuidanceForAvailableTools() {
+        String prompt = new SystemPromptBuilder().build(List.of(
+                new StubTool("file_read"),
+                new StubTool("file_edit"),
+                new StubTool("plan_create"),
+                new StubTool("ask_user_question"),
+                new StubTool("add_provider")));
+
+        assertTrue(prompt.contains("Available tools: file_read, file_edit, plan_create, ask_user_question, add_provider"));
+        assertTrue(prompt.contains("Use file_read to inspect files"));
+        assertTrue(prompt.contains("Use file_edit for targeted edits"));
+        assertTrue(prompt.contains("For complex work, use plan_create"));
+        assertTrue(prompt.contains("Use ask_user_question when a required decision"));
+        assertTrue(prompt.contains("For add_provider, collect non-secret provider details"));
     }
 
     @Test

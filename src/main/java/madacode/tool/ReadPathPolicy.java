@@ -3,27 +3,30 @@ package madacode.tool;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 /**
- * Shared path policy for read/search tools.
+ * Shared path resolution for read/search tools.
  *
- * <p>These tools advertise that they operate relative to, or under, the
- * working directory. Centralising resolution here keeps that contract
- * consistent across file reads and filesystem searches.
+ * <p>Resolves relative paths against the working directory, normalises
+ * {@code ..} traversal, and follows symlinks via {@code toRealPath()}.
+ * The permission gate is the sole authority for filesystem policy — this
+ * class only resolves paths and determines display bases, never rejects
+ * access.
  */
 public final class ReadPathPolicy {
 
     private ReadPathPolicy() {
     }
 
+    /**
+     * Resolves a raw path against the working directory, resolving symlinks
+     * and normalising traversal.  Returns a valid result with {@code null}
+     * error on success; on failure the {@code path} will be {@code null}
+     * and {@code error} will describe the problem.
+     *
+     * <p>Empty/null paths resolve to the working directory itself.
+     */
     public static ResolvedPath resolveWithinWorkingDirectory(String rawPath, Path workingDirectory, String fieldName) {
-        return resolveWithinWorkingDirectory(rawPath, workingDirectory, List.of(), fieldName);
-    }
-
-    public static ResolvedPath resolveWithinWorkingDirectory(
-            String rawPath, Path workingDirectory,
-            List<Path> additionalTrustedRoots, String fieldName) {
         Path normalizedWorkingDirectory = workingDirectory.toAbsolutePath().normalize();
         Path trustedWorkingDirectory = toTrustedPath(normalizedWorkingDirectory);
 
@@ -41,28 +44,16 @@ public final class ReadPathPolicy {
             return ResolvedPath.invalid("Invalid " + fieldName + ": " + rawPath);
         }
 
+        Path trustedCandidate = trustedPathForCandidate(candidate);
+
         if (candidate.startsWith(normalizedWorkingDirectory)) {
-            Path trustedCandidate = trustedPathForCandidate(candidate);
-            if (!trustedCandidate.startsWith(trustedWorkingDirectory)) {
-                return ResolvedPath.invalid(fieldName + " resolves outside the working directory: " + trustedCandidate);
-            }
             return ResolvedPath.valid(trustedCandidate, trustedWorkingDirectory);
         }
 
-        for (Path root : additionalTrustedRoots) {
-            Path trustedRoot;
-            try {
-                trustedRoot = root.toRealPath();
-            } catch (IOException ignored) {
-                trustedRoot = root.toAbsolutePath().normalize();
-            }
-            Path trustedCandidate = trustedPathForCandidate(candidate);
-            if (trustedCandidate.startsWith(trustedRoot)) {
-                return ResolvedPath.valid(trustedCandidate, trustedRoot);
-            }
-        }
-
-        return ResolvedPath.invalid(fieldName + " is outside the working directory: " + candidate);
+        Path displayBase = trustedCandidate.getParent() != null
+                ? trustedCandidate.getParent()
+                : trustedCandidate;
+        return ResolvedPath.valid(trustedCandidate, displayBase);
     }
 
     private static Path trustedPathForCandidate(Path candidate) {

@@ -25,6 +25,7 @@ public record SlashContext(
         Optional<SessionChooser> sessionChooser,
         Optional<ModelChooser> modelChooser,
         Optional<ThemeChooser> themeChooser,
+        Optional<ProviderChooser> providerChooser,
         Runnable clearScreen) {
 
     public SlashContext {
@@ -32,6 +33,7 @@ public record SlashContext(
         sessionChooser = sessionChooser == null ? Optional.empty() : sessionChooser;
         modelChooser = modelChooser == null ? Optional.empty() : modelChooser;
         themeChooser = themeChooser == null ? Optional.empty() : themeChooser;
+        providerChooser = providerChooser == null ? Optional.empty() : providerChooser;
         clearScreen = clearScreen == null ? () -> {} : clearScreen;
     }
 
@@ -43,5 +45,10 @@ public record SlashContext(
     @FunctionalInterface
     public interface ThemeChooser {
         Optional<String> chooseTheme(List<String> themes);
+    }
+
+    @FunctionalInterface
+    public interface ProviderChooser {
+        Optional<String> chooseProvider(List<String> providers);
     }
 }

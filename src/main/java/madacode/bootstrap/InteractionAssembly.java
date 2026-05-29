@@ -41,7 +41,7 @@ final class InteractionAssembly {
             lineReader = LineReaderFactory.create(
                     terminal.terminal(), slashRegistry, sessionHistory,
                     session.session().workingDirectory());
-            channel = new JLinePromptChannel(lineReader, terminal.screen(), terminal.terminal(),
+            channel = new JLinePromptChannel(terminal.screen(), terminal.terminal(),
                     terminal.interrupts(), terminal.interrupts()::interrupt);
         } else {
             channel = HeadlessPromptChannel.INSTANCE;

@@ -63,6 +63,7 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
                 .sessionContext(sessionContext)
                 .modelChooser(config.modelChooser)
                 .themeChooser(config.themeChooser)
+                .providerChooser(config.providerChooser)
                 .clearScreen(config.clearScreen)
                 .notifications(notifications)
                 .build();
@@ -217,6 +218,7 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
         SessionContext sessionContext;
         SlashContext.ModelChooser modelChooser;
         SlashContext.ThemeChooser themeChooser;
+        SlashContext.ProviderChooser providerChooser;
         Runnable clearScreen;
         NotificationCenter notifications;
         List<AutoCloseable> shutdownTargets;

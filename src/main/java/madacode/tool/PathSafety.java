@@ -6,12 +6,12 @@ import java.nio.file.Path;
  * Centralized path safety checks for tools that write to the filesystem.
  *
  * <p>Every write-path tool (FileWriteTool, FileEditTool, future NotebookEdit, etc.)
- * must go through the same baseline validation: reject blank/relative paths,
- * normalize away {@code ..} traversal, and optionally enforce a working-directory
- * sandbox.
+ * must go through the same baseline validation: reject blank/relative paths and
+ * normalise away {@code ..} traversal.
  *
- * <p>Directory-level restrictions are handled separately by the permission system
- * ({@link DefaultPermissionGate}) rather than hard-coded here.
+ * <p>Directory-level restrictions are handled by the permission gate via
+ * {@link madacode.permission.FilesystemScope} and its associated rules —
+ * tools must never reject accesses themselves.
  */
 public final class PathSafety {
 
@@ -34,19 +34,6 @@ public final class PathSafety {
         }
 
         return SafePathResult.valid(path.normalize());
-    }
-
-    /**
-     * Optional sandbox check: rejects paths outside {@code workingDirectory}.
-     * Call after {@link #validateForWrite} when you want to confine writes to a
-     * specific directory tree.
-     */
-    public static SafePathResult enforceSandbox(Path normalizedPath, Path workingDirectory) {
-        if (workingDirectory != null && !normalizedPath.startsWith(workingDirectory)) {
-            return SafePathResult.invalid(
-                    "file_path is outside the working directory: " + normalizedPath);
-        }
-        return SafePathResult.valid(normalizedPath);
     }
 
     public record SafePathResult(Path path, String error) {

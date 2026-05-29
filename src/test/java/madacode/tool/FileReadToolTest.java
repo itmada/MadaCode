@@ -137,7 +137,7 @@ class FileReadToolTest {
     }
 
     @Test
-    void rejectsPathOutsideWorkingDirectoryViaParentTraversal(@TempDir Path tempDir) throws IOException {
+    void resolvesPathOutsideWorkingDirectoryViaParentTraversal(@TempDir Path tempDir) throws IOException {
         Path outside = tempDir.resolveSibling("outside-read.txt");
         Files.writeString(outside, "secret");
 
@@ -145,12 +145,12 @@ class FileReadToolTest {
                 new FileReadTool.Input("../" + outside.getFileName(), null, null),
                 context);
 
-        assertFalse(result.success());
-        assertTrue(result.output().contains("outside the working directory"));
+        assertTrue(result.success());
+        assertTrue(result.output().contains("secret"));
     }
 
     @Test
-    void rejectsSymlinkThatResolvesOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
+    void resolvesSymlinkOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
         Path outside = tempDir.resolveSibling("outside-secret.txt");
         Files.writeString(outside, "secret");
         Path symlink = workingDir.resolve("linked-secret.txt");
@@ -158,8 +158,8 @@ class FileReadToolTest {
 
         ToolResult result = tool.execute(new FileReadTool.Input("linked-secret.txt", null, null), context);
 
-        assertFalse(result.success());
-        assertTrue(result.output().contains("resolves outside the working directory"));
+        assertTrue(result.success());
+        assertTrue(result.output().contains("secret"));
     }
 
     private void createSymlink(Path link, Path target) throws IOException {

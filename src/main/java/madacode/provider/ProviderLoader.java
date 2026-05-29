@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -90,12 +92,35 @@ public final class ProviderLoader {
         if (providers == null || providers.isEmpty()) {
             throw new ProviderException("providers must not be empty");
         }
+        Path temp = null;
+        boolean moved = false;
         try {
-            Files.createDirectories(file.getParent());
+            Path parent = file.toAbsolutePath().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            temp = Files.createTempFile(parent, file.getFileName().toString() + ".", ".tmp");
             mapper.writerWithDefaultPrettyPrinter()
-                    .writeValue(file.toFile(), serializeProviders(providers));
+                    .writeValue(temp.toFile(), serializeProviders(providers));
+            moveIntoPlace(temp);
+            moved = true;
         } catch (IOException e) {
             throw new ProviderException("Failed to write " + file + ": " + e.getMessage(), e);
+        } finally {
+            if (!moved && temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    private void moveIntoPlace(Path temp) throws IOException {
+        try {
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

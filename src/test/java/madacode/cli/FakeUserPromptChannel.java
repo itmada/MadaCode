@@ -57,6 +57,11 @@ public final class FakeUserPromptChannel implements UserPromptChannel {
     }
 
     @Override
+    public Optional<String> sensitiveText(String prompt) {
+        return answers.isEmpty() ? Optional.empty() : answers.poll();
+    }
+
+    @Override
     public boolean confirm(String prompt) {
         return !confirms.isEmpty() && confirms.poll();
     }

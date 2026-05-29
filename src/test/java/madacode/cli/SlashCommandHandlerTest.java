@@ -250,6 +250,90 @@ public class SlashCommandHandlerTest {
     }
 
     @Test
+    void modelCommandSetOutputIsDimmedAndSeparatedFromNextPrompt() {
+        var action = handler.handle("/model claude-sonnet-4-6", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Model set to: claude-sonnet-4-6"));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void modelCommandCancelOutputIsDimmedAndSeparatedFromNextPrompt() {
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .modelChooser(models -> Optional.empty())
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/model", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Model selection cancelled."));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void providerCommandSetOutputIsDimmedAndSeparatedFromNextPrompt() {
+        var action = handler.handle("/provider test", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Provider set to: test (model: claude-opus-4-7)"));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void providerCommandCancelOutputIsDimmedAndSeparatedFromNextPrompt() {
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .providerChooser(providers -> Optional.empty())
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/provider", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Provider selection cancelled."));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void themeCommandSetOutputIsDimmedAndSeparatedFromNextPrompt() {
+        var action = handler.handle("/theme dark", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Theme set to: dark"));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void themeCommandCancelOutputIsDimmedAndSeparatedFromNextPrompt() {
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .themeChooser(themes -> Optional.empty())
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/theme", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Theme selection cancelled."));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
     void compactCommandDegradesWhenPlannerUnavailable() {
         var action = handler.handle("/compact", current);
         assertInstanceOf(SlashAction.Handled.class, action);
@@ -349,5 +433,9 @@ public class SlashCommandHandlerTest {
                 Instant.now(),
                 Path.of("."),
                 List.of(Message.system("Init"), Message.user(firstUserMessage)));
+    }
+
+    private static String stripAnsi(String s) {
+        return s.replaceAll("\u001B\\[[0-9;]*[a-zA-Z]", "");
     }
 }

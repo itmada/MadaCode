@@ -29,6 +29,7 @@ import java.nio.file.Path;
 record EnvironmentRuntime(
         madacode.cli.CliArgs args,
         ProviderRegistry providerRegistry,
+        madacode.provider.ProviderLoader providerLoader,
         ApiClient api,
         Path homeDir,
         Path projectDir,

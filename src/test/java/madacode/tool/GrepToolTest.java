@@ -210,7 +210,7 @@ class GrepToolTest {
     }
 
     @Test
-    void rejectsSearchPathOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
+    void resolvesSearchPathOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
         Path outside = tempDir.resolveSibling("outside-grep");
         Files.createDirectories(outside);
         Files.writeString(outside.resolve("secret.txt"), "needle");
@@ -219,23 +219,25 @@ class GrepToolTest {
                 new GrepTool.Input("needle", "../" + outside.getFileName(), null, false, "files_with_matches", 0, 250),
                 context);
 
-        assertFalse(result.success());
-        assertTrue(result.output().contains("outside the working directory"));
+        assertTrue(result.success());
+        assertTrue(result.output().contains("secret.txt"));
     }
 
     @Test
-    void rejectsSymlinkSearchRootThatResolvesOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
+    void resolvesSymlinkSearchRootOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
         Path outside = Files.createTempFile(tempDir.getParent(), "outside-grep-root", ".txt");
         Files.writeString(outside, "needle");
         Path link = workingDir.resolve("linked-root.txt");
         createFileSymlink(link, outside);
 
         ToolResult result = tool.execute(
-                new GrepTool.Input("needle", "linked-root.txt", null, false, "files_with_matches", 0, 250),
+                new GrepTool.Input("needle", "linked-root.txt", null, false, "content", 0, 250),
                 context);
 
-        assertFalse(result.success());
-        assertTrue(result.output().contains("resolves outside the working directory"));
+        assertTrue(result.success(),
+                "Grep should resolve symlink paths outside the working directory: " + result.output());
+        assertTrue(result.output().contains("needle"),
+                "Grep should find content in symlinked outside file: " + result.output());
     }
 
     @Test
