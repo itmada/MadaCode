@@ -60,6 +60,52 @@ class FilesystemScopeTest {
     }
 
     @Test
+    void withinRoots_danglingSymlinkEscapeBlocked(@TempDir Path workingDir, @TempDir Path outsideDir)
+            throws IOException {
+        Path outsideTarget = outsideDir.resolve("created-by-write.txt");
+        Path link = workingDir.resolve("innocent.txt");
+        Files.createSymbolicLink(link, outsideTarget);
+
+        try {
+            assertFalse(FilesystemScope.withinRoots(
+                    link.toString(), workingDir, List.of()));
+        } finally {
+            Files.deleteIfExists(link);
+        }
+    }
+
+    @Test
+    void withinRoots_parentSymlinkEscapeForNewFileBlocked(@TempDir Path workingDir, @TempDir Path outsideDir)
+            throws IOException {
+        Path linkDir = workingDir.resolve("linked-dir");
+        Files.createSymbolicLink(linkDir, outsideDir);
+
+        try {
+            assertFalse(FilesystemScope.withinRoots(
+                    linkDir.resolve("new-file.txt").toString(), workingDir, List.of()));
+        } finally {
+            Files.deleteIfExists(linkDir);
+        }
+    }
+
+    @Test
+    void withinRoots_symlinkTargetWithParentSymlinkEscapeBlocked(@TempDir Path workingDir, @TempDir Path outsideDir)
+            throws IOException {
+        Path firstLink = workingDir.resolve("first.txt");
+        Path linkDir = workingDir.resolve("linked-dir");
+        Files.createSymbolicLink(firstLink, Path.of("linked-dir").resolve("new-file.txt"));
+        Files.createSymbolicLink(linkDir, outsideDir);
+
+        try {
+            assertFalse(FilesystemScope.withinRoots(
+                    firstLink.toString(), workingDir, List.of()));
+        } finally {
+            Files.deleteIfExists(firstLink);
+            Files.deleteIfExists(linkDir);
+        }
+    }
+
+    @Test
     void withinRoots_workingDirIsSymlinkResolvesRealPath(@TempDir Path realRoot) throws IOException {
         // The working directory itself is a symlink; a path given by its real
         // location must still be recognised as inside (regression for the
@@ -231,6 +277,58 @@ class FilesystemScopeTest {
             Files.deleteIfExists(link);
             Files.deleteIfExists(bashrc);
             Files.deleteIfExists(realDanger);
+        }
+    }
+
+    @Test
+    void isDangerousEditTarget_danglingSymlinkResolvesToDangerous(@TempDir Path workingDir) throws IOException {
+        Path dangerDir = Files.createTempDirectory("dangling-danger");
+        Path dangerousTarget = dangerDir.resolve(".ssh").resolve("authorized_keys");
+        Path link = workingDir.resolve("innocent.txt");
+        Files.createSymbolicLink(link, dangerousTarget);
+
+        try {
+            assertTrue(FilesystemScope.isDangerousEditTarget(link.toString(), workingDir));
+        } finally {
+            Files.deleteIfExists(link);
+            Files.deleteIfExists(dangerDir);
+        }
+    }
+
+    @Test
+    void isDangerousEditTarget_chainedDanglingSymlinkResolvesToDangerous(@TempDir Path workingDir)
+            throws IOException {
+        Path dangerDir = Files.createTempDirectory("chained-dangling-danger");
+        Path dangerousTarget = dangerDir.resolve(".ssh").resolve("authorized_keys");
+        Path firstLink = workingDir.resolve("first.txt");
+        Path secondLink = workingDir.resolve("second.txt");
+        Files.createSymbolicLink(firstLink, secondLink.getFileName());
+        Files.createSymbolicLink(secondLink, dangerousTarget);
+
+        try {
+            assertTrue(FilesystemScope.isDangerousEditTarget(firstLink.toString(), workingDir));
+        } finally {
+            Files.deleteIfExists(firstLink);
+            Files.deleteIfExists(secondLink);
+            Files.deleteIfExists(dangerDir);
+        }
+    }
+
+    @Test
+    void isDangerousEditTarget_parentSymlinkResolvesToDangerous(@TempDir Path workingDir) throws IOException {
+        Path dangerDir = Files.createTempDirectory("parent-danger");
+        Path gitDir = dangerDir.resolve(".git");
+        Files.createDirectories(gitDir);
+        Path linkDir = workingDir.resolve("metadata");
+        Files.createSymbolicLink(linkDir, gitDir);
+
+        try {
+            assertTrue(FilesystemScope.isDangerousEditTarget(
+                    linkDir.resolve("hooks").resolve("pre-commit").toString(), workingDir));
+        } finally {
+            Files.deleteIfExists(linkDir);
+            Files.deleteIfExists(gitDir);
+            Files.deleteIfExists(dangerDir);
         }
     }
 }

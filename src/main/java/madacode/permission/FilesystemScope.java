@@ -2,7 +2,10 @@ package madacode.permission;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -25,6 +28,8 @@ public final class FilesystemScope {
 
     private FilesystemScope() {}
 
+    private static final int MAX_SYMLINK_DEPTH = 40;
+
     private static final Set<String> DANGEROUS_FILENAMES = Set.of(
             ".bashrc", ".zshrc", ".profile", ".bash_profile", ".zprofile",
             ".gitconfig", ".gitmodules", ".mcp.json", ".claude.json",
@@ -36,8 +41,9 @@ public final class FilesystemScope {
     );
 
     /**
-     * Returns {@code true} when {@code rawPath} resolves to a location
-     * inside {@code workingDir} or one of the {@code trustedRoots}.
+     * Returns {@code true} when every filesystem location represented by
+     * {@code rawPath} is inside {@code workingDir} or one of the
+     * {@code trustedRoots}.
      *
      * <p>Resolution follows the same logic as {@code ReadPathPolicy}:
      * <ul>
@@ -54,39 +60,35 @@ public final class FilesystemScope {
      * <p>On Windows, path comparison is case-insensitive.
      */
     public static boolean withinRoots(String rawPath, Path workingDir, List<Path> trustedRoots) {
-        Path normalizedWorkingDir = workingDir.toAbsolutePath().normalize();
-
         if (rawPath == null || rawPath.isBlank()) {
             return true;
         }
 
-        Path candidate;
-        try {
-            Path raw = Path.of(rawPath);
-            candidate = raw.isAbsolute()
-                    ? raw.normalize()
-                    : normalizedWorkingDir.resolve(raw).normalize();
-        } catch (RuntimeException e) {
+        List<Path> candidates = permissionPaths(rawPath, workingDir);
+        if (candidates.isEmpty()) {
             return false;
         }
 
-        // A path is within a root iff its real (symlink-resolved) location is
-        // under that root's real location. Resolving both sides handles symlink
-        // escapes (candidate links out) and symlinked working directories alike,
-        // and is computed once for the candidate rather than per trusted root.
-        Path trustedCandidate = trustedPathForCandidate(candidate);
+        List<Path> roots = rootPaths(workingDir, trustedRoots);
 
-        if (pathStartsWith(trustedCandidate, toTrustedPath(normalizedWorkingDir))) {
-            return true;
-        }
-
-        for (Path root : trustedRoots) {
-            if (pathStartsWith(trustedCandidate, toTrustedPath(root.toAbsolutePath().normalize()))) {
-                return true;
+        // The lexical path and every resolved/symlink-derived path must be in
+        // scope. This keeps symlinked working directories usable while blocking
+        // links that escape to another location, including dangling links whose
+        // target would be created by a write.
+        for (Path candidate : candidates) {
+            boolean insideAnyRoot = false;
+            for (Path root : roots) {
+                if (pathStartsWith(candidate, root)) {
+                    insideAnyRoot = true;
+                    break;
+                }
+            }
+            if (!insideAnyRoot) {
+                return false;
             }
         }
 
-        return false;
+        return true;
     }
 
     /**
@@ -110,27 +112,11 @@ public final class FilesystemScope {
             return false;
         }
 
-        Path normalizedWorkingDir = workingDir.toAbsolutePath().normalize();
-
-        Path candidate;
-        try {
-            Path raw = Path.of(rawPath);
-            candidate = raw.isAbsolute()
-                    ? raw.normalize()
-                    : normalizedWorkingDir.resolve(raw).normalize();
-        } catch (RuntimeException e) {
-            return false;
-        }
-
-        // Check the lexical path AND its symlink-resolved location: a symlink
-        // with an innocuous name can point at a dangerous target, and writes
-        // follow the link. The resolved scan only runs when resolution actually
-        // changed the path.
-        if (matchesDangerousName(candidate)) {
-            return true;
-        }
-        Path resolved = trustedPathForCandidate(candidate);
-        return !resolved.equals(candidate) && matchesDangerousName(resolved);
+        // Check the lexical path and every symlink-derived destination. A
+        // dangling symlink with an innocuous name can point at a dangerous
+        // target that a write would create.
+        return permissionPaths(rawPath, workingDir).stream()
+                .anyMatch(FilesystemScope::matchesDangerousName);
     }
 
     private static boolean matchesDangerousName(Path path) {
@@ -152,10 +138,17 @@ public final class FilesystemScope {
     }
 
     private static boolean pathStartsWith(Path path, Path prefix) {
+        path = normalizeSystemAlias(path);
+        prefix = normalizeSystemAlias(prefix);
         if (path.getNameCount() < prefix.getNameCount()) {
             return false;
         }
         if (isWindows()) {
+            String pathRoot = path.getRoot() != null ? path.getRoot().toString() : "";
+            String prefixRoot = prefix.getRoot() != null ? prefix.getRoot().toString() : "";
+            if (!pathRoot.equalsIgnoreCase(prefixRoot)) {
+                return false;
+            }
             for (int i = 0; i < prefix.getNameCount(); i++) {
                 if (!path.getName(i).toString().equalsIgnoreCase(prefix.getName(i).toString())) {
                     return false;
@@ -164,6 +157,31 @@ public final class FilesystemScope {
             return true;
         }
         return path.startsWith(prefix);
+    }
+
+    private static Path normalizeSystemAlias(Path path) {
+        if (!isMacOs()) {
+            return path;
+        }
+        String value = path.toString();
+        if (value.startsWith("/private/var/")) {
+            return Path.of("/var" + value.substring("/private/var".length()));
+        }
+        if (value.equals("/private/var")) {
+            return Path.of("/var");
+        }
+        if (value.startsWith("/private/tmp/")) {
+            return Path.of("/tmp" + value.substring("/private/tmp".length()));
+        }
+        if (value.equals("/private/tmp")) {
+            return Path.of("/tmp");
+        }
+        return path;
+    }
+
+    private static boolean isMacOs() {
+        String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        return osName.contains("mac") || osName.contains("darwin");
     }
 
     private static boolean isWindows() {
@@ -178,21 +196,105 @@ public final class FilesystemScope {
         }
     }
 
-    private static Path trustedPathForCandidate(Path candidate) {
-        if (Files.exists(candidate)) {
-            return toTrustedPath(candidate);
+    private static List<Path> rootPaths(Path workingDir, List<Path> trustedRoots) {
+        LinkedHashSet<Path> paths = new LinkedHashSet<>();
+        addRootPath(paths, workingDir);
+        for (Path root : trustedRoots) {
+            addRootPath(paths, root);
+        }
+        return List.copyOf(paths);
+    }
+
+    private static void addRootPath(Set<Path> paths, Path root) {
+        Path normalized = root.toAbsolutePath().normalize();
+        paths.add(normalized);
+        paths.add(toTrustedPath(normalized));
+    }
+
+    private static List<Path> permissionPaths(String rawPath, Path workingDir) {
+        Path normalizedWorkingDir = workingDir.toAbsolutePath().normalize();
+
+        Path candidate;
+        try {
+            Path raw = Path.of(rawPath);
+            candidate = raw.isAbsolute()
+                    ? raw.normalize()
+                    : normalizedWorkingDir.resolve(raw).normalize();
+        } catch (RuntimeException e) {
+            return List.of();
         }
 
-        Path nearestExistingParent = candidate.getParent();
-        while (nearestExistingParent != null && !Files.exists(nearestExistingParent)) {
-            nearestExistingParent = nearestExistingParent.getParent();
+        LinkedHashSet<Path> paths = new LinkedHashSet<>();
+        paths.add(candidate.toAbsolutePath().normalize());
+
+        Path resolved = resolvedPathForCandidate(candidate);
+        if (!resolved.equals(candidate)) {
+            paths.add(resolved);
         }
-        if (nearestExistingParent == null) {
+
+        return List.copyOf(paths);
+    }
+
+    private static Path resolvedPathForCandidate(Path candidate) {
+        return resolvedPathForCandidate(candidate, 0);
+    }
+
+    private static Path resolvedPathForCandidate(Path candidate, int depth) {
+        if (depth >= MAX_SYMLINK_DEPTH) {
             return candidate.toAbsolutePath().normalize();
         }
+        if (Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)) {
+            return resolveExistingPath(candidate, depth);
+        }
 
-        Path trustedParent = toTrustedPath(nearestExistingParent);
-        Path relativeRemainder = nearestExistingParent.relativize(candidate);
-        return trustedParent.resolve(relativeRemainder).normalize();
+        Path current = candidate;
+        List<Path> missingTail = new ArrayList<>();
+        while (current != null) {
+            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+                Path resolvedPrefix = resolveExistingPath(current, depth);
+                return appendTail(resolvedPrefix, missingTail);
+            }
+            Path fileName = current.getFileName();
+            if (fileName != null) {
+                missingTail.addFirst(fileName);
+            }
+            current = current.getParent();
+        }
+
+        return candidate.toAbsolutePath().normalize();
+    }
+
+    private static Path resolveExistingPath(Path path) {
+        return resolveExistingPath(path, 0);
+    }
+
+    private static Path resolveExistingPath(Path path, int depth) {
+        if (depth >= MAX_SYMLINK_DEPTH) {
+            return path.toAbsolutePath().normalize();
+        }
+        try {
+            return path.toRealPath();
+        } catch (IOException firstFailure) {
+            if (Files.isSymbolicLink(path)) {
+                try {
+                    Path target = Files.readSymbolicLink(path);
+                    Path resolved = target.isAbsolute()
+                            ? target
+                            : path.getParent().resolve(target);
+                    return resolvedPathForCandidate(resolved.toAbsolutePath().normalize(), depth + 1);
+                } catch (IOException ignored) {
+                    return path.toAbsolutePath().normalize();
+                }
+            }
+            return path.toAbsolutePath().normalize();
+        }
+    }
+
+    private static Path appendTail(Path prefix, List<Path> tail) {
+        Path resolved = prefix;
+        for (Path segment : tail) {
+            resolved = resolved.resolve(segment);
+        }
+        return resolved.toAbsolutePath().normalize();
     }
 }
