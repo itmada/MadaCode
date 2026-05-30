@@ -5,6 +5,7 @@ import madacode.provider.Provider;
 import madacode.provider.ProviderLoader;
 import madacode.tui.Screen;
 import madacode.tui.TerminalKeys;
+import madacode.tui.inline.LineEditor;
 
 import org.jline.terminal.Attributes;
 import org.jline.terminal.Terminal;
@@ -303,15 +304,14 @@ public final class ProviderSetupWizard {
 
     public static final class Draft {
 
-        private static final String TOKEN_MASK = "********";
         private static final String EMPTY_VALUE = "-";
 
-        private final EnumMap<Field, FieldState> fields = new EnumMap<>(Field.class);
+        private final EnumMap<Field, LineEditor> fields = new EnumMap<>(Field.class);
         private String error;
 
         public Draft() {
             for (Field field : Field.values()) {
-                fields.put(field, new FieldState());
+                fields.put(field, new LineEditor());
             }
         }
 
@@ -416,10 +416,10 @@ public final class ProviderSetupWizard {
             if (tokenLength == 0) {
                 return active ? "█" : EMPTY_VALUE;
             }
-            if (!active) {
-                return TOKEN_MASK;
-            }
             String mask = "*".repeat(tokenLength);
+            if (!active) {
+                return mask;
+            }
             int cursor = Math.max(0, Math.min(cursor(Field.AUTH_TOKEN), mask.length()));
             return mask.substring(0, cursor) + "█" + mask.substring(cursor);
         }
@@ -442,7 +442,7 @@ public final class ProviderSetupWizard {
             LinkedHashSet<String> ordered = new LinkedHashSet<>();
             ordered.add(defaultModel.trim());
             if (otherModels != null && !otherModels.isBlank()) {
-                for (String candidate : otherModels.split(",")) {
+                for (String candidate : otherModels.trim().split("\\s+")) {
                     String model = candidate.trim();
                     if (!model.isBlank()) {
                         ordered.add(model);
@@ -457,93 +457,12 @@ public final class ProviderSetupWizard {
             return models;
         }
 
-        private FieldState state(Field field) {
+        private LineEditor state(Field field) {
             return Objects.requireNonNull(fields.get(field), "field");
         }
 
         private static String trimmed(String value) {
             return value == null ? "" : value.trim();
-        }
-
-        private static final class FieldState {
-            private final StringBuilder text = new StringBuilder();
-            private int cursor;
-
-            String text() {
-                return text.toString();
-            }
-
-            int cursor() {
-                return cursor;
-            }
-
-            void set(String value, int cursor) {
-                text.setLength(0);
-                if (value != null) {
-                    text.append(value);
-                }
-                this.cursor = clamp(cursor, text.length());
-            }
-
-            boolean insert(String value) {
-                if (value == null || value.isEmpty()) {
-                    return false;
-                }
-                text.insert(cursor, value);
-                cursor += value.length();
-                return true;
-            }
-
-            boolean backspace() {
-                if (cursor <= 0 || text.isEmpty()) {
-                    return false;
-                }
-                text.deleteCharAt(cursor - 1);
-                cursor--;
-                return true;
-            }
-
-            boolean delete() {
-                if (cursor < 0 || cursor >= text.length()) {
-                    return false;
-                }
-                text.deleteCharAt(cursor);
-                return true;
-            }
-
-            void moveLeft() {
-                if (cursor > 0) {
-                    cursor--;
-                }
-            }
-
-            void moveRight() {
-                if (cursor < text.length()) {
-                    cursor++;
-                }
-            }
-
-            void home() {
-                cursor = 0;
-            }
-
-            void end() {
-                cursor = text.length();
-            }
-
-            void cursor(int cursor) {
-                this.cursor = clamp(cursor, text.length());
-            }
-
-            private static int clamp(int value, int max) {
-                if (value < 0) {
-                    return 0;
-                }
-                if (value > max) {
-                    return max;
-                }
-                return value;
-            }
         }
     }
 }

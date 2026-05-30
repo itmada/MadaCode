@@ -8,6 +8,7 @@ import madacode.events.EventContext;
 import madacode.logging.DiagnosticEventLogger;
 import madacode.tool.Tool;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,16 +39,21 @@ public class DefaultPermissionGate implements PermissionGate {
     private final List<PermissionRule> rules;
     private final Set<String> sessionApprovedInputs;
 
-    public DefaultPermissionGate(UserApprovalPrompt prompt) {
-        this(prompt, defaultRules());
-    }
-
     private DefaultPermissionGate(
             UserApprovalPrompt prompt,
-            List<PermissionRule> rules) {
+            List<PermissionRule> rules,
+            Set<String> sessionApprovedInputs) {
         this.prompt = Objects.requireNonNull(prompt, "prompt");
         this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));
-        this.sessionApprovedInputs = ConcurrentHashMap.newKeySet();
+        this.sessionApprovedInputs = Objects.requireNonNull(sessionApprovedInputs);
+    }
+
+    public DefaultPermissionGate(UserApprovalPrompt prompt) {
+        this(prompt, defaultRules(List.of()), ConcurrentHashMap.newKeySet());
+    }
+
+    public DefaultPermissionGate(UserApprovalPrompt prompt, List<Path> trustedRoots) {
+        this(prompt, defaultRules(trustedRoots), ConcurrentHashMap.newKeySet());
     }
 
     @Override
@@ -85,10 +91,10 @@ public class DefaultPermissionGate implements PermissionGate {
         return userDecision;
     }
 
-    private static List<PermissionRule> defaultRules() {
+    private static List<PermissionRule> defaultRules(List<Path> trustedRoots) {
         return List.of(
                 new BashSafetyPermissionRule(),
-                new ReadOnlyPermissionRule(),
+                new ReadOnlyPermissionRule(trustedRoots),
                 new BypassPermissionRule(),
                 new AcceptEditsPermissionRule());
     }

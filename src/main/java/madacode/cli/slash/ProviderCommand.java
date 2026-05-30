@@ -4,6 +4,8 @@ import madacode.provider.ActiveState;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
 
+import java.util.Optional;
+
 final class ProviderCommand implements SlashCommand {
     @Override public String name() { return "provider"; }
     @Override public String description() { return "Show or switch the active provider"; }
@@ -15,15 +17,25 @@ final class ProviderCommand implements SlashCommand {
         String target = args.strip();
 
         if (target.isBlank()) {
-            listProviders(ctx, registry);
-            return new SlashAction.Handled();
+            if (ctx.providerChooser().isPresent()) {
+                Optional<String> selected = ctx.providerChooser().get()
+                        .chooseProvider(registry.names());
+                if (selected.isEmpty()) {
+                    SlashFeedback.muted(ctx.screen(), "Provider selection cancelled.");
+                    return new SlashAction.Handled();
+                }
+                target = selected.get();
+            } else {
+                listProviders(ctx, registry);
+                return new SlashAction.Handled();
+            }
         }
 
         if ("reset".equalsIgnoreCase(target)) {
             registry.resetActive();
             ActiveState state = registry.active();
             syncSessionContext(ctx, state);
-            ctx.screen().scrollback("Provider reset. Active: " + state.provider().name()
+            SlashFeedback.muted(ctx.screen(), "Provider reset. Active: " + state.provider().name()
                     + " (model: " + state.currentModel().name() + ")");
             return new SlashAction.Handled();
         }
@@ -36,7 +48,7 @@ final class ProviderCommand implements SlashCommand {
         registry.setActiveProvider(target);
         ActiveState state = registry.active();
         syncSessionContext(ctx, state);
-        ctx.screen().scrollback("Provider set to: " + target
+        SlashFeedback.muted(ctx.screen(), "Provider set to: " + target
                 + " (model: " + state.currentModel().name() + ")");
         return new SlashAction.Handled();
     }

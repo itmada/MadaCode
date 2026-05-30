@@ -45,6 +45,12 @@ public class GlobTool implements Tool<GlobTool.Input> {
     }
 
     @Override
+    public List<String> permissionTargets(ObjectNode input) {
+        String path = input.path("path").asText("");
+        return path.isBlank() ? List.of() : List.of(path);
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("pattern", ToolSchemas.stringProperty(

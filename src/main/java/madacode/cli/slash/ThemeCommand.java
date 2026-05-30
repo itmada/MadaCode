@@ -27,7 +27,7 @@ final class ThemeCommand implements SlashCommand {
             if (ctx.themeChooser().isPresent()) {
                 Optional<String> selected = ctx.themeChooser().get().chooseTheme(names);
                 if (selected.isEmpty()) {
-                    ctx.screen().scrollback("Theme selection cancelled.");
+                    SlashFeedback.muted(ctx.screen(), "Theme selection cancelled.");
                     return new SlashAction.Handled();
                 }
                 theme = selected.get();
@@ -42,7 +42,7 @@ final class ThemeCommand implements SlashCommand {
             return new SlashAction.Handled();
         }
         // SessionContext is now inline — no repaint needed.
-        ctx.screen().scrollback("Theme set to: " + theme);
+        SlashFeedback.muted(ctx.screen(), "Theme set to: " + theme);
         return new SlashAction.Handled();
     }
 }

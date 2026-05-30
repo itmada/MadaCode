@@ -27,6 +27,14 @@ public interface UserPromptChannel {
     /** Free-text prompt. Returns empty if user cancels or channel is unavailable. */
     Optional<String> freeText(String prompt);
 
+    /**
+     * Sensitive free-text prompt. Returns exactly what the user entered, except
+     * blank input is still treated as empty.
+     */
+    default Optional<String> sensitiveText(String prompt) {
+        return freeText(prompt);
+    }
+
     /** Yes/no confirmation. Returns false if user says no or channel is unavailable. */
     boolean confirm(String prompt);
 }

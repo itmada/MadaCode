@@ -20,7 +20,8 @@ final class EnvironmentAssembly {
 
     static EnvironmentRuntime create(CliArgs args, TerminalRuntime terminal) {
         ProviderStateStore stateStore = ProviderStateStore.defaultStore();
-        var providers = loadProviders(terminal);
+        ProviderLoader loader = ProviderLoader.defaultLoader();
+        var providers = loadProviders(loader, terminal);
         ProviderRegistry registry = new ProviderRegistry(providers, stateStore);
 
         // Apply --provider CLI flag (ephemeral — does NOT persist; restart returns to state.json's value)
@@ -36,14 +37,15 @@ final class EnvironmentAssembly {
         return new EnvironmentRuntime(
                 args,
                 registry,
+                loader,
                 createApiClient(registry),
                 homeDir,
                 projectDir,
                 memoryEnabled);
     }
 
-    private static java.util.List<madacode.provider.Provider> loadProviders(TerminalRuntime terminal) {
-        ProviderLoader loader = ProviderLoader.defaultLoader();
+    private static java.util.List<madacode.provider.Provider> loadProviders(
+            ProviderLoader loader, TerminalRuntime terminal) {
         if (!loader.exists() && terminal.interactive()) {
             return new ProviderSetupWizard(loader, terminal).run();
         }

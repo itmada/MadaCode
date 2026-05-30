@@ -1,5 +1,7 @@
 package madacode.tool;
 
+import java.util.List;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.ToolResult;
@@ -95,5 +97,23 @@ public interface Tool<I> {
      */
     default String approvalSignature(ObjectNode input) {
         return madacode.permission.CanonicalJson.canonicalize(input);
+    }
+
+    /**
+     * Filesystem paths that this tool invocation targets, used by the
+     * permission gate to enforce directory-scope rules.
+     *
+     * <p>The permission gate is the <em>sole authority</em> for filesystem
+     * policy — tools must never reject accesses themselves.  By declaring
+     * targets here, tools participate in scope checks without duplicating
+     * policy logic.
+     *
+     * <p>Read/search tools return their path parameter; write/edit tools
+     * return their file_path parameter.  Tools that do not touch the
+     * filesystem return the default empty list and are unaffected by
+     * scope rules.
+     */
+    default List<String> permissionTargets(ObjectNode input) {
+        return List.of();
     }
 }

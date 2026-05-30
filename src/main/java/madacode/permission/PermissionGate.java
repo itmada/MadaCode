@@ -26,6 +26,11 @@ public interface PermissionGate {
      * A permissive gate that allows every tool invocation without prompting.
      * Useful for testing and for headless scenarios where no user interaction
      * is possible.
+     *
+     * <p><strong>Intentionally skips filesystem-scope policy.</strong>  The
+     * default gate enforces directory scope and dangerous-target checks
+     * via its rule chain; this permissive gate bypasses all of that,
+     * matching the intended semantics of evaluation runs and unit tests.
      */
     static PermissionGate permissive() {
         return (tool, input, context) -> PermissionDecision.allow();

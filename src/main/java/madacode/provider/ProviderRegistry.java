@@ -22,13 +22,7 @@ public final class ProviderRegistry {
             throw new ProviderException("ProviderRegistry requires at least one provider");
         }
         for (Provider p : providers) {
-            if (RESERVED_NAMES.contains(p.name().toLowerCase(java.util.Locale.ROOT))) {
-                throw new ProviderException("provider name '" + p.name()
-                        + "' is reserved (used by /provider subcommands)");
-            }
-            if (byName.containsKey(p.name())) {
-                throw new ProviderException("duplicate provider name: " + p.name());
-            }
+            validateName(p.name());
             byName.put(p.name(), p);
         }
         Provider initial = state.readActiveProvider()
@@ -113,5 +107,42 @@ public final class ProviderRegistry {
                 .orElseThrow(() -> new ProviderException(
                         "defaultModel '" + modelName + "' not in provider '" + provider.name() + "'"));
         return new ActiveState(provider, model);
+    }
+
+    /**
+     * Adds a provider to the live registry. Does NOT change the active provider
+     * and does NOT persist — callers persist via ProviderLoader separately.
+     *
+     * @throws ProviderException if the name is reserved or already registered
+     */
+    public synchronized void addProvider(Provider provider) {
+        Objects.requireNonNull(provider, "provider");
+        validateName(provider.name());
+        byName.put(provider.name(), provider);
+    }
+
+    /** Removes a provider by name. Used to roll back a failed persist. No-op if absent.
+     *  Never removes the last provider, and never the currently active one. */
+    public synchronized void removeProvider(String name) {
+        if (name == null || !byName.containsKey(name)) {
+            return;
+        }
+        if (byName.size() <= 1) {
+            throw new ProviderException("cannot remove the only provider: " + name);
+        }
+        if (active.provider().name().equals(name)) {
+            throw new ProviderException("cannot remove the active provider: " + name);
+        }
+        byName.remove(name);
+    }
+
+    private void validateName(String name) {
+        if (RESERVED_NAMES.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+            throw new ProviderException("provider name '" + name
+                    + "' is reserved (used by /provider subcommands)");
+        }
+        if (byName.containsKey(name)) {
+            throw new ProviderException("duplicate provider name: " + name);
+        }
     }
 }

@@ -21,14 +21,7 @@ public class FileReadTool implements Tool<FileReadTool.Input> {
     private static final int MAX_OUTPUT_CHARS = 100_000;
     private static final int MAX_LINE_CHARS = 20_000;
 
-    private final List<Path> additionalTrustedRoots;
-
     public FileReadTool() {
-        this(List.of());
-    }
-
-    public FileReadTool(List<Path> additionalTrustedRoots) {
-        this.additionalTrustedRoots = List.copyOf(additionalTrustedRoots);
     }
 
     @Override
@@ -57,6 +50,18 @@ public class FileReadTool implements Tool<FileReadTool.Input> {
     }
 
     @Override
+    public List<String> permissionTargets(ObjectNode input) {
+        String path = input.path("path").asText("");
+        return path.isBlank() ? List.of() : List.of(path);
+    }
+
+    @Override
+    public String approvalSignature(ObjectNode input) {
+        String path = input.path("path").asText("");
+        return path.isBlank() ? madacode.permission.CanonicalJson.canonicalize(input) : "path:" + path;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("path", ToolSchemas.stringProperty(
@@ -76,7 +81,7 @@ public class FileReadTool implements Tool<FileReadTool.Input> {
         }
 
         ReadPathPolicy.ResolvedPath resolvedPath = ReadPathPolicy.resolveWithinWorkingDirectory(
-                path, context.workingDirectory(), additionalTrustedRoots, "path");
+                path, context.workingDirectory(), "path");
         if (!resolvedPath.isValid()) {
             return new ToolResult(name(), false, resolvedPath.error());
         }

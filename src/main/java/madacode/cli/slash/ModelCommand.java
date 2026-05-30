@@ -34,7 +34,7 @@ final class ModelCommand implements SlashCommand {
                 Optional<String> selected = ctx.modelChooser().get().chooseModel(
                         current.models().stream().map(Model::name).toList());
                 if (selected.isEmpty()) {
-                    ctx.screen().scrollback("Model selection cancelled.");
+                    SlashFeedback.muted(ctx.screen(), "Model selection cancelled.");
                     return new SlashAction.Handled();
                 }
                 model = selected.get();
@@ -57,7 +57,7 @@ final class ModelCommand implements SlashCommand {
             ctx.sessionContext().setModel(m.name());
             ctx.sessionContext().setTokenLimit(m.contextWindow());
         }
-        ctx.screen().scrollback("Model set to: " + model);
+        SlashFeedback.muted(ctx.screen(), "Model set to: " + model);
         return new SlashAction.Handled();
     }
 }

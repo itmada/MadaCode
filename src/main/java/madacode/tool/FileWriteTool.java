@@ -48,6 +48,12 @@ public class FileWriteTool implements Tool<FileWriteTool.Input> {
     }
 
     @Override
+    public List<String> permissionTargets(ObjectNode input) {
+        String path = input.path("file_path").asText("");
+        return path.isBlank() ? List.of() : List.of(path);
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("file_path", ToolSchemas.stringProperty(

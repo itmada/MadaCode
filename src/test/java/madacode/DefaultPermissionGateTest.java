@@ -8,19 +8,27 @@ import madacode.events.AppEvent;
 import madacode.events.AppEventPublisher;
 import madacode.events.AppEvents;
 import madacode.events.AuditEvent;
+import madacode.permission.AcceptEditsPermissionRule;
 import madacode.permission.ApprovalResponse;
 import madacode.permission.BashSafetyPermissionRule;
-import madacode.tool.BashTool;
+import madacode.permission.BypassPermissionRule;
 import madacode.permission.DefaultPermissionGate;
-import madacode.tool.FileReadTool;
 import madacode.permission.PermissionDecision;
+import madacode.permission.PermissionMode;
 import madacode.permission.ReadOnlyPermissionRule;
 import madacode.permission.UserApprovalPrompt;
+import madacode.tool.BashTool;
+import madacode.tool.FileEditTool;
+import madacode.tool.FileReadTool;
+import madacode.tool.FileWriteTool;
+import madacode.tool.GlobTool;
+import madacode.tool.GrepTool;
+import madacode.tool.MadaPaths;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.time.Duration;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,11 +51,23 @@ public class DefaultPermissionGateTest {
         RecordingPrompt prompt = new RecordingPrompt();
         DefaultPermissionGate gate = gate(prompt);
 
-        PermissionDecision decision = gate.check(new FileReadTool(), fileReadInput(), context());
+        PermissionDecision decision = gate.check(new FileReadTool(), fileReadInput("README.md"), context());
 
         assertTrue(decision.isAllowed());
         assertEquals(ReadOnlyPermissionRule.SOURCE, decision.source());
         assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void readOnlyToolOutsideWorkingDirPromptsUser() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        PermissionDecision decision = gate.check(new FileReadTool(), fileReadInput("/etc/passwd"), context());
+
+        assertTrue(decision.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, decision.source());
+        assertEquals(1, prompt.calls());
     }
 
     @Test
@@ -134,20 +154,205 @@ public class DefaultPermissionGateTest {
         assertEquals(1, prompt.calls());
     }
 
+    @Test
+    void bypassModeAllowsOrdinaryFileEdit() {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = gate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.BYPASS);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", tempDir.resolve("test.txt").toString());
+        input.put("content", "hello");
+
+        PermissionDecision decision = gate.check(new FileWriteTool(), input, new ToolUseContext(tempDir, session));
+
+        assertTrue(decision.isAllowed());
+        assertEquals(BypassPermissionRule.SOURCE, decision.source());
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void bypassModeBlocksDangerousEditTarget() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.DENY);
+        DefaultPermissionGate gate = gate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.BYPASS);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", tempDir.resolve(".bashrc").toString());
+        input.put("content", "malicious");
+
+        PermissionDecision decision = gate.check(new FileWriteTool(), input, new ToolUseContext(tempDir, session));
+
+        assertFalse(decision.isAllowed(),
+                "Bypass mode must not auto-allow writes to .bashrc");
+        assertEquals(1, prompt.calls(),
+                "Dangerous edit target should fall through to prompt");
+    }
+
+    @Test
+    void acceptEditsModeAutoAllowsFileEditInsideWorkingDir() {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = gate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", tempDir.resolve("test.txt").toString());
+        input.put("content", "hello");
+
+        PermissionDecision decision = gate.check(new FileWriteTool(), input, new ToolUseContext(tempDir, session));
+
+        assertTrue(decision.isAllowed());
+        assertEquals(AcceptEditsPermissionRule.SOURCE, decision.source());
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void acceptEditsModeBlocksDangerousEditTarget() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.DENY);
+        DefaultPermissionGate gate = gate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", tempDir.resolve(".bashrc").toString());
+        input.put("content", "malicious");
+
+        PermissionDecision decision = gate.check(new FileEditTool(), input, new ToolUseContext(tempDir, session));
+
+        assertFalse(decision.isAllowed(),
+                "Accept-edits mode must not auto-allow writes to .bashrc");
+        assertEquals(1, prompt.calls());
+    }
+
+    @Test
+    void permissiveGateAllowsEverythingIncludingDangerousTargets() {
+        madacode.permission.PermissionGate gate = madacode.permission.PermissionGate.permissive();
+        ConversationSession session = new ConversationSession(tempDir);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", tempDir.resolve(".bashrc").toString());
+        input.put("content", "malicious");
+
+        PermissionDecision decision = gate.check(new FileWriteTool(), input, new ToolUseContext(tempDir, session));
+
+        assertTrue(decision.isAllowed(),
+                "Permissive gate must allow everything — it intentionally skips filesystem policy");
+    }
+
+    @Test
+    void defaultGateBlocksFileEditOutsideWorkingDir() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", "/tmp/outside.txt");
+        input.put("content", "hello");
+
+        PermissionDecision decision = gate.check(new FileWriteTool(), input, context());
+
+        assertTrue(decision.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, decision.source(),
+                "File edit outside working dir should fall through to user prompt");
+        assertEquals(1, prompt.calls());
+    }
+
+    @Test
+    void readOnlyToolWithBlobTrustedRootIsAllowed(@TempDir Path blobsDir) {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = new DefaultPermissionGate(prompt, List.of(blobsDir));
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("path", blobsDir.resolve("data.bin").toString());
+
+        PermissionDecision decision = gate.check(new FileReadTool(), input, context());
+
+        assertTrue(decision.isAllowed());
+        assertEquals(ReadOnlyPermissionRule.SOURCE, decision.source());
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void dangerousBashWriteToBashrcIsDeniedWithoutPrompt() {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = gate(prompt);
+
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("echo malicious >> ~/.bashrc"), context());
+
+        assertFalse(decision.isAllowed());
+        assertEquals(BashSafetyPermissionRule.SOURCE, decision.source());
+        assertTrue(decision.reason().contains("sensitive"));
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void dangerousBashWriteToZshrcIsDeniedWithoutPrompt() {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = gate(prompt);
+
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("echo malicious >> ~/.zshrc"), context());
+
+        assertFalse(decision.isAllowed());
+        assertEquals(BashSafetyPermissionRule.SOURCE, decision.source());
+    }
+
+    @Test
+    void dangerousBashWriteToGitconfigIsDeniedWithoutPrompt() {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = gate(prompt);
+
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("echo malicious >> ~/.gitconfig"), context());
+
+        assertFalse(decision.isAllowed());
+        assertEquals(BashSafetyPermissionRule.SOURCE, decision.source());
+    }
+
+    @Test
+    void dangerousBashWriteToHomeBashrcWithHomeEnvIsDeniedWithoutPrompt() {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = gate(prompt);
+
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("echo malicious >> $HOME/.bashrc"), context());
+
+        assertFalse(decision.isAllowed());
+        assertEquals(BashSafetyPermissionRule.SOURCE, decision.source());
+    }
+
+    @Test
+    void ordinaryBashWriteToProjectFileIsAllowedWithPrompt() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("echo hello >> project/README.md"), context());
+
+        assertTrue(decision.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, decision.source());
+        assertEquals(1, prompt.calls());
+    }
+
     private ObjectNode bashInput(String command) {
         ObjectNode input = mapper.createObjectNode();
         input.put("command", command);
         return input;
     }
 
-    private ObjectNode fileReadInput() {
+    private ObjectNode fileReadInput(String path) {
         ObjectNode input = mapper.createObjectNode();
-        input.put("path", "README.md");
+        input.put("path", path);
         return input;
     }
 
     private ToolUseContext context() {
-        return new ToolUseContext(tempDir, new ConversationSession(tempDir));
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.DEFAULT);
+        return new ToolUseContext(tempDir, session);
     }
 
     private DefaultPermissionGate gate(RecordingPrompt prompt) {

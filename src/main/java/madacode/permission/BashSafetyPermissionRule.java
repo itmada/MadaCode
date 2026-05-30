@@ -17,7 +17,33 @@ public final class BashSafetyPermissionRule implements PermissionRule {
     private static final Pattern SUDO = Pattern.compile("(?i)(^|[;&|]\\s*)sudo(\\s|$)");
     private static final Pattern CHMOD_RECURSIVE_777 = Pattern.compile("(?i)(^|[;&|]\\s*)chmod\\s+-R\\s+777(\\s|$)");
     private static final Pattern CHOWN_RECURSIVE = Pattern.compile("(?i)(^|[;&|]\\s*)chown\\s+-R(\\s|$)");
-    private static final Pattern WRITE_SENSITIVE_PATH = Pattern.compile("(?i)(>|>>|tee\\s+)\\s*(/etc/|~/.ssh/|\\$HOME/.ssh/)");
+    private static final Pattern WRITE_SENSITIVE_PATH = Pattern.compile(
+            "(?i)(>|>>|tee\\s+)\\s*"
+            + "("
+            + "/etc/"
+            + "|~/.ssh/"
+            + "|\\$HOME/.ssh/"
+            + "|~/\\.bashrc"
+            + "|~/\\.zshrc"
+            + "|~/\\.profile"
+            + "|~/\\.bash_profile"
+            + "|~/\\.zprofile"
+            + "|~/\\.gitconfig"
+            + "|~/\\.gitmodules"
+            + "|~/\\.mcp\\.json"
+            + "|~/\\.claude\\.json"
+            + "|~/\\.ripgreprc"
+            + "|\\$HOME/\\.bashrc"
+            + "|\\$HOME/\\.zshrc"
+            + "|\\$HOME/\\.profile"
+            + "|\\$HOME/\\.bash_profile"
+            + "|\\$HOME/\\.zprofile"
+            + "|\\$HOME/\\.gitconfig"
+            + "|\\$HOME/\\.gitmodules"
+            + "|\\$HOME/\\.mcp\\.json"
+            + "|\\$HOME/\\.claude\\.json"
+            + "|\\$HOME/\\.ripgreprc"
+            + ")");
     private static final Pattern PIPE_TO_SHELL = Pattern.compile("(?i)(curl|wget)\\b.*\\|\\s*(bash|sh)(\\s|$)");
 
     @Override

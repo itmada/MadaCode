@@ -8,6 +8,7 @@ import madacode.core.ToolUseContext;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 public class FileEditTool implements Tool<FileEditTool.Input> {
 
@@ -48,6 +49,12 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
     @Override
     public String approvalSignature(ObjectNode input) {
         return "path:" + input.path("file_path").asText("");
+    }
+
+    @Override
+    public List<String> permissionTargets(ObjectNode input) {
+        String path = input.path("file_path").asText("");
+        return path.isBlank() ? List.of() : List.of(path);
     }
 
     @Override

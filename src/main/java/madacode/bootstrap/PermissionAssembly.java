@@ -7,6 +7,10 @@ import madacode.permission.ApprovalResponse;
 import madacode.permission.DefaultPermissionGate;
 import madacode.permission.PermissionGate;
 import madacode.permission.UserApprovalPrompt;
+import madacode.tool.MadaPaths;
+
+import java.nio.file.Path;
+import java.util.List;
 
 final class PermissionAssembly {
 
@@ -14,8 +18,9 @@ final class PermissionAssembly {
     }
 
     static PermissionGate create(TerminalRuntime terminal) {
+        List<Path> trustedRoots = List.of(MadaPaths.blobsDir());
         if (terminal.interactive()) {
-            return new DefaultPermissionGate(terminal.approval());
+            return new DefaultPermissionGate(terminal.approval(), trustedRoots);
         }
         return new DefaultPermissionGate((UserApprovalPrompt) (tool, input) -> {
             AppEvents.publisher().publish(UserVisibleEvent.error(
@@ -23,6 +28,6 @@ final class PermissionAssembly {
                     "tool " + (tool != null ? tool.name() : "unknown")
                             + " denied: non-interactive mode"));
             return ApprovalResponse.DENY;
-        });
+        }, trustedRoots);
     }
 }

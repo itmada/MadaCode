@@ -130,7 +130,7 @@ class GlobToolTest {
     }
 
     @Test
-    void rejectsGlobPathOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
+    void resolvesGlobPathOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
         Path outside = tempDir.resolveSibling("outside-glob");
         Files.createDirectories(outside);
         Files.writeString(outside.resolve("Secret.java"), "class Secret {}");
@@ -139,12 +139,12 @@ class GlobToolTest {
                 new GlobTool.Input("**/*.java", "../" + outside.getFileName(), null),
                 context);
 
-        assertFalse(result.success());
-        assertTrue(result.output().contains("outside the working directory"));
+        assertTrue(result.success(),
+                "Glob should resolve paths outside the working directory: " + result.output());
     }
 
     @Test
-    void rejectsMissingPathUnderSymlinkThatResolvesOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
+    void resolvesMissingPathUnderSymlinkOutsideWorkingDirectory(@TempDir Path tempDir) throws IOException {
         Path outside = Files.createDirectories(tempDir.resolveSibling("outside-glob-link"));
         createDirectorySymlink(workingDir.resolve("linked-outside"), outside);
 
@@ -153,7 +153,7 @@ class GlobToolTest {
                 context);
 
         assertFalse(result.success());
-        assertTrue(result.output().contains("resolves outside the working directory"));
+        assertTrue(result.output().contains("Path does not exist"));
     }
 
     @Test
