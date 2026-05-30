@@ -10,6 +10,21 @@ import java.util.Optional;
 
 public class ToolRegistry {
 
+    /**
+     * Aliases for standard Claude Code tool names that do <em>not</em> reduce to
+     * this project's canonical names via {@link ToolNameNormalizer} (which only
+     * normalizes case / camelCase / hyphens). Most standard names already match
+     * after normalization ({@code Bash}→bash, {@code Edit}→edit, {@code Write}→write,
+     * {@code TodoWrite}→todo_write, {@code WebFetch}→web_fetch, …); only the ones
+     * whose canonical name differs semantically need an explicit mapping.
+     *
+     * <p>The alias is only installed when the target tool is actually registered.
+     */
+    private static final Map<String, String> STANDARD_NAME_ALIASES = Map.of(
+            "read", "file_read",   // Claude Code "Read"
+            "task", "agent"        // Claude Code "Task" (subagent)
+    );
+
     private final Map<String, Tool<?>> tools = new LinkedHashMap<>();
     private final Map<String, String> aliases = new LinkedHashMap<>();
 
@@ -26,6 +41,12 @@ public class ToolRegistry {
         if ("web_fetch".equals(canonical)) {
             aliases.put("webfetch", canonical);
         }
+        // Standard Claude Code names whose canonical form differs (e.g. Read→file_read).
+        STANDARD_NAME_ALIASES.forEach((alias, target) -> {
+            if (target.equals(canonical)) {
+                aliases.put(alias, canonical);
+            }
+        });
     }
 
     public synchronized void remove(String name) {

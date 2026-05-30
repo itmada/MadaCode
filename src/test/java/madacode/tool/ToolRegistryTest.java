@@ -42,6 +42,31 @@ class ToolRegistryTest {
     }
 
     @Test
+    void resolvesStandardClaudeCodeNamesToCanonicalTools() {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(new StubTool("file_read"));
+        registry.register(new StubTool("agent"));
+
+        // "Read" / "read" / "READ" all map to file_read.
+        assertSameName(registry, "read", "file_read");
+        assertSameName(registry, "Read", "file_read");
+        assertSameName(registry, "READ", "file_read");
+
+        // Claude Code's "Task" maps to this project's agent tool.
+        assertSameName(registry, "task", "agent");
+        assertSameName(registry, "Task", "agent");
+    }
+
+    @Test
+    void standardNameAliasOnlyInstalledWhenTargetRegistered() {
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(new StubTool("bash")); // file_read NOT registered
+
+        assertTrue(registry.find("read").isEmpty(),
+                "read alias must not resolve when file_read is not registered");
+    }
+
+    @Test
     void removeByAliasRemovesCanonicalToolName() {
         ToolRegistry registry = new ToolRegistry();
         registry.register(new StubTool("plan_update"));

@@ -70,6 +70,10 @@ public final class ToolExecutor {
                     toolCall.toolName(), false,
                     "Error: unknown tool \"" + toolCall.toolName() + "\"");
             session.fireMetaEvent(new MetaEvent.Error(result.output(), null));
+            // Finalize the tool-card lifecycle like every other early-return
+            // branch; otherwise the card never receives a "completed" event and
+            // appears stuck after the failure.
+            emitCompleted(session, toolCall.id(), toolCall.toolName(), toolCall.input(), result, 0);
             return result;
         }
 
