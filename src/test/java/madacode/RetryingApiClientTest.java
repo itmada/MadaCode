@@ -1,14 +1,14 @@
 package madacode;
 
-import madacode.core.CancellationToken;
-import madacode.core.ContentBlock;
-import madacode.core.StopReason;
-import madacode.core.TokenUsage;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.StopReason;
+import madacode.core.model.TokenUsage;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiClientException;
 import madacode.services.api.ApiErrorClassifier;
 import madacode.services.api.ApiStreamSink;
-import madacode.core.Message;
+import madacode.core.model.Message;
 import madacode.services.api.RetryOptions;
 import madacode.services.api.RetryingApiClient;
 import madacode.tool.Tool;

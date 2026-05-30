@@ -1,10 +1,10 @@
 package madacode.services.api;
 
-import madacode.core.CancellationToken;
-import madacode.core.Message;
-import madacode.core.StopReason;
-import madacode.core.TokenUsage;
-import madacode.core.ToolCall;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.Message;
+import madacode.core.model.StopReason;
+import madacode.core.model.TokenUsage;
+import madacode.core.model.ToolCall;
 import madacode.tool.Tool;
 
 import java.util.Collection;

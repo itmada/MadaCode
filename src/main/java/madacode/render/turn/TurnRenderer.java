@@ -1,11 +1,11 @@
 package madacode.render.turn;
 
-import madacode.core.ContentBlock;
-import madacode.core.FinishReason;
-import madacode.core.Message;
-import madacode.core.MessageRole;
-import madacode.core.MetaEvent;
-import madacode.core.SessionListener;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.FinishReason;
+import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
+import madacode.core.model.MetaEvent;
+import madacode.core.session.SessionListener;
 import madacode.render.ThinkingVerbs;
 import madacode.render.BlockSpacing;
 import madacode.render.tool.ToolProgressLine;

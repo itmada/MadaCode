@@ -4,7 +4,7 @@ package madacode.services.api;
  * Runtime exception raised by API provider adapters.
  *
  * <p>The query engine owns turn lifecycle events, so providers should throw
- * this exception instead of emitting {@link madacode.core.MetaEvent.Error} directly.
+ * this exception instead of emitting {@link madacode.core.model.MetaEvent.Error} directly.
  */
 public class ApiClientException extends RuntimeException {
 

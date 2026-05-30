@@ -4,12 +4,12 @@ import madacode.cli.session.SessionChooser;
 import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashContext;
-import madacode.core.ConversationSession;
-import madacode.core.QueryEngine;
-import madacode.core.SessionStorage;
-import madacode.core.SessionStorageException;
-import madacode.core.TurnExecutor;
-import madacode.core.TurnHandle;
+import madacode.core.session.ConversationSession;
+import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionStorage;
+import madacode.core.session.SessionStorageException;
+import madacode.core.turn.TurnExecutor;
+import madacode.core.turn.TurnHandle;
 import madacode.services.compact.CompactPlanner;
 import madacode.provider.ActiveState;
 import madacode.provider.ProviderRegistry;
@@ -148,7 +148,7 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
             screen.scrollback(Tk.warnTag("error") + " " + summary);
         }
         try {
-            session.addMessage(madacode.core.Message.system(summary));
+            session.addMessage(madacode.core.model.Message.system(summary));
         } catch (RuntimeException ignored) {
             // The session itself is in a state where even a SYSTEM message
             // can't be appended; we've already surfaced the error to the user.
@@ -167,13 +167,17 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
         if (fresh) {
             renderFreshSessionHeader(newSession);
         } else {
-            screen.scrollback("Switched to session: " + newSession.sessionId());
-            screen.scrollback("");
+            renderSwitchedSessionHeader(newSession);
         }
         historyPrinter.printAll(newSession.messages());
     }
 
     protected void onSessionReplaced(ConversationSession newSession, boolean fresh) {}
+
+    protected void renderSwitchedSessionHeader(ConversationSession newSession) {
+        BlockSpacing.scrollbackBlock(screen,
+                Tk.dim("Switched to session: " + newSession.sessionId()));
+    }
 
     private void renderFreshSessionHeader(ConversationSession newSession) {
         ActiveModel activeModel = currentActiveModel();

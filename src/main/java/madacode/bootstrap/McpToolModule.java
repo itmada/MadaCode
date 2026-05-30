@@ -5,11 +5,11 @@ import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.mcp.McpConnectionManager;
 import madacode.mcp.McpServer;
-import madacode.tool.FilesystemBlobStore;
 import madacode.tool.MadaPaths;
-import madacode.tool.McpBlobStore;
 import madacode.tool.McpListResourcesTool;
 import madacode.tool.McpReadResourceTool;
+import madacode.tool.blob.FilesystemBlobStore;
+import madacode.tool.blob.McpBlobStore;
 
 final class McpToolModule implements ToolModule {
 

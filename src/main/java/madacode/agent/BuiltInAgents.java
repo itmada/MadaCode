@@ -1,6 +1,6 @@
 package madacode.agent;
 
-import madacode.core.QueryEngine;
+import madacode.core.engine.QueryEngine;
 import madacode.permission.PermissionMode;
 
 import java.util.List;

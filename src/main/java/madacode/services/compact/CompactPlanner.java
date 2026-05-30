@@ -1,10 +1,10 @@
 package madacode.services.compact;
 
-import madacode.core.CancellationToken;
-import madacode.core.CancellationException;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.MetaEvent;
+import madacode.core.turn.CancellationToken;
+import madacode.core.turn.CancellationException;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.model.MetaEvent;
 
 import java.util.List;
 import java.util.Optional;

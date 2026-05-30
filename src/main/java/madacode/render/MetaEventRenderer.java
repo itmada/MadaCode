@@ -1,7 +1,7 @@
 package madacode.render;
 
-import madacode.core.MetaEvent;
-import madacode.core.SessionListener;
+import madacode.core.model.MetaEvent;
+import madacode.core.session.SessionListener;
 import madacode.tui.Screen;
 import madacode.tui.widget.SessionContext;
 

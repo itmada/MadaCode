@@ -1,6 +1,6 @@
 package madacode.services.api;
 
-import madacode.core.Message;
+import madacode.core.model.Message;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;

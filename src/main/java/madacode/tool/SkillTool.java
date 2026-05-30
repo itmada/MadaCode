@@ -2,10 +2,10 @@ package madacode.tool;
 
 import madacode.agent.AgentDefinition;
 import madacode.agent.AgentRunner;
-import madacode.core.MetaEvent;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
-import madacode.core.TurnResult;
+import madacode.core.model.MetaEvent;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
+import madacode.core.turn.TurnResult;
 import madacode.permission.PermissionMode;
 import madacode.skill.Skill;
 import madacode.skill.SkillBodyRenderer;

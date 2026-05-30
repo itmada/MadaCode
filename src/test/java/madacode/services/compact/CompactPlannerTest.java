@@ -1,12 +1,12 @@
 package madacode.services.compact;
 
-import madacode.core.MetaEvent;
-import madacode.core.CancellationException;
+import madacode.core.model.MetaEvent;
+import madacode.core.turn.CancellationException;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
-import madacode.core.CancellationToken;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
+import madacode.core.turn.CancellationToken;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -28,7 +28,7 @@ public class CompactPlannerTest {
                 List.of());
 
         List<MetaEvent> events = new ArrayList<>();
-        boolean applied = planner.planAndApply(session, events::add, madacode.core.CancellationToken.never());
+        boolean applied = planner.planAndApply(session, events::add, madacode.core.turn.CancellationToken.never());
 
         assertFalse(applied);
         assertTrue(events.isEmpty());
@@ -40,14 +40,14 @@ public class CompactPlannerTest {
         String huge = "x".repeat(50_000); // ~13K+ tokens
         ConversationSession session = newSession(
                 Message.user(List.of(
-                        new madacode.core.ContentBlock.ToolResultBlock("t1", huge, true, -1))));
+                        new madacode.core.model.ContentBlock.ToolResultBlock("t1", huge, true, -1))));
 
         CompactPlanner planner = new CompactPlanner(estimator,
                 new CompactBudget(2_000, 0.50, 3, 100), // small budget to force trigger
                 List.of(new MicroCompactStrategy(estimator)));
 
         List<MetaEvent> events = new ArrayList<>();
-        boolean applied = planner.planAndApply(session, events::add, madacode.core.CancellationToken.never());
+        boolean applied = planner.planAndApply(session, events::add, madacode.core.turn.CancellationToken.never());
 
         if (applied) {
             assertTrue(events.stream().anyMatch(e -> e instanceof MetaEvent.CompactStarted));
@@ -91,13 +91,13 @@ public class CompactPlannerTest {
                         new FullCompactStrategy(fakeCompactClient, estimator, e -> {})));
 
         List<MetaEvent> events = new ArrayList<>();
-        boolean applied = planner.planAndApply(session, events::add, madacode.core.CancellationToken.never());
+        boolean applied = planner.planAndApply(session, events::add, madacode.core.turn.CancellationToken.never());
 
         if (applied) {
             assertTrue(events.stream().anyMatch(e -> e instanceof MetaEvent.CompactCompleted));
             // Session should now contain a provider-visible compact boundary user message.
             boolean hasSummary = session.messages().stream()
-                    .anyMatch(m -> m.role() == madacode.core.MessageRole.USER
+                    .anyMatch(m -> m.role() == madacode.core.model.MessageRole.USER
                             && m.content().contains("CompactBoundary"));
             assertTrue(hasSummary);
         }
@@ -134,7 +134,7 @@ public class CompactPlannerTest {
                         new FullCompactStrategy(failingClient, estimator, e -> {})));
 
         List<MetaEvent> events = new ArrayList<>();
-        planner.planAndApply(session, events::add, madacode.core.CancellationToken.never());
+        planner.planAndApply(session, events::add, madacode.core.turn.CancellationToken.never());
 
         // Should emit CompactFailed, not crash
         assertTrue(events.stream().anyMatch(e -> e instanceof MetaEvent.CompactFailed));

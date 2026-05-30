@@ -8,13 +8,13 @@ import madacode.agent.AgentRegistry;
 import madacode.agent.AgentRunner;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
-import madacode.core.CancellationToken;
-import madacode.core.ConversationSession;
-import madacode.core.FinishReason;
-import madacode.core.QueryEngine;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
-import madacode.core.TurnResult;
+import madacode.core.turn.CancellationToken;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.FinishReason;
+import madacode.core.engine.QueryEngine;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
+import madacode.core.turn.TurnResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
@@ -197,7 +197,7 @@ class AgentToolTest {
         ScriptedApiClient apiClient = new ScriptedApiClient();
         apiClient.enqueue(new ApiClient.ApiResponse(
                 "checking README location",
-                List.of(new madacode.core.ToolCall("toolu_glob", "glob", globInput))));
+                List.of(new madacode.core.model.ToolCall("toolu_glob", "glob", globInput))));
         apiClient.enqueue(new ApiClient.ApiResponse("README is at README.md", List.of()));
 
         ToolRegistry registry = new ToolRegistry();
@@ -229,7 +229,7 @@ class AgentToolTest {
         for (int i = 1; i <= QueryEngine.DEFAULT_MAX_ITERATIONS; i++) {
             apiClient.enqueue(new ApiClient.ApiResponse(
                     "still checking",
-                    List.of(new madacode.core.ToolCall("toolu_glob_" + i, "glob", globInput))));
+                    List.of(new madacode.core.model.ToolCall("toolu_glob_" + i, "glob", globInput))));
         }
 
         ToolRegistry registry = new ToolRegistry();
@@ -293,7 +293,7 @@ class AgentToolTest {
         StubAgentRunner() {
             super(new ToolRegistry(), new ApiClient() {
                 @Override
-                public ApiResponse send(java.util.List<madacode.core.Message> messages,
+                public ApiResponse send(java.util.List<madacode.core.model.Message> messages,
                                         String systemPrompt,
                                         java.util.Collection<Tool<?>> tools,
                                         ApiStreamSink sink,
@@ -325,7 +325,7 @@ class AgentToolTest {
         }
 
         @Override
-        public ApiResponse send(java.util.List<madacode.core.Message> messages,
+        public ApiResponse send(java.util.List<madacode.core.model.Message> messages,
                                 String systemPrompt,
                                 Collection<Tool<?>> tools,
                                 ApiStreamSink sink,
@@ -336,7 +336,7 @@ class AgentToolTest {
         }
 
         record ApiCall(
-                List<madacode.core.Message> messages,
+                List<madacode.core.model.Message> messages,
                 String systemPrompt,
                 List<String> toolNames) {}
     }

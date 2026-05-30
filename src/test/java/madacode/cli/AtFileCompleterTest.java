@@ -1,7 +1,7 @@
 package madacode.cli;
 
-import madacode.core.ConversationSession;
-import madacode.core.Message;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

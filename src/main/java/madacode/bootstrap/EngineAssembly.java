@@ -1,6 +1,6 @@
 package madacode.bootstrap;
 
-import madacode.core.QueryEngine;
+import madacode.core.engine.QueryEngine;
 import madacode.hook.HookManager;
 import madacode.permission.PermissionGate;
 import madacode.prompt.SystemPromptBuilder;

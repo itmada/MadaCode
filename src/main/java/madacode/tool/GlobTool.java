@@ -2,8 +2,8 @@ package madacode.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 
 import java.io.IOException;
 import java.nio.file.FileSystem;

@@ -1,19 +1,19 @@
 package madacode.cli;
 
-import madacode.core.CancellationToken;
-import madacode.core.ContentBlock;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.MessageRole;
-import madacode.core.QueryEngine;
-import madacode.core.SessionListener;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.ContentBlock;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
+import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionListener;
 import madacode.provider.Model;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
-import madacode.core.QueryEngineTurnRunner;
-import madacode.core.SessionStorage;
-import madacode.core.TurnExecutor;
-import madacode.core.TurnLog;
+import madacode.core.engine.QueryEngineTurnRunner;
+import madacode.core.session.SessionStorage;
+import madacode.core.turn.TurnExecutor;
+import madacode.core.turn.TurnLog;
 import madacode.permission.PermissionGate;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.services.compact.CompactBudget;
@@ -112,7 +112,7 @@ class ReplSupervisionTest {
         session.addListener(new SessionListener() {
             @Override public void onMessageAppended(int i, Message m) { throw new RuntimeException("boom"); }
             @Override public void onAssistantTextChunk(int i, String c) { throw new RuntimeException("boom"); }
-            @Override public void onMetaEvent(madacode.core.MetaEvent meta) { throw new RuntimeException("boom"); }
+            @Override public void onMetaEvent(madacode.core.model.MetaEvent meta) { throw new RuntimeException("boom"); }
             @Override public void onTurnEnd() { throw new RuntimeException("boom"); }
         });
 
@@ -171,15 +171,15 @@ class ReplSupervisionTest {
     void crashingMetaEventListenerDoesNotBlockTokenAccounting() {
         ConversationSession session = new ConversationSession();
         session.addListener(new SessionListener() {
-            @Override public void onMetaEvent(madacode.core.MetaEvent meta) {
+            @Override public void onMetaEvent(madacode.core.model.MetaEvent meta) {
                 throw new RuntimeException("meta-listener boom");
             }
         });
 
         // Even though the listener throws, the token report should still be applied
         // — token-state update happens before the fire-out loop.
-        session.fireMetaEvent(new madacode.core.MetaEvent.TokenReport(
-                new madacode.core.TokenUsage(7, 11, 0, 0), 0, 0));
+        session.fireMetaEvent(new madacode.core.model.MetaEvent.TokenReport(
+                new madacode.core.model.TokenUsage(7, 11, 0, 0), 0, 0));
 
         assertEquals(7, session.tokenUsage().inputTokens());
         assertEquals(11, session.tokenUsage().outputTokens());

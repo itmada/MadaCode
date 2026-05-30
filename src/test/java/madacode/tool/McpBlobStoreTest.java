@@ -1,5 +1,7 @@
 package madacode.tool;
 
+import madacode.tool.blob.FilesystemBlobStore;
+import madacode.tool.blob.McpBlobStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

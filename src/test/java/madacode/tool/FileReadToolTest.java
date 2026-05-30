@@ -1,8 +1,8 @@
 package madacode.tool;
 
-import madacode.core.ConversationSession;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

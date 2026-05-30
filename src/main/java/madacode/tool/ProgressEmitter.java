@@ -1,7 +1,7 @@
 package madacode.tool;
 
-import madacode.core.ConversationSession;
-import madacode.core.ToolExecutor;
+import madacode.core.session.ConversationSession;
+import madacode.core.engine.ToolExecutor;
 
 public final class ProgressEmitter {
 

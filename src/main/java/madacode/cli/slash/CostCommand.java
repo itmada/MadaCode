@@ -1,6 +1,6 @@
 package madacode.cli.slash;
 
-import madacode.core.TokenUsage;
+import madacode.core.model.TokenUsage;
 
 final class CostCommand implements SlashCommand {
     @Override public String name() { return "cost"; }

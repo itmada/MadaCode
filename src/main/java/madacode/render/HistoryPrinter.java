@@ -1,8 +1,8 @@
 package madacode.render;
 
-import madacode.core.ContentBlock;
-import madacode.core.Message;
-import madacode.core.MessageRole;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
 import madacode.render.tool.ToolCardWriter;
 import madacode.render.tool.ToolDisplay;
 import madacode.render.tool.ToolDisplayRegistry;

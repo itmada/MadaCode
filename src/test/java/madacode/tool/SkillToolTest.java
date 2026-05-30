@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import madacode.agent.AgentRunner;
-import madacode.core.ConversationSession;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.engine.ToolUseContext;
 import madacode.provider.Model;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;

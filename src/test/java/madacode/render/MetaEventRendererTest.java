@@ -1,7 +1,7 @@
 package madacode.render;
 
-import madacode.core.MetaEvent;
-import madacode.core.TokenUsage;
+import madacode.core.model.MetaEvent;
+import madacode.core.model.TokenUsage;
 import madacode.services.compact.CompactResult;
 import madacode.tui.TextScreen;
 import org.junit.jupiter.api.Test;

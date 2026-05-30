@@ -2,10 +2,10 @@ package madacode;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.ContentBlock;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.SessionStorage;
+import madacode.core.model.ContentBlock;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.session.SessionStorage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

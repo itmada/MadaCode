@@ -1,10 +1,10 @@
 package madacode.tool;
 
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.MetaEvent;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.model.MetaEvent;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;

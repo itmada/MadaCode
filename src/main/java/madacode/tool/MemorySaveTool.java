@@ -1,7 +1,7 @@
 package madacode.tool;
 
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 import madacode.memory.MemoryFile;
 import madacode.memory.MemoryStore;
 import com.fasterxml.jackson.databind.ObjectMapper;

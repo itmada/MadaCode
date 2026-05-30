@@ -1,9 +1,9 @@
 package madacode.cli.slash;
 
 import madacode.cli.session.SessionChooser;
-import madacode.core.ConversationSession;
-import madacode.core.QueryEngine;
-import madacode.core.SessionStorage;
+import madacode.core.session.ConversationSession;
+import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionStorage;
 import madacode.provider.ProviderRegistry;
 import madacode.services.compact.CompactPlanner;
 import madacode.tui.Screen;

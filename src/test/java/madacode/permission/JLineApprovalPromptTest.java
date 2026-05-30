@@ -1,7 +1,7 @@
 package madacode.permission;
 
-import madacode.core.CancellationToken;
-import madacode.core.ToolResult;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.ToolResult;
 import madacode.tool.Tool;
 import madacode.tui.TextScreen;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,7 +21,7 @@ class JLineApprovalPromptTest {
         @Override public String name() { return "Bash"; }
         @Override public String description() { return "Run shell commands"; }
         @Override public boolean isReadOnly() { return false; }
-        @Override public ToolResult execute(ObjectNode input, madacode.core.ToolUseContext ctx) { return null; }
+        @Override public ToolResult execute(ObjectNode input, madacode.core.engine.ToolUseContext ctx) { return null; }
         @Override public Class<ObjectNode> inputType() { return ObjectNode.class; }
         @Override public ObjectNode inputSchema(ObjectMapper mapper) { return mapper.createObjectNode(); }
     };

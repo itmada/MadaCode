@@ -1,7 +1,7 @@
 package madacode.services.compact;
 
-import madacode.core.ContentBlock;
-import madacode.core.Message;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

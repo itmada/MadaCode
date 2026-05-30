@@ -2,12 +2,12 @@ package madacode.services.compact;
 
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
-import madacode.core.CancellationException;
-import madacode.core.CancellationToken;
-import madacode.core.ContentBlock;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.MessageRole;
+import madacode.core.turn.CancellationException;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.ContentBlock;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
 import madacode.tool.Tool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -82,7 +82,7 @@ public class FullCompactStrategyTest {
                 Message.user("latest question"),
                 Message.assistant("latest answer"));
 
-        Optional<CompactResult> result = strategy.apply(session, new CompactBudget(1_000, 0.5, 1, 100), madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, new CompactBudget(1_000, 0.5, 1, 100), madacode.core.turn.CancellationToken.never());
 
         assertTrue(result.isPresent());
         assertEquals(1, compactClient.calls);
@@ -109,7 +109,7 @@ public class FullCompactStrategyTest {
                 Message.assistant("old answer"),
                 Message.user("latest question"));
 
-        Optional<CompactResult> result = strategy.apply(session, new CompactBudget(1_000, 0.5, 1, 100), madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, new CompactBudget(1_000, 0.5, 1, 100), madacode.core.turn.CancellationToken.never());
 
         assertTrue(result.isEmpty());
         assertEquals(0, compactClient.calls);
@@ -127,7 +127,7 @@ public class FullCompactStrategyTest {
                 Message.assistant("old answer 2"),
                 Message.user("latest question"));
 
-        Optional<CompactResult> result = strategy.apply(session, new CompactBudget(1_000, 0.5, 1, 100), madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, new CompactBudget(1_000, 0.5, 1, 100), madacode.core.turn.CancellationToken.never());
 
         assertTrue(result.isEmpty());
         assertEquals(1, compactClient.calls);

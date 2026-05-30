@@ -1,8 +1,8 @@
 package madacode.services.compact;
 
-import madacode.core.ContentBlock;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
+import madacode.core.model.ContentBlock;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +26,7 @@ public class MicroCompactStrategy implements CompactStrategy {
     @Override
     public Optional<CompactResult> apply(ConversationSession session,
                                          CompactBudget budget,
-                                         madacode.core.CancellationToken cancellationToken) {
+                                         madacode.core.turn.CancellationToken cancellationToken) {
         // CPU-only / a few millis — cancellation token ignored intentionally.
         int beforeTokens = estimator.estimate(session.messages());
         List<Message> rewritten = new ArrayList<>();

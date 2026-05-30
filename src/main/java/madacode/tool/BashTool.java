@@ -2,11 +2,11 @@ package madacode.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.ConversationSession;
-import madacode.core.Subscription;
-import madacode.core.ToolExecutor;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.session.Subscription;
+import madacode.core.engine.ToolExecutor;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 
 import java.io.IOException;
 import java.io.InputStreamReader;

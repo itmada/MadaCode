@@ -5,11 +5,12 @@ import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommand;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashContext;
-import madacode.core.ConversationSession;
-import madacode.core.QueryEngine;
-import madacode.core.SessionStorage;
+import madacode.core.session.ConversationSession;
+import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionStorage;
 import madacode.provider.ProviderRegistry;
 import madacode.services.compact.CompactPlanner;
+import madacode.tui.BlockScopedScreen;
 import madacode.tui.Screen;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
@@ -139,9 +140,10 @@ public class SlashCommandHandler {
             return new SlashAction.Handled();
         }
 
+        Screen output = new BlockScopedScreen(screen);
         SlashContext ctx = new SlashContext(
                 current,
-                screen,
+                output,
                 storage,
                 registry,
                 queryEngine,
@@ -156,10 +158,11 @@ public class SlashCommandHandler {
     }
 
     private void notifyWarn(String message) {
+        Screen output = new BlockScopedScreen(screen);
         if (notifications != null) {
-            notifications.warn(message);
+            new NotificationCenter(output).warn(message);
         } else {
-            screen.scrollback(message);
+            output.scrollback(message);
         }
     }
 }

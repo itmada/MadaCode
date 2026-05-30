@@ -1,9 +1,9 @@
 package madacode.services.api;
 
-import madacode.core.CancellationToken;
-import madacode.core.ContentBlock;
-import madacode.core.StopReason;
-import madacode.core.TokenUsage;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.StopReason;
+import madacode.core.model.TokenUsage;
 import madacode.provider.Model;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;

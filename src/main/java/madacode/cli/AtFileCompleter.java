@@ -1,6 +1,6 @@
 package madacode.cli;
 
-import madacode.core.ConversationSession;
+import madacode.core.session.ConversationSession;
 
 import java.io.IOException;
 import java.nio.file.Files;

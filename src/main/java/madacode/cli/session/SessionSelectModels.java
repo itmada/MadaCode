@@ -1,9 +1,9 @@
 package madacode.cli.session;
 
-import madacode.core.ConversationSession;
-import madacode.core.SessionStorage;
-import madacode.core.SessionStorage.SessionSummary;
-import madacode.core.SessionStorageException;
+import madacode.core.session.ConversationSession;
+import madacode.core.session.SessionStorage;
+import madacode.core.session.SessionStorage.SessionSummary;
+import madacode.core.session.SessionStorageException;
 import madacode.tui.TerminalText;
 import madacode.tui.widget.ChoicePrompt;
 

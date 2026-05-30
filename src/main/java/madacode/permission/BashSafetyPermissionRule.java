@@ -1,7 +1,7 @@
 package madacode.permission;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.ToolUseContext;
+import madacode.core.engine.ToolUseContext;
 import madacode.tool.Tool;
 
 import java.util.Locale;

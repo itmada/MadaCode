@@ -1,7 +1,7 @@
 package madacode.cli.slash;
 
-import madacode.core.FinishReason;
-import madacode.core.TurnResult;
+import madacode.core.model.FinishReason;
+import madacode.core.turn.TurnResult;
 
 final class CompactCommand implements SlashCommand {
     @Override public String name() { return "compact"; }

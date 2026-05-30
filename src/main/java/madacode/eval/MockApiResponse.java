@@ -1,6 +1,6 @@
 package madacode.eval;
 
-import madacode.core.ToolCall;
+import madacode.core.model.ToolCall;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 

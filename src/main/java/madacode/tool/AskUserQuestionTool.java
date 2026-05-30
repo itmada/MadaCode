@@ -1,8 +1,8 @@
 package madacode.tool;
 
 import madacode.cli.UserPromptChannel;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;

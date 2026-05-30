@@ -1,6 +1,6 @@
 package madacode.prompt;
 
-import madacode.core.ConversationSession;
+import madacode.core.session.ConversationSession;
 import madacode.memory.MemoryLoader;
 import madacode.skill.Skill;
 import madacode.skill.SkillRegistry;

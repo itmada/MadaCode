@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import madacode.core.ConversationSession;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 import madacode.plan.PlanItem;
 import madacode.plan.PlanStatus;
 import madacode.plan.TodoItem;

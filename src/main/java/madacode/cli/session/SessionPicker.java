@@ -1,7 +1,7 @@
 package madacode.cli.session;
 
-import madacode.core.SessionStorage;
-import madacode.core.SessionStorage.SessionSummary;
+import madacode.core.session.SessionStorage;
+import madacode.core.session.SessionStorage.SessionSummary;
 
 import java.io.BufferedReader;
 import java.io.IOException;

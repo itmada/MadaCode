@@ -1,6 +1,6 @@
 package madacode.bootstrap;
 
-import madacode.core.ConversationSession;
+import madacode.core.session.ConversationSession;
 
 import java.util.Objects;
 import java.util.function.Supplier;

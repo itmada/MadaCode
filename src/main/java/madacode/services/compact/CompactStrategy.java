@@ -1,7 +1,7 @@
 package madacode.services.compact;
 
-import madacode.core.CancellationToken;
-import madacode.core.ConversationSession;
+import madacode.core.turn.CancellationToken;
+import madacode.core.session.ConversationSession;
 
 import java.util.Optional;
 

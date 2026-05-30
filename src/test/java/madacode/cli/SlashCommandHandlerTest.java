@@ -2,17 +2,22 @@ package madacode.cli;
 
 import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.MetaEvent;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.model.MetaEvent;
 import madacode.provider.Model;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
-import madacode.core.SessionStorage;
-import madacode.core.TokenUsage;
+import madacode.core.session.SessionStorage;
+import madacode.core.model.TokenUsage;
 import madacode.services.compact.CompactBudget;
 import madacode.services.compact.CompactPlanner;
 import madacode.services.compact.TokenEstimator;
+import madacode.skill.Skill;
+import madacode.skill.SkillLoader;
+import madacode.skill.SkillRegistry;
+import madacode.skill.SkillSource;
+import madacode.skill.SkillStateStore;
 import madacode.tui.TextScreen;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -89,10 +94,32 @@ public class SlashCommandHandlerTest {
         var action = handler.handle("/help", current);
         assertInstanceOf(SlashAction.Handled.class, action);
         String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
         assertTrue(output.contains("/sessions"));
         assertTrue(output.contains("/resume"));
         assertTrue(output.contains("/new"));
         assertTrue(output.contains("/delete"));
+    }
+
+    @Test
+    void skillsCommandOutputIsOneSeparatedBlock() {
+        SkillRegistry skillRegistry = new SkillRegistry(
+                new SkillStateStore(tempDir.resolve("skills.json")),
+                testSkillLoader());
+        skillRegistry.reload();
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .registry(SlashCommandRegistry.create(skillRegistry))
+                .build();
+
+        var action = handler.handle("/skills", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(System.lineSeparator()
+                        + "Skills:" + System.lineSeparator()
+                        + "  [B] alpha                Alpha skill" + System.lineSeparator()
+                        + "  [P] beta                 Beta skill" + System.lineSeparator(),
+                outBytes.toString());
     }
 
     @Test
@@ -134,7 +161,7 @@ public class SlashCommandHandlerTest {
         assertInstanceOf(SlashAction.SwitchSession.class, action);
         var ss = (SlashAction.SwitchSession) action;
         assertEquals("target-session", ss.session().sessionId());
-        assertTrue(outBytes.toString().contains("saved current session"));
+        assertEquals("", outBytes.toString());
     }
 
     @Test
@@ -357,6 +384,7 @@ public class SlashCommandHandlerTest {
 
         SlashAction.RunLocalTurn run = assertInstanceOf(SlashAction.RunLocalTurn.class, action);
         assertEquals("slash:/compact", run.label());
+        assertEquals("", outBytes.toString());
     }
 
     @Test
@@ -421,6 +449,16 @@ public class SlashCommandHandlerTest {
                 Instant.now(),
                 Path.of("."),
                 List.of(Message.system("Init"), Message.user(firstUserMessage)));
+    }
+
+    private static SkillLoader testSkillLoader() {
+        return () -> List.of(
+                new Skill("alpha", "Alpha skill", "", List.of(), SkillSource.BUNDLED,
+                        "alpha body", Path.of("alpha/SKILL.md"), Path.of("alpha"),
+                        "inline", List.of(), List.of(), 1, 1),
+                new Skill("beta", "Beta skill", "", List.of(), SkillSource.PROJECT,
+                        "beta body", Path.of("beta/SKILL.md"), Path.of("beta"),
+                        "inline", List.of(), List.of(), 1, 1));
     }
 
     private static String stripAnsi(String s) {

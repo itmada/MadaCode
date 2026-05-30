@@ -1,13 +1,13 @@
 package madacode.services.compact;
 
-import madacode.core.CancellationToken;
-import madacode.core.CancellationException;
+import madacode.core.turn.CancellationToken;
+import madacode.core.turn.CancellationException;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
-import madacode.core.ContentBlock;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.MessageRole;
+import madacode.core.model.ContentBlock;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -78,8 +78,8 @@ public class FullCompactStrategy implements CompactStrategy {
                         public void onTextDelta(String chunk) {}
                         public void onToolUseBlock(ContentBlock.ToolUseBlock b) {}
                         public void onThinkingBlock(ContentBlock.ThinkingBlock b) {}
-                        public void onMessageStart(String m, madacode.core.TokenUsage u) {}
-                        public void onMessageStop(madacode.core.StopReason r, madacode.core.TokenUsage u, long ttft, long total) {}
+                        public void onMessageStart(String m, madacode.core.model.TokenUsage u) {}
+                        public void onMessageStop(madacode.core.model.StopReason r, madacode.core.model.TokenUsage u, long ttft, long total) {}
                     },
                     cancellationToken);
             cancellationToken.throwIfCancelled();

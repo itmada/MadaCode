@@ -1,7 +1,7 @@
 package madacode.services.compact;
 
-import madacode.core.ContentBlock;
-import madacode.core.Message;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
 import madacode.services.api.ApiClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;

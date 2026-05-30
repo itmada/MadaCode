@@ -1,8 +1,8 @@
 package madacode.tool;
 
-import madacode.core.ConversationSession;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,8 +36,8 @@ import javax.net.ssl.SSLSession;
 
 import com.sun.net.httpserver.HttpServer;
 
-import madacode.core.SessionListener;
-import madacode.core.ToolExecutor;
+import madacode.core.session.SessionListener;
+import madacode.core.engine.ToolExecutor;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;

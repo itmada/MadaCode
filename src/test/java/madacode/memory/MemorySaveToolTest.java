@@ -1,8 +1,8 @@
 package madacode.memory;
 
 import madacode.tool.ToolTestSupport;
-import madacode.core.ConversationSession;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.engine.ToolUseContext;
 import madacode.tool.MemorySaveTool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;

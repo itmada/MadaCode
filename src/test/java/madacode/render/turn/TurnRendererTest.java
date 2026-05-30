@@ -1,7 +1,7 @@
 package madacode.render.turn;
 
-import madacode.core.ContentBlock;
-import madacode.core.MetaEvent;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.MetaEvent;
 import madacode.tui.Screen;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;

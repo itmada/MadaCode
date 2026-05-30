@@ -1,8 +1,8 @@
 package madacode.tool;
 
-import madacode.core.FinishReason;
-import madacode.core.ToolResult;
-import madacode.core.TurnResult;
+import madacode.core.model.FinishReason;
+import madacode.core.model.ToolResult;
+import madacode.core.turn.TurnResult;
 
 /**
  * Package-private utilities shared by tools that launch sub-agents

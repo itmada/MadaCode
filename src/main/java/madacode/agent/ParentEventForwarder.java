@@ -1,8 +1,8 @@
 package madacode.agent;
 
-import madacode.core.ConversationSession;
-import madacode.core.MetaEvent;
-import madacode.core.SessionListener;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.MetaEvent;
+import madacode.core.session.SessionListener;
 import madacode.tool.ToolActivitySummary;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;

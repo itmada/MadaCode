@@ -1,7 +1,10 @@
 package madacode;
 
-import madacode.core.*;
-import madacode.core.QueryEngine;
+import madacode.core.engine.*;
+import madacode.core.model.*;
+import madacode.core.session.*;
+import madacode.core.turn.*;
+import madacode.core.engine.QueryEngine;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
 import madacode.prompt.SystemPromptBuilder;

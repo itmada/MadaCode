@@ -1,7 +1,7 @@
 package madacode.cli.session;
 
-import madacode.core.SessionStorage;
-import madacode.core.SessionStorage.SessionSummary;
+import madacode.core.session.SessionStorage;
+import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.tui.widget.ChoicePrompt;
 import madacode.tui.widget.ChoicePrompter;
 

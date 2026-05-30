@@ -1,7 +1,7 @@
 package madacode.cli.slash;
 
-import madacode.core.ConversationSession;
-import madacode.core.SessionStorageException;
+import madacode.core.session.ConversationSession;
+import madacode.core.session.SessionStorageException;
 
 import java.util.Optional;
 

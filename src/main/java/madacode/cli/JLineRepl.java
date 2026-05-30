@@ -1,15 +1,15 @@
 package madacode.cli;
 
 import madacode.cli.editor.SessionHistory;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.MessageRole;
-import madacode.core.QueryEngine;
-import madacode.core.SessionStorage;
-import madacode.core.TurnExecutor;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionStorage;
+import madacode.core.turn.TurnExecutor;
 import madacode.services.compact.CompactPlanner;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
+import madacode.render.BlockSpacing;
 import madacode.render.UserInputRenderer;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
@@ -249,9 +249,6 @@ public final class JLineRepl extends Repl {
             sessionContext.setCwd(newSession.workingDirectory());
             sessionContext.setSessionId(newSession.sessionId());
         });
-        if (!fresh) {
-            showSessionSummary();
-        }
         loadHistory();
     }
 
@@ -263,21 +260,14 @@ public final class JLineRepl extends Repl {
         return Tk.promptActive("❯") + " ";
     }
 
-    private void showSessionSummary() {
-        String shortId = session.sessionId().substring(0, Math.min(8, session.sessionId().length()));
-        long userCount = session.messages().stream()
-                .filter(m -> m.role() == MessageRole.USER).count();
-        if (userCount == 0) {
-            screen.scrollback(Tk.dim("session " + shortId + "  ·  new"));
-        } else {
-            screen.scrollback(Tk.dim("session " + shortId
-                    + "  ·  " + userCount + " exchange" + (userCount != 1 ? "s" : "")));
-        }
-        String title = session.title();
+    @Override
+    protected void renderSwitchedSessionHeader(ConversationSession newSession) {
+        String title = newSession.title();
+        String line = "Switched to session: " + newSession.sessionId();
         if (title != null && !title.equals("(empty session)") && !title.isBlank()) {
-            screen.scrollback(Tk.dim("  " + title));
+            line += " " + title;
         }
-        screen.scrollback("");
+        BlockSpacing.scrollbackBlock(screen, Tk.dim(line));
     }
 
     private void replayRecentSession() {

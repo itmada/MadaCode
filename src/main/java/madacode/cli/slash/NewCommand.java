@@ -1,8 +1,8 @@
 package madacode.cli.slash;
 
 import madacode.cli.session.SessionPointer;
-import madacode.core.ConversationSession;
-import madacode.core.SessionStorageException;
+import madacode.core.session.ConversationSession;
+import madacode.core.session.SessionStorageException;
 
 final class NewCommand implements SlashCommand {
     @Override public String name() { return "new"; }

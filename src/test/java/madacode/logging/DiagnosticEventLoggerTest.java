@@ -1,6 +1,6 @@
 package madacode.logging;
 
-import madacode.core.ConversationSession;
+import madacode.core.session.ConversationSession;
 import madacode.events.AppEvents;
 import madacode.events.DefaultAppEventPublisher;
 import madacode.events.DiagnosticEvent;

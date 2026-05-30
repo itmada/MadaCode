@@ -6,10 +6,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.agent.AgentDefinition;
 import madacode.agent.AgentRegistry;
 import madacode.agent.AgentRunner;
-import madacode.core.MetaEvent;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
-import madacode.core.TurnResult;
+import madacode.core.model.MetaEvent;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
+import madacode.core.turn.TurnResult;
 
 import java.util.Objects;
 import java.util.Optional;

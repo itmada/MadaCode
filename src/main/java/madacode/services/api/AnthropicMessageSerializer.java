@@ -1,8 +1,8 @@
 package madacode.services.api;
 
-import madacode.core.ContentBlock;
-import madacode.core.Message;
-import madacode.core.MessageRole;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
 import madacode.tool.Tool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;

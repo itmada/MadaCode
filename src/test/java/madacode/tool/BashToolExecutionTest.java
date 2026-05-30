@@ -2,12 +2,12 @@ package madacode.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.CancellationToken;
-import madacode.core.ConversationSession;
-import madacode.core.SessionListener;
-import madacode.core.ToolExecutor;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.turn.CancellationToken;
+import madacode.core.session.ConversationSession;
+import madacode.core.session.SessionListener;
+import madacode.core.engine.ToolExecutor;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;

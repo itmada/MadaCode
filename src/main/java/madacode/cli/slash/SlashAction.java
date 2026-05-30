@@ -1,7 +1,7 @@
 package madacode.cli.slash;
 
-import madacode.core.ConversationSession;
-import madacode.core.LocalTurnTask;
+import madacode.core.session.ConversationSession;
+import madacode.core.turn.LocalTurnTask;
 
 public sealed interface SlashAction {
     record Continue() implements SlashAction {}

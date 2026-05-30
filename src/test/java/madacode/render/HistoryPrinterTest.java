@@ -1,7 +1,7 @@
 package madacode.render;
 
-import madacode.core.ContentBlock;
-import madacode.core.Message;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
 import madacode.tui.TextScreen;
 import org.junit.jupiter.api.Test;
 

@@ -1,7 +1,7 @@
 package madacode.services.api;
 
-import madacode.core.CancellationToken;
-import madacode.core.Message;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.Message;
 import madacode.logging.DiagnosticEventLogger;
 import madacode.tool.Tool;
 
@@ -57,7 +57,7 @@ public final class RetryingApiClient implements ApiClient {
                 return delegate.send(messages, systemPrompt, tools, sink, cancellationToken);
             } catch (ApiClientException exception) {
                 if (cancellationToken.isCancelled()) {
-                    throw new madacode.core.CancellationException(cancellationToken.reason());
+                    throw new madacode.core.turn.CancellationException(cancellationToken.reason());
                 }
                 ApiError error = classifier.classify(exception);
 
@@ -72,7 +72,7 @@ public final class RetryingApiClient implements ApiClient {
                         attempt + 1, options.maxRetries(), error.type().name(), backoff.toMillis());
                 sleeper.accept(backoff);
                 if (cancellationToken.isCancelled()) {
-                    throw new madacode.core.CancellationException(cancellationToken.reason());
+                    throw new madacode.core.turn.CancellationException(cancellationToken.reason());
                 }
                 attempt++;
             }

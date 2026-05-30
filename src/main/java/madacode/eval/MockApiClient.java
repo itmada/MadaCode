@@ -1,11 +1,11 @@
 package madacode.eval;
 
-import madacode.core.CancellationToken;
-import madacode.core.ContentBlock;
-import madacode.core.Message;
-import madacode.core.StopReason;
-import madacode.core.TokenUsage;
-import madacode.core.ToolCall;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
+import madacode.core.model.StopReason;
+import madacode.core.model.TokenUsage;
+import madacode.core.model.ToolCall;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
 import madacode.tool.Tool;

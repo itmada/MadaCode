@@ -1,8 +1,8 @@
 package madacode.services.compact;
 
-import madacode.core.ContentBlock;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
+import madacode.core.model.ContentBlock;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -24,7 +24,7 @@ public class MicroCompactStrategyTest {
                 Message.user("hello"),
                 Message.assistant("hi"));
 
-        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.turn.CancellationToken.never());
 
         assertTrue(result.isEmpty());
     }
@@ -35,7 +35,7 @@ public class MicroCompactStrategyTest {
         ConversationSession session = newSession(
                 Message.user(List.of(new ContentBlock.ToolResultBlock("t1", hugeContent, true, -1))));
 
-        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.turn.CancellationToken.never());
 
         assertTrue(result.isPresent());
         assertTrue(result.get().changed());
@@ -56,7 +56,7 @@ public class MicroCompactStrategyTest {
         String text = "normal text message";
         ConversationSession session = newSession(Message.user(text));
 
-        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.turn.CancellationToken.never());
 
         assertTrue(result.isEmpty());
         assertEquals(text, extractText(session.messages().get(1)));
@@ -68,7 +68,7 @@ public class MicroCompactStrategyTest {
         ConversationSession session = newSession(
                 Message.user(List.of(new ContentBlock.ToolResultBlock("t1", shortContent, true, -1))));
 
-        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.turn.CancellationToken.never());
 
         assertTrue(result.isEmpty());
     }
@@ -79,7 +79,7 @@ public class MicroCompactStrategyTest {
         ConversationSession session = newSession(
                 Message.user(List.of(new ContentBlock.ToolResultBlock("t1", content, true, -1))));
 
-        strategy.apply(session, budget, madacode.core.CancellationToken.never());
+        strategy.apply(session, budget, madacode.core.turn.CancellationToken.never());
 
         String truncated = ((ContentBlock.ToolResultBlock)
                 session.messages().get(1).contentBlocks().getFirst()).content();
@@ -97,7 +97,7 @@ public class MicroCompactStrategyTest {
                 new ContentBlock.ToolResultBlock("t1", hugeContent, false, 1234);
         ConversationSession session = newSession(Message.user(List.of(failure)));
 
-        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.CancellationToken.never());
+        Optional<CompactResult> result = strategy.apply(session, budget, madacode.core.turn.CancellationToken.never());
         assertTrue(result.isPresent());
 
         ContentBlock.ToolResultBlock truncated = (ContentBlock.ToolResultBlock)

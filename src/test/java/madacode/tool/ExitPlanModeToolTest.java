@@ -2,11 +2,11 @@ package madacode.tool;
 
 import madacode.cli.FakeUserPromptChannel;
 import madacode.cli.HeadlessPromptChannel;
-import madacode.core.ConversationSession;
-import madacode.core.MetaEvent;
-import madacode.core.SessionListener;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.MetaEvent;
+import madacode.core.session.SessionListener;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -36,7 +36,7 @@ class ExitPlanModeToolTest {
 
     private ToolUseContext ctx(madacode.cli.UserPromptChannel channel) {
         return new ToolUseContext(Path.of(System.getProperty("user.dir")), session,
-                0, 1, madacode.core.CancellationToken.never(), channel);
+                0, 1, madacode.core.turn.CancellationToken.never(), channel);
     }
 
     private ObjectNode input(String summary) {

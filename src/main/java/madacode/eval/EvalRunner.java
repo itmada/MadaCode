@@ -1,9 +1,9 @@
 package madacode.eval;
 
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.QueryEngine;
-import madacode.core.TurnResult;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.engine.QueryEngine;
+import madacode.core.turn.TurnResult;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.tool.*;
 
@@ -86,7 +86,7 @@ public class EvalRunner {
         int count = 0;
         for (Message message : session.messages()) {
             for (var block : message.contentBlocks()) {
-                if (block instanceof madacode.core.ContentBlock.ToolUseBlock) {
+                if (block instanceof madacode.core.model.ContentBlock.ToolUseBlock) {
                     count++;
                 }
             }
@@ -102,7 +102,7 @@ public class EvalRunner {
                 case "tool_called" -> {
                     boolean found = session.messages().stream()
                             .flatMap(m -> m.contentBlocks().stream())
-                            .anyMatch(b -> b instanceof madacode.core.ContentBlock.ToolUseBlock tb
+                            .anyMatch(b -> b instanceof madacode.core.model.ContentBlock.ToolUseBlock tb
                                     && tb.name().equals(a.expected()));
                     if (!found) {
                         failures.add("Expected tool " + a.expected() + " to be called");

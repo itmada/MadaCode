@@ -2,15 +2,15 @@ package madacode;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
 import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.GlobTool;
 import madacode.tool.GrepTool;
 import madacode.tool.Tool;
-import madacode.tool.ToolInputValidator;
-import madacode.tool.ValidationResult;
+import madacode.tool.validation.ToolInputValidator;
+import madacode.tool.validation.ValidationResult;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;

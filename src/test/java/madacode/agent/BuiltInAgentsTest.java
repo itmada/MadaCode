@@ -2,7 +2,7 @@ package madacode.agent;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import madacode.core.QueryEngine;
+import madacode.core.engine.QueryEngine;
 
 import java.util.List;
 import java.util.Optional;

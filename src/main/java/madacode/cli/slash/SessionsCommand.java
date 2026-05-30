@@ -1,8 +1,8 @@
 package madacode.cli.slash;
 
-import madacode.core.SessionListEntry;
-import madacode.core.SessionStorage.SessionSummary;
-import madacode.core.SessionStorageException;
+import madacode.core.session.SessionListEntry;
+import madacode.core.session.SessionStorage.SessionSummary;
+import madacode.core.session.SessionStorageException;
 
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;

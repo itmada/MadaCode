@@ -1,7 +1,7 @@
 package madacode.logging;
 
-import madacode.core.ConversationSession;
-import madacode.core.FinishReason;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.FinishReason;
 import madacode.events.AppEvents;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;

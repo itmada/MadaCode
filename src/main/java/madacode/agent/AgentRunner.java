@@ -1,16 +1,16 @@
 package madacode.agent;
 
 import madacode.services.api.ApiClient;
-import madacode.core.ConversationSession;
-import madacode.core.QueryEngine;
-import madacode.core.ToolUseContext;
-import madacode.core.TurnResult;
+import madacode.core.session.ConversationSession;
+import madacode.core.engine.QueryEngine;
+import madacode.core.engine.ToolUseContext;
+import madacode.core.turn.TurnResult;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.permission.PermissionGate;
 import madacode.permission.PermissionMode;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
-import madacode.core.ToolExecutor;
+import madacode.core.engine.ToolExecutor;
 
 import java.util.Objects;
 import java.util.Set;

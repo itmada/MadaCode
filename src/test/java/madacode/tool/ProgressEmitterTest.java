@@ -1,8 +1,8 @@
 package madacode.tool;
 
-import madacode.core.ConversationSession;
-import madacode.core.SessionListener;
-import madacode.core.ToolExecutor;
+import madacode.core.session.ConversationSession;
+import madacode.core.session.SessionListener;
+import madacode.core.engine.ToolExecutor;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;

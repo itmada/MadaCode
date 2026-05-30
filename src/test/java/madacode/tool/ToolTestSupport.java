@@ -2,13 +2,14 @@ package madacode.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.ToolResult;
-import madacode.core.ToolUseContext;
+import madacode.core.model.ToolResult;
+import madacode.core.engine.ToolUseContext;
+import madacode.tool.validation.ToolInputCoercion;
 
 /**
  * Test-only convenience for invoking tools with raw JSON input.
  *
- * <p>Production code never goes through here — {@link madacode.core.ToolExecutor}
+ * <p>Production code never goes through here — {@link madacode.core.engine.ToolExecutor}
  * does the equivalent coercion at runtime. Tests use this helper to avoid
  * having to construct each tool's typed input record by hand for assertions
  * that don't really care about the schema layer.

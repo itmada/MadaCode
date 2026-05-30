@@ -2,9 +2,9 @@ package madacode.cli;
 
 import madacode.cli.session.SessionSelectModels;
 import madacode.cli.session.StartupSessionLauncher;
-import madacode.core.ConversationSession;
-import madacode.core.Message;
-import madacode.core.SessionStorage;
+import madacode.core.session.ConversationSession;
+import madacode.core.model.Message;
+import madacode.core.session.SessionStorage;
 import madacode.tui.widget.ChoicePrompt;
 import madacode.tui.widget.ChoicePrompter;
 

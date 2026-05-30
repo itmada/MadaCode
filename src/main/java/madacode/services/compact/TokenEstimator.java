@@ -1,7 +1,7 @@
 package madacode.services.compact;
 
-import madacode.core.ContentBlock;
-import madacode.core.Message;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;

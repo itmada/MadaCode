@@ -1,7 +1,7 @@
 package madacode.permission;
 
-import madacode.core.CancellationToken;
-import madacode.core.ToolExecutor;
+import madacode.core.turn.CancellationToken;
+import madacode.core.engine.ToolExecutor;
 import madacode.render.turn.TurnRenderer;
 import madacode.tool.Tool;
 import madacode.tui.Screen;

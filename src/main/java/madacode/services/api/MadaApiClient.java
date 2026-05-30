@@ -3,12 +3,12 @@ package madacode.services.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.core.CancellationToken;
-import madacode.core.ContentBlock;
-import madacode.core.Message;
-import madacode.core.StopReason;
-import madacode.core.TokenUsage;
-import madacode.core.ToolCall;
+import madacode.core.turn.CancellationToken;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
+import madacode.core.model.StopReason;
+import madacode.core.model.TokenUsage;
+import madacode.core.model.ToolCall;
 import madacode.logging.DiagnosticEventLogger;
 import madacode.provider.ActiveState;
 import madacode.provider.Provider;
@@ -67,7 +67,7 @@ public class MadaApiClient implements ApiClient {
         Objects.requireNonNull(cancellationToken, "cancellationToken");
 
         if (cancellationToken.isCancelled()) {
-            throw new madacode.core.CancellationException(cancellationToken.reason());
+            throw new madacode.core.turn.CancellationException(cancellationToken.reason());
         }
 
         try {
@@ -98,11 +98,11 @@ public class MadaApiClient implements ApiClient {
             try {
                 response = future.join();
             } catch (java.util.concurrent.CancellationException cancelled) {
-                throw new madacode.core.CancellationException(cancellationToken.reason());
+                throw new madacode.core.turn.CancellationException(cancellationToken.reason());
             } catch (java.util.concurrent.CompletionException e) {
                 Throwable cause = e.getCause() == null ? e : e.getCause();
                 if (cancellationToken.isCancelled()) {
-                    throw new madacode.core.CancellationException(cancellationToken.reason());
+                    throw new madacode.core.turn.CancellationException(cancellationToken.reason());
                 }
                 throw new ApiClientException("Failed to call Anthropic API", cause);
             }
@@ -126,7 +126,7 @@ public class MadaApiClient implements ApiClient {
                 return parseStreamingResponse(responseLines, sink, start, cancellationToken);
             }
 
-        } catch (ApiClientException | madacode.core.CancellationException e) {
+        } catch (ApiClientException | madacode.core.turn.CancellationException e) {
             throw e;
         } catch (Exception e) {
             throw new ApiClientException("Failed to call Anthropic API", e);
@@ -148,7 +148,7 @@ public class MadaApiClient implements ApiClient {
         Iterator<String> lines = responseLines.iterator();
         while (lines.hasNext()) {
             if (cancellationToken.isCancelled()) {
-                throw new madacode.core.CancellationException(cancellationToken.reason());
+                throw new madacode.core.turn.CancellationException(cancellationToken.reason());
             }
             String line = lines.next();
             if (!line.startsWith("data:")) continue;
