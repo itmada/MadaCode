@@ -630,25 +630,17 @@ final class AnsiMarkdownWriter {
             maxLW[col] = maxLineWidth;
         }
 
+        int naturalTotal = sum(maxLW) + borderOverhead;
+        if (naturalTotal <= availableWidth) {
+            return new ColumnWidths(maxLW);
+        }
+
         int idealTotal = sum(ideal) + borderOverhead;
         if (idealTotal <= availableWidth) {
-            int extra = availableWidth - borderOverhead - sum(ideal);
-            if (extra > 0) {
-                int[] widths = ideal.clone();
-                for (int i = 0; i < n && extra > 0; i++) {
-                    int add = Math.min(extra, Math.max(0, maxLW[i] - widths[i]));
-                    widths[i] += add;
-                    extra -= add;
-                }
-                int i = 0;
-                while (extra > 0) {
-                    widths[i % n]++;
-                    i++;
-                    extra--;
-                }
-                return new ColumnWidths(widths);
-            }
-            return new ColumnWidths(ideal);
+            int[] widths = ideal.clone();
+            int extra = availableWidth - borderOverhead - sum(widths);
+            distributeTowardNatural(widths, maxLW, extra);
+            return new ColumnWidths(widths);
         }
 
         int minTotal = sum(min) + borderOverhead;
@@ -696,6 +688,25 @@ final class AnsiMarkdownWriter {
             }
         }
         return new ColumnWidths(widths);
+    }
+
+    private static void distributeTowardNatural(int[] widths, int[] natural, int extra) {
+        if (extra <= 0) return;
+        int remaining = extra;
+        while (remaining > 0) {
+            int pick = -1;
+            int bestNeed = -1;
+            for (int i = 0; i < widths.length; i++) {
+                int need = natural[i] - widths[i];
+                if (need > bestNeed) {
+                    bestNeed = need;
+                    pick = i;
+                }
+            }
+            if (pick < 0 || bestNeed <= 0) return;
+            widths[pick]++;
+            remaining--;
+        }
     }
 
     private int estimateRowHeight(List<Cell> row, int[] widths) {

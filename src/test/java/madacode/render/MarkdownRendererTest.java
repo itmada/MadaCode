@@ -820,6 +820,49 @@ class MarkdownRendererTest {
     }
 
     @Test
+    void simpleTableShrinksToContentWidth() {
+        MarkdownRenderer r = new MarkdownRenderer();
+        r.append("""
+                | A | B |
+                | --- | --- |
+                | 1 | 2 |
+                """);
+
+        List<String> out = collectRendered(r, 80);
+        List<Integer> widths = out.stream()
+                .filter(l -> strip(l).contains("│") || strip(l).contains("┌"))
+                .map(l -> Tk.displayWidth(l))
+                .toList();
+
+        assertFalse(widths.isEmpty(), "table should render horizontally: " + out);
+        assertTrue(widths.stream().allMatch(w -> w < 30),
+                "small table should not expand to terminal width: " + widths + " " + out);
+    }
+
+    @Test
+    void tableUsesNaturalContentWidthWhenItFits() {
+        MarkdownRenderer r = new MarkdownRenderer();
+        r.append("""
+                | 维度 | 内容 |
+                | --- | --- |
+                | 语言 | Java 21（maven.compiler.release=21） |
+                | 构建工具 | Maven 3.9+，使用 maven-shade-plugin 打包为 fat JAR |
+                """);
+
+        List<String> out = collectRendered(r, 100);
+        String joined = strip(String.join("\n", out));
+
+        assertTrue(joined.contains("Java 21（maven.compiler.release=21）"),
+                "content that fits should not be wrapped: " + joined);
+        assertTrue(joined.contains("maven-shade-plugin 打包为 fat JAR"),
+                "content that fits should not be wrapped: " + joined);
+        for (String line : out) {
+            assertTrue(Tk.displayWidth(line) < 100,
+                    "table should still shrink instead of filling terminal: [" + line + "]");
+        }
+    }
+
+    @Test
     void horizontalTableRendersFullBoxBorders() {
         MarkdownRenderer r = new MarkdownRenderer();
         // commonmark requires separator row; │ normalized to | by preprocessor

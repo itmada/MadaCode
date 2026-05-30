@@ -324,11 +324,125 @@ class AssistantTextRenderableTest {
                 "new row in preview: " + preview2);
     }
 
+    @Test
+    void streamingBlankLineBetweenParagraphsPersistsAcrossDrainAndLive() {
+        AssistantTextRenderable r = new AssistantTextRenderable();
+        r.append("first paragraph\n\n");
+
+        List<String> first = r.drainCommittedLines(80);
+        assertFalse(first.isEmpty(), "first batch should render");
+        assertTrue(first.stream().anyMatch(l -> strip(l).contains("first paragraph")));
+
+        r.append("second");
+        List<String> live = r.render(80);
+        assertFalse(live.isEmpty(), "live preview should exist");
+        assertEquals("", strip(live.getFirst()), "live preview should keep leading blank");
+
+        r.append(" paragraph\n");
+        List<String> second = r.drainCommittedLines(80);
+        assertFalse(second.isEmpty(), "second batch should render");
+        assertTrue(second.stream().anyMatch(l -> strip(l).contains("second paragraph")));
+    }
+
+    @Test
+    void streamingSoftBreakDoesNotInsertLeadingBlank() {
+        AssistantTextRenderable r = new AssistantTextRenderable();
+        r.append("first line\n");
+        assertFalse(r.drainCommittedLines(80).isEmpty(), "first line should commit");
+
+        r.append("second");
+        List<String> live = r.render(80);
+        assertFalse(live.isEmpty(), "live preview should exist");
+        assertNotEquals("", strip(live.getFirst()), "soft break should not gain a blank");
+    }
+
+    @Test
+    void permanentLinesRenderedLiveBeforeDrainAreNotLostOnAppend() {
+        AssistantTextRenderable r = new AssistantTextRenderable();
+        r.append("first paragraph\n\nsecond");
+
+        List<String> live = r.render(80);
+        assertTrue(live.stream().anyMatch(l -> strip(l).contains("second")),
+                "live preview should include partial second paragraph: " + live);
+
+        r.append(" paragraph\n");
+        List<String> committed = r.drainCommittedLines(80);
+        assertTrue(committed.stream().anyMatch(l -> strip(l).contains("first paragraph")),
+                "first paragraph rendered before drain must be preserved: " + committed);
+        assertTrue(committed.stream().anyMatch(l -> strip(l).contains("second paragraph")),
+                "newly completed paragraph should also commit: " + committed);
+    }
+
+    @Test
+    void tightAndLooseListsRespectMarkdownSpacing() {
+        AssistantTextRenderable tight = new AssistantTextRenderable();
+        tight.append("1. a\n2. b\n");
+        List<String> tightLines = tight.drainCommittedLines(80);
+        int aIndex = indexOfContaining(tightLines, "a");
+        int bIndex = indexOfContaining(tightLines, "b");
+        assertTrue(aIndex >= 0 && bIndex == aIndex + 1, "tight list should be adjacent: " + tightLines);
+
+        AssistantTextRenderable loose = new AssistantTextRenderable();
+        loose.append("1. a\n\n2. b\n");
+        List<String> looseLines = loose.drainCommittedLines(80);
+        aIndex = indexOfContaining(looseLines, "a");
+        bIndex = indexOfContaining(looseLines, "b");
+        assertTrue(aIndex >= 0 && bIndex > aIndex + 1, "loose list should have blank line: " + looseLines);
+        assertEquals("", strip(looseLines.get(aIndex + 1)));
+    }
+
+    @Test
+    void fencedCodeBlockKeepsLiveGutterAndFinalizesCleanly() {
+        AssistantTextRenderable r = new AssistantTextRenderable();
+        r.append("```java\n");
+        assertTrue(r.drainCommittedLines(80).stream().anyMatch(l -> strip(l).contains("java")));
+
+        r.append("int x = 1;");
+        List<String> live = r.render(80);
+        assertFalse(live.isEmpty(), "live code preview should exist");
+        assertTrue(live.getFirst().contains("│"), "live code preview should keep gutter: " + live);
+        assertTrue(live.getFirst().contains("▌"), "cursor should be appended: " + live);
+
+        r.append("\n```\n");
+        r.finalizeText();
+        List<String> committed = r.drainCommittedLines(80);
+        assertTrue(committed.stream().anyMatch(l -> strip(l).contains("int x = 1")));
+        assertTrue(committed.stream().anyMatch(l -> l.contains("╰")), "closing fence should render: " + committed);
+    }
+
+    @Test
+    void streamingTableDoesNotBreakBeforeFinalize() {
+        AssistantTextRenderable r = new AssistantTextRenderable();
+        r.append("| year | events |\n");
+        assertTrue(r.drainCommittedLines(80).isEmpty(), "header should stay buffered");
+
+        r.append("|------|--------|\n");
+        assertTrue(r.drainCommittedLines(80).isEmpty(), "separator should stay buffered");
+
+        r.append("| 2021 | AlphaFold<br>GPT-3 |\n");
+        assertTrue(r.drainCommittedLines(80).isEmpty(), "data row should stay buffered");
+
+        List<String> live = r.render(80);
+        assertTrue(live.stream().anyMatch(l -> strip(l).contains("year")), "table preview should exist: " + live);
+
+        r.finalizeText();
+        List<String> committed = r.drainCommittedLines(80);
+        assertTrue(committed.stream().anyMatch(l -> strip(l).contains("AlphaFold")));
+        assertTrue(committed.stream().anyMatch(l -> strip(l).contains("GPT-3")));
+    }
+
     private static String strip(String s) {
         return s.replaceAll("\033\\[[0-9;]*[a-zA-Z]", "");
     }
 
     private static List<String> stripAll(List<String> lines) {
         return lines.stream().map(AssistantTextRenderableTest::strip).toList();
+    }
+
+    private static int indexOfContaining(List<String> lines, String needle) {
+        for (int i = 0; i < lines.size(); i++) {
+            if (strip(lines.get(i)).contains(needle)) return i;
+        }
+        return -1;
     }
 }

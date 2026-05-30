@@ -1,83 +1,71 @@
 package madacode.render.turn;
 
-import madacode.render.MarkdownRenderer;
+import madacode.render.MarkdownLayoutFrame;
+import madacode.render.StreamingMarkdownDocument;
 import madacode.tui.theme.Tk;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Accumulates streaming assistant text chunks, splitting completed lines
- * (committed to scrollback) from the trailing partial line (kept live).
+ * Accumulates streaming assistant text chunks behind a single Markdown stream.
  *
- * <p>Each {@link #append(String)} call feeds the chunk to a persistent
- * {@link MarkdownRenderer}, extracting complete lines as they arrive.
- * {@link #drainCommittedLines()} hands those lines to the paint loop for
- * scrollback. {@link #render(int)} returns only the trailing partial for
- * the live area.
+ * <p>{@link #drainCommittedLines(int)} exposes committed lines for scrollback
+ * and {@link #render(int)} exposes the live preview from the same layout
+ * snapshot, so there is no split between committed and preview rendering.
  */
 public final class AssistantTextRenderable implements Renderable {
 
-    private final MarkdownRenderer markdown = new MarkdownRenderer();
-    private final List<String> rawCommittedLines = new ArrayList<>();
-    private final StringBuilder rawBuffer = new StringBuilder();
+    private final StreamingMarkdownDocument markdown = new StreamingMarkdownDocument();
     private boolean finalized;
     private boolean marginIssued;
+    private int cachedWidth = Integer.MIN_VALUE;
+    private int lastWidth = Integer.MIN_VALUE;
+    private boolean cachedFinalized;
+    private MarkdownLayoutFrame cachedFrame = new MarkdownLayoutFrame(List.of(), List.of());
+    private boolean committedDrainedForCache;
+    private final List<String> undrainedPermanentLines = new ArrayList<>();
 
     public synchronized void append(String chunk) {
-        rawBuffer.append(chunk);
-        int nl;
-        while ((nl = rawBuffer.indexOf("\n")) >= 0) {
-            String rawLine = rawBuffer.substring(0, nl);
-            rawBuffer.delete(0, nl + 1);
-            rawCommittedLines.add(rawLine);
-        }
+        markdown.append(chunk);
+        invalidateCache();
     }
 
     public synchronized void finalizeText() {
-        if (rawBuffer.length() > 0) {
-            String remaining = rawBuffer.toString();
-            rawBuffer.setLength(0);
-            rawCommittedLines.add(remaining);
-        }
         finalized = true;
+        invalidateCache();
     }
 
     /** Drain committed (completed) lines for scrollback. Caller must batch these. */
     public synchronized List<String> drainCommittedLines() {
-        return drainCommittedLines(Integer.MAX_VALUE);
+        return drainCommittedLines(lastWidth == Integer.MIN_VALUE ? Integer.MAX_VALUE : lastWidth);
     }
 
     /** Drain committed lines using the current terminal width for markdown layout. */
     public synchronized List<String> drainCommittedLines(int maxWidth) {
-        List<String> result = new ArrayList<>();
-        if (rawCommittedLines.isEmpty()) {
-            drainRenderedLines(result, maxWidth);
-            return result.isEmpty() ? List.of() : result;
+        MarkdownLayoutFrame frame = ensureLayout(maxWidth);
+        if (committedDrainedForCache && undrainedPermanentLines.isEmpty()) {
+            return List.of();
         }
-        for (String rawLine : rawCommittedLines) {
-            markdown.append(rawLine + "\n");
+        List<String> result = new ArrayList<>(
+                undrainedPermanentLines.size() + frame.permanentLines().size());
+        result.addAll(undrainedPermanentLines);
+        undrainedPermanentLines.clear();
+        if (!committedDrainedForCache) {
+            result.addAll(frame.permanentLines());
         }
-        rawCommittedLines.clear();
-        drainRenderedLines(result, maxWidth);
-        return result;
+        committedDrainedForCache = true;
+        return result.isEmpty() ? List.of() : List.copyOf(result);
     }
 
     @Override
     public synchronized List<String> render(int maxWidth) {
-        List<String> result = new ArrayList<>();
-
-        result.addAll(markdown.previewBufferedTable(maxWidth));
-
-        String partial = rawBuffer.toString();
-        if (!partial.isEmpty()) {
-            result.addAll(markdown.renderPartialLines(partial, maxWidth));
-        }
-
+        MarkdownLayoutFrame frame = ensureLayout(maxWidth);
+        List<String> result = frame.liveLines();
         if (result.isEmpty()) return List.of();
-
         if (!finalized) {
             int last = result.size() - 1;
+            result = new java.util.ArrayList<>(result);
             result.set(last, result.get(last) + Tk.dim("▌"));
         }
         return result;
@@ -94,15 +82,31 @@ public final class AssistantTextRenderable implements Renderable {
     @Override
     public synchronized void markMarginIssued() { marginIssued = true; }
 
-    private void drainRenderedLines(List<String> result, int maxWidth) {
-        String rendered;
-        while ((rendered = markdown.renderLine(maxWidth, !finalized)) != null) {
-            result.add(rendered);
+    private MarkdownLayoutFrame ensureLayout(int maxWidth) {
+        lastWidth = maxWidth;
+        if (cachedWidth == maxWidth && cachedFinalized == finalized) {
+            return cachedFrame;
         }
-        if (finalized) {
-            while ((rendered = markdown.flushRemaining(maxWidth)) != null) {
-                result.add(rendered);
-            }
+        preserveUndrainedPermanentLines();
+        cachedFrame = markdown.layout(maxWidth, finalized);
+        cachedWidth = maxWidth;
+        cachedFinalized = finalized;
+        committedDrainedForCache = false;
+        return cachedFrame;
+    }
+
+    private void invalidateCache() {
+        preserveUndrainedPermanentLines();
+        cachedWidth = Integer.MIN_VALUE;
+        cachedFinalized = false;
+        cachedFrame = new MarkdownLayoutFrame(List.of(), List.of());
+        committedDrainedForCache = false;
+    }
+
+    private void preserveUndrainedPermanentLines() {
+        if (!committedDrainedForCache && !cachedFrame.permanentLines().isEmpty()) {
+            undrainedPermanentLines.addAll(cachedFrame.permanentLines());
+            committedDrainedForCache = true;
         }
     }
 }

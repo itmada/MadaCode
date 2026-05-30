@@ -405,6 +405,10 @@ public class MarkdownRenderer {
         return result;
     }
 
+    boolean hasPendingBlockSeparatorForPreview() {
+        return pendingBlockSeparator;
+    }
+
     // ---- code block tracking ------------------------------------------------
 
     public boolean isInCodeBlock() {
