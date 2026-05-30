@@ -225,8 +225,10 @@ public final class TurnRenderer implements SessionListener {
      * Abort the turn: finalize all in-progress items, spill them to
      * scrollback in order, then display the error message.
      *
-     * <p>This is the single cleanup path for all error terminations
-     * (cancellation, API error, max iterations/tool calls, unknown tool).
+     * <p>This is the single cleanup path for turn-terminal errors
+     * (cancellation, API error, max iterations/tool calls). Per-tool failures
+     * such as an unknown tool are NOT routed here — they surface on their own
+     * tool card and let the turn continue.
      * Error display is owned exclusively by TurnRenderer during turns.
      */
     private synchronized void abortTurn(String message, FinishReason reason) {

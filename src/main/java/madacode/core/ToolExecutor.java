@@ -66,13 +66,17 @@ public final class ToolExecutor {
 
         Tool<?> tool = toolRegistry.find(toolCall.toolName()).orElse(null);
         if (tool == null) {
+            // An unknown tool is a per-tool, recoverable failure (the model can
+            // retry with a correct name), not a turn-terminal error. Handle it
+            // exactly like the other early-return error branches below: return a
+            // failed result and finalize the card. We must NOT fire
+            // MetaEvent.Error here — that is the turn-terminal signal (owned by
+            // QueryEngine with a FinishReason) and would abort the whole turn,
+            // clearing the cards of the other tools in this same batch and
+            // leaving any subsequent permission prompt with no card to render.
             ToolResult result = new ToolResult(
                     toolCall.toolName(), false,
                     "Error: unknown tool \"" + toolCall.toolName() + "\"");
-            session.fireMetaEvent(new MetaEvent.Error(result.output(), null));
-            // Finalize the tool-card lifecycle like every other early-return
-            // branch; otherwise the card never receives a "completed" event and
-            // appears stuck after the failure.
             emitCompleted(session, toolCall.id(), toolCall.toolName(), toolCall.input(), result, 0);
             return result;
         }

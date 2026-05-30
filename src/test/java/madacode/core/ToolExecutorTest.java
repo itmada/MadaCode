@@ -93,6 +93,33 @@ class ToolExecutorTest {
         assertEquals(0, prompt.calls());
     }
 
+    @Test
+    void unknownToolFailsWithoutFiringTurnTerminalError() {
+        // Regression: an unknown tool must be a per-tool failure, not a
+        // turn-terminal MetaEvent.Error. Firing MetaEvent.Error aborts the whole
+        // turn (TurnRenderer.abortTurn clears every tool card), which previously
+        // left a sibling tool's permission prompt with no card to render — an
+        // invisible approval that could only be dismissed with Esc.
+        ToolExecutor executor = new ToolExecutor(
+                new ToolRegistry(), // empty: every tool name is unknown
+                new ToolInputValidator(),
+                new DefaultPermissionGate(new RecordingPrompt()),
+                null);
+
+        ConversationSession session = new ConversationSession(tempDir);
+        RecordingEvents events = new RecordingEvents();
+        session.addListener(events);
+        ToolUseContext context = new ToolUseContext(tempDir, session);
+
+        ToolResult result = executor.execute(
+                new ToolCall("toolu_x", "read", mapper.createObjectNode()), context);
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("unknown tool"));
+        assertFalse(events.metaErrorFired, "unknown tool must not fire a turn-terminal MetaEvent.Error");
+        assertTrue(events.completedFired, "unknown tool must still finalize its card via a completed event");
+    }
+
     private HookManager hookManager(String json) throws IOException {
         Path config = tempDir.resolve("hooks.json");
         Files.writeString(config, json);
@@ -127,6 +154,23 @@ class ToolExecutorTest {
 
     private ToolUseContext context() {
         return new ToolUseContext(tempDir, new ConversationSession(tempDir));
+    }
+
+    private static final class RecordingEvents implements SessionListener {
+        private boolean metaErrorFired;
+        private boolean completedFired;
+
+        @Override
+        public void onMetaEvent(MetaEvent meta) {
+            if (meta instanceof MetaEvent.Error) {
+                metaErrorFired = true;
+            }
+        }
+
+        @Override
+        public void onToolExecutionCompleted(String toolUseId, boolean success, long durationMs) {
+            completedFired = true;
+        }
     }
 
     private static final class RecordingPrompt implements UserApprovalPrompt {
