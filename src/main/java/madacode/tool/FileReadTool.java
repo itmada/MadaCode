@@ -87,6 +87,9 @@ public class FileReadTool implements Tool<FileReadTool.Input> {
         }
         Path target = resolvedPath.path();
         try {
+            if (!Files.exists(target)) {
+                return new ToolResult(name(), false, "Path does not exist: " + target);
+            }
             if (Files.isDirectory(target)) {
                 return new ToolResult(name(), false, "Path is a directory");
             }

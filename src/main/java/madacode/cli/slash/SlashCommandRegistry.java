@@ -26,7 +26,6 @@ public final class SlashCommandRegistry {
         commands.add(new ExitCommand());
         commands.add(new ModelCommand());
         commands.add(new CompactCommand());
-        commands.add(new ClearCommand());
         commands.add(new CostCommand());
         commands.add(new StatusCommand());
         commands.add(new ThemeCommand());

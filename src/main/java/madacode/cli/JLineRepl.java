@@ -106,17 +106,11 @@ public final class JLineRepl extends Repl {
         SlashContext.ProviderChooser providerChooser = inlineProviderChooser(screen, terminal);
         SessionChooser sessionChooser = inlineSessionChooser(sessionStorage, screen, terminal);
 
-        Runnable clearScreen = () -> {
-            terminal.writer().print("\033[2J\033[H");
-            terminal.writer().flush();
-        };
-
         // Slash compose: triggered when buffer contains only "/"
         SlashContext slashCtx = new SlashContext(
                 session, screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
                 compactPlanner, ctx, Optional.ofNullable(sessionChooser),
-                Optional.of(modelChooser), Optional.of(themeChooser), Optional.of(providerChooser),
-                clearScreen);
+                Optional.of(modelChooser), Optional.of(themeChooser), Optional.of(providerChooser));
         SlashComposer slashComposer = new SlashComposer(
                 slashRegistry, slashCtx, screen, screen, terminal);
 
@@ -157,7 +151,6 @@ public final class JLineRepl extends Repl {
         config.modelChooser = modelChooser;
         config.themeChooser = themeChooser;
         config.providerChooser = providerChooser;
-        config.clearScreen = clearScreen;
         config.notifications = notifications;
         config.expandableHistory = expandableHistory;
 
@@ -251,12 +244,14 @@ public final class JLineRepl extends Repl {
     }
 
     @Override
-    protected void onSessionReplaced(ConversationSession newSession) {
+    protected void onSessionReplaced(ConversationSession newSession, boolean fresh) {
         sessionContext.batch(() -> {
             sessionContext.setCwd(newSession.workingDirectory());
             sessionContext.setSessionId(newSession.sessionId());
         });
-        showSessionSummary();
+        if (!fresh) {
+            showSessionSummary();
+        }
         loadHistory();
     }
 

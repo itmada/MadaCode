@@ -190,6 +190,16 @@ public class ConversationSession {
         }
     }
 
+    public void fireToolResultAvailable(String toolUseId, boolean success, String output) {
+        for (SessionListener l : listeners) {
+            try {
+                l.onToolResultAvailable(toolUseId, success, output);
+            } catch (RuntimeException e) {
+                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolResultAvailable", e);
+            }
+        }
+    }
+
     public void fireToolExecutionProgress(String toolUseId, String progressText) {
         for (SessionListener l : listeners) {
             try {

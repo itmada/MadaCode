@@ -8,8 +8,8 @@ import java.util.List;
 
 /**
  * Renders a styled welcome card shown once at startup, before the session
- * picker.  The card contains an ASCII engine logo on the left and three
- * lines of metadata (welcome / model / cwd) on the right.
+ * picker.  The card contains an ASCII engine logo on the left and four
+ * lines of metadata (welcome / provider / model / cwd) on the right.
  *
  * <p>Box width is content-driven: just wide enough to fit the logo and meta
  * lines, capped by the terminal width.  Each returned line is a complete
@@ -33,15 +33,17 @@ public final class WelcomeCard {
     /**
      * Render a styled welcome card.
      *
+     * @param provider      current provider name
      * @param model         current model name
      * @param cwd           working directory
      * @param terminalWidth terminal columns available
      * @return scrollback lines (9 for normal terminals, 3 for very narrow ones)
      */
-    public static List<String> render(String model, Path cwd, int terminalWidth) {
+    public static List<String> render(String provider, String model, Path cwd, int terminalWidth) {
         if (terminalWidth < 40) {
             return List.of(
                     "MadaCode " + VERSION,
+                    "provider: " + provider,
                     "model:  " + model,
                     "cwd:    " + shortCwd(cwd));
         }
@@ -57,6 +59,7 @@ public final class WelcomeCard {
         // Measure natural content width from meta strings (displayWidth strips ANSI)
         String[] metaRaw = {
                 Tk.dim("Welcome, ") + user,
+                Tk.dim("provider: ") + provider,
                 Tk.dim("model: ") + model,
                 rawCwd
         };
@@ -75,6 +78,7 @@ public final class WelcomeCard {
         int metaMaxWidth = Math.max(0, innerWidth - metaStart - sidePad);
         String[] meta = {
                 Tk.dim("Welcome, ") + user,
+                Tk.dim("provider: ") + provider,
                 Tk.dim("model: ") + model,
                 fitCwd(rawCwd, metaMaxWidth)
         };
@@ -89,9 +93,9 @@ public final class WelcomeCard {
         lines.add(Tk.bold("│") + " ".repeat(innerWidth) + Tk.bold("│"));
         lines.add(Tk.bold("│") + " ".repeat(innerWidth) + Tk.bold("│"));
 
-        // ---- logo + meta rows (5 logo lines, meta at rows 1–3) ----
+        // ---- logo + meta rows (5 logo lines, meta at rows 1–4) ----
         for (int i = 0; i < LOGO.length; i++) {
-            String metaText = (i >= 1 && i <= 3) ? meta[i - 1] : "";
+            String metaText = (i >= 1 && i <= 4) ? meta[i - 1] : "";
             String line = Tk.bold("│")
                     + " ".repeat(sidePad)
                     + LOGO[i]
@@ -111,6 +115,10 @@ public final class WelcomeCard {
         lines.add(Tk.bold("╰" + "─".repeat(innerWidth) + "╯"));
 
         return lines;
+    }
+
+    public static List<String> render(String model, Path cwd, int terminalWidth) {
+        return render("unknown", model, cwd, terminalWidth);
     }
 
     // ---- internal helpers -----------------------------------------------

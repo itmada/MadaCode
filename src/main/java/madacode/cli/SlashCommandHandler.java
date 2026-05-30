@@ -30,7 +30,6 @@ public class SlashCommandHandler {
     private final Optional<SlashContext.ModelChooser> modelChooser;
     private final Optional<SlashContext.ThemeChooser> themeChooser;
     private final Optional<SlashContext.ProviderChooser> providerChooser;
-    private final Runnable clearScreen;
     private final NotificationCenter notifications;
 
     private SlashCommandHandler(Builder builder) {
@@ -45,7 +44,6 @@ public class SlashCommandHandler {
         this.modelChooser = Optional.ofNullable(builder.modelChooser);
         this.themeChooser = Optional.ofNullable(builder.themeChooser);
         this.providerChooser = Optional.ofNullable(builder.providerChooser);
-        this.clearScreen = builder.clearScreen == null ? () -> {} : builder.clearScreen;
         this.notifications = builder.notifications;
     }
 
@@ -65,7 +63,6 @@ public class SlashCommandHandler {
         private SlashContext.ModelChooser modelChooser;
         private SlashContext.ThemeChooser themeChooser;
         private SlashContext.ProviderChooser providerChooser;
-        private Runnable clearScreen;
         private NotificationCenter notifications;
 
         private Builder(SessionStorage storage, Screen screen) {
@@ -118,11 +115,6 @@ public class SlashCommandHandler {
             return this;
         }
 
-        public Builder clearScreen(Runnable clearScreen) {
-            this.clearScreen = clearScreen;
-            return this;
-        }
-
         public Builder notifications(NotificationCenter notifications) {
             this.notifications = notifications;
             return this;
@@ -159,8 +151,7 @@ public class SlashCommandHandler {
                 sessionChooser,
                 modelChooser,
                 themeChooser,
-                providerChooser,
-                clearScreen);
+                providerChooser);
         return command.get().execute(ctx, arg);
     }
 

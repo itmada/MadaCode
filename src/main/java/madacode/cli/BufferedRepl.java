@@ -68,7 +68,6 @@ public final class BufferedRepl extends Repl {
         config.expandableHistory = null;
         config.providerRegistry = providerRegistry;
         config.compactPlanner = compactPlanner;
-        config.clearScreen = () -> {};
         return config;
     }
 

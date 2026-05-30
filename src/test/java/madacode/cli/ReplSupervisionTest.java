@@ -248,9 +248,59 @@ class ReplSupervisionTest {
         assertTrue(turnLogs.contains("DONE"));
     }
 
+    @Test
+    void newSlashCommandRendersFreshSessionStartWithoutSwitchNoise() {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws"));
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ProviderRegistry testRegistry = ProviderRegistry.singleProvider(
+                new Provider("test", "test-token",
+                        java.net.URI.create("https://api.anthropic.com"),
+                        "claude-opus-4-7",
+                        List.of(new Model("claude-opus-4-7", 200_000))));
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> {
+                    throw new AssertionError("/new must not run a model turn");
+                },
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns")));
+        BufferedRepl repl = new BufferedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("/new\nexit\n")),
+                new PrintStream(buf, true),
+                storage,
+                madacode.cli.slash.SlashCommandRegistry.create(null),
+                testRegistry,
+                null);
+
+        repl.run();
+
+        String output = stripAnsi(buf.toString());
+        assertTrue(output.contains("(saved current session)"));
+        assertTrue(output.contains("MadaCode"));
+        assertTrue(output.contains("provider: test"));
+        assertTrue(output.contains("model: claude-opus-4-7"));
+        assertTrue(output.contains("Session initialized."));
+        assertTrue(!output.contains("New session:"));
+        assertTrue(!output.contains("  ·  new"));
+        assertTrue(!output.contains("Switched to session:"));
+
+        int savedIndex = output.indexOf("(saved current session)");
+        int welcomeIndex = output.indexOf("MadaCode", savedIndex);
+        int initializedIndex = output.indexOf("Session initialized.", welcomeIndex);
+        assertTrue(savedIndex >= 0);
+        assertTrue(welcomeIndex > savedIndex);
+        assertTrue(initializedIndex > welcomeIndex);
+    }
+
     private static String firstText(Message m) {
         if (m.contentBlocks().isEmpty()) return "";
         ContentBlock first = m.contentBlocks().getFirst();
         return first instanceof ContentBlock.TextBlock tb ? tb.text() : "";
+    }
+
+    private static String stripAnsi(String text) {
+        return text.replaceAll("\\u001B\\[[;?0-9]*[ -/]*[@-~]", "");
     }
 }

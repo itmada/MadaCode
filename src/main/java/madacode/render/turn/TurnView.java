@@ -141,6 +141,7 @@ public final class TurnView {
     private List<OutputEntry> layout(int width) {
         List<OutputEntry> entries = new ArrayList<>();
         boolean stillInPrefix = true;
+        boolean hidePureQueuedToolsAfterPermissionWaiter = false;
 
         for (Renderable item : items) {
             if (item instanceof AssistantTextRenderable atr) {
@@ -165,6 +166,12 @@ public final class TurnView {
                     stillInPrefix = false;
                 }
             } else {
+                if (hidePureQueuedToolsAfterPermissionWaiter
+                        && item instanceof ToolCardRenderable tc
+                        && tc.isPureQueued()) {
+                    stillInPrefix = false;
+                    continue;
+                }
                 List<String> rendered = item.render(width);
                 if (rendered.isEmpty()) {
                     if (!item.isFinalized()) stillInPrefix = false;
@@ -176,6 +183,10 @@ public final class TurnView {
                         !item.isMarginIssued() && firstEntryOf(entries, item),
                         permanent));
                 if (!permanent) stillInPrefix = false;
+                if (item instanceof ToolCardRenderable tc
+                        && tc.permissionPhase() == ToolCardRenderable.PermissionPhase.WAITING) {
+                    hidePureQueuedToolsAfterPermissionWaiter = true;
+                }
             }
         }
 

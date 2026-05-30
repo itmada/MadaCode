@@ -145,6 +145,42 @@ class MarkdownRendererTest {
         assertNull(r.flushRemaining(), "buffer empty after flush");
     }
 
+    @Test
+    void streamingBlocksKeepBlankLineBetweenCommits() {
+        MarkdownRenderer r = new MarkdownRenderer();
+
+        r.append("first paragraph\n\n");
+        List<String> first = collectRendered(r, 80);
+        assertTrue(first.stream().anyMatch(l -> strip(l).contains("first paragraph")),
+                "first paragraph should render: " + first);
+
+        r.append("second paragraph\n");
+        List<String> second = collectRendered(r, 80);
+        assertFalse(second.isEmpty(), "second batch should render");
+        assertEquals("", strip(second.getFirst()),
+                "new top-level block after an earlier commit should own a leading blank: " + second);
+        assertTrue(second.stream().anyMatch(l -> strip(l).contains("second paragraph")),
+                "second paragraph should render: " + second);
+    }
+
+    @Test
+    void streamingSoftBreakDoesNotCreateBlankLineBetweenCommits() {
+        MarkdownRenderer r = new MarkdownRenderer();
+
+        r.append("first line\n");
+        List<String> first = collectRendered(r, 80);
+        assertTrue(first.stream().anyMatch(l -> strip(l).contains("first line")),
+                "first line should render: " + first);
+
+        r.append("second line\n");
+        List<String> second = collectRendered(r, 80);
+        assertFalse(second.isEmpty(), "second batch should render");
+        assertNotEquals("", strip(second.getFirst()),
+                "ordinary soft break across commits should not gain a blank line: " + second);
+        assertTrue(second.stream().anyMatch(l -> strip(l).contains("second line")),
+                "second line should render: " + second);
+    }
+
 
     // ---- renderPartial (partial line preview) --------------------------
 

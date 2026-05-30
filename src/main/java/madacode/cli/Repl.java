@@ -11,12 +11,15 @@ import madacode.core.SessionStorageException;
 import madacode.core.TurnExecutor;
 import madacode.core.TurnHandle;
 import madacode.services.compact.CompactPlanner;
+import madacode.provider.ActiveState;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
+import madacode.render.BlockSpacing;
 import madacode.render.HistoryPrinter;
 import madacode.render.MetaEventRenderer;
 import madacode.render.turn.TurnRenderer;
 import madacode.tui.Screen;
+import madacode.tui.WelcomeCard;
 import madacode.tui.theme.Tk;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
@@ -36,6 +39,7 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
     final MetaEventRenderer metaEventRenderer;
     final HistoryPrinter historyPrinter;
     final SessionContext sessionContext;
+    final ProviderRegistry providerRegistry;
     final NotificationCenter notifications;
     InterruptController interruptController;
     final TurnExecutor turnExecutor;
@@ -50,6 +54,7 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
         this.turnRenderer = Objects.requireNonNull(config.turnRenderer, "turnRenderer");
         this.historyPrinter = new HistoryPrinter(screen, config.expandableHistory);
         this.sessionContext = config.sessionContext;
+        this.providerRegistry = config.providerRegistry;
         this.notifications = config.notifications;
         this.shutdownTargets = config.shutdownTargets != null
                 ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
@@ -64,7 +69,6 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
                 .modelChooser(config.modelChooser)
                 .themeChooser(config.themeChooser)
                 .providerChooser(config.providerChooser)
-                .clearScreen(config.clearScreen)
                 .notifications(notifications)
                 .build();
         session.addListener(turnRenderer);
@@ -92,18 +96,13 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
             }
             case SlashAction.Handled h -> true;
             case SlashAction.SwitchSession s -> {
-                replaceSession(s.session());
+                replaceSession(s.session(), s.fresh());
                 yield true;
             }
             case SlashAction.ReplayAll r -> {
                 turnRenderer.reset();
                 metaEventRenderer.reset();
                 historyPrinter.printAll(session.messages());
-                yield true;
-            }
-            case SlashAction.Cleared c -> {
-                turnRenderer.reset();
-                metaEventRenderer.reset();
                 yield true;
             }
             case SlashAction.Exit e -> {
@@ -156,7 +155,7 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
         }
     }
 
-    final void replaceSession(ConversationSession newSession) {
+    final void replaceSession(ConversationSession newSession, boolean fresh) {
         session.removeListener(turnRenderer);
         session.removeListener(metaEventRenderer);
         turnRenderer.reset();
@@ -164,13 +163,40 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
         this.session = newSession;
         newSession.addListener(turnRenderer);
         newSession.addListener(metaEventRenderer);
-        onSessionReplaced(newSession);
-        screen.scrollback("Switched to session: " + newSession.sessionId());
-        screen.scrollback("");
+        onSessionReplaced(newSession, fresh);
+        if (fresh) {
+            renderFreshSessionHeader(newSession);
+        } else {
+            screen.scrollback("Switched to session: " + newSession.sessionId());
+            screen.scrollback("");
+        }
         historyPrinter.printAll(newSession.messages());
     }
 
-    protected void onSessionReplaced(ConversationSession newSession) {}
+    protected void onSessionReplaced(ConversationSession newSession, boolean fresh) {}
+
+    private void renderFreshSessionHeader(ConversationSession newSession) {
+        ActiveModel activeModel = currentActiveModel();
+        BlockSpacing.scrollbackBlock(screen,
+                WelcomeCard.render(
+                        activeModel.provider(),
+                        activeModel.model(),
+                        newSession.workingDirectory(),
+                        screen.width()));
+    }
+
+    private ActiveModel currentActiveModel() {
+        if (providerRegistry != null) {
+            ActiveState active = providerRegistry.active();
+            return new ActiveModel(active.provider().name(), active.currentModel().name());
+        }
+        if (sessionContext != null && sessionContext.model() != null) {
+            return new ActiveModel("unknown", sessionContext.model());
+        }
+        return new ActiveModel("unknown", "unknown");
+    }
+
+    private record ActiveModel(String provider, String model) {}
 
     final void persistSession() {
         try {
@@ -219,7 +245,6 @@ public abstract sealed class Repl permits JLineRepl, BufferedRepl {
         SlashContext.ModelChooser modelChooser;
         SlashContext.ThemeChooser themeChooser;
         SlashContext.ProviderChooser providerChooser;
-        Runnable clearScreen;
         NotificationCenter notifications;
         List<AutoCloseable> shutdownTargets;
     }

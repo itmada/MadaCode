@@ -37,6 +37,7 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
     private final Terminal terminal;
     private final Screen screen;
     private final Suspendable readerLock;
+    private final Object promptLock = new Object();
     private final Consumer<String> onInterrupt;  // nullable; called on ESC/Ctrl+C to cancel the turn
     private volatile TurnRenderer turnRenderer;
 
@@ -58,14 +59,16 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
 
     @Override
     public ApprovalResponse requestApproval(Tool<?> tool, String input) {
-        TurnRenderer tr = turnRenderer;
-        if (tr != null) {
-            String toolUseId = ToolExecutor.CURRENT_TOOL_USE_ID.get();
-            if (toolUseId != null) {
-                return requestApprovalInline(tr, toolUseId);
+        synchronized (promptLock) {
+            TurnRenderer tr = turnRenderer;
+            if (tr != null) {
+                String toolUseId = ToolExecutor.CURRENT_TOOL_USE_ID.get();
+                if (toolUseId != null) {
+                    return requestApprovalInline(tr, toolUseId);
+                }
             }
+            return requestApprovalModal(tool, input);
         }
-        return requestApprovalModal(tool, input);
     }
 
     // ---- inline path (TurnRenderer-based, no setLiveModal) ---------------

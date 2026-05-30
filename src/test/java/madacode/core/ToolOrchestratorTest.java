@@ -102,6 +102,62 @@ class ToolOrchestratorTest {
     }
 
     @Test
+    void concurrentSegmentPublishesCompletedToolsAsTheyFinish() throws Exception {
+        CountDownLatch slowStarted = new CountDownLatch(1);
+        CountDownLatch releaseSlow = new CountDownLatch(1);
+        CountDownLatch fastResultSeen = new CountDownLatch(1);
+        List<String> resultEvents = Collections.synchronizedList(new ArrayList<>());
+
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(new RecordingTool("safe", true, () -> {
+            String tag = CURRENT_TAG.get();
+            if ("slow".equals(tag)) {
+                slowStarted.countDown();
+                try {
+                    if (!releaseSlow.await(2, TimeUnit.SECONDS)) {
+                        throw new AssertionError("slow release timed out");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            } else if ("fast".equals(tag)) {
+                try {
+                    if (!slowStarted.await(2, TimeUnit.SECONDS)) {
+                        throw new AssertionError("slow did not start");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }));
+
+        ConversationSession session = new ConversationSession();
+        session.addListener(new SessionListener() {
+            @Override
+            public void onToolResultAvailable(String toolUseId, boolean success, String output) {
+                resultEvents.add(toolUseId);
+                if ("call-fast".equals(toolUseId)) {
+                    fastResultSeen.countDown();
+                }
+            }
+        });
+
+        ToolOrchestrator orchestrator = newOrchestrator(registry);
+        Thread runner = new Thread(() -> orchestrator.run(
+                List.of(callOf("safe", "slow"), callOf("safe", "fast")),
+                new ToolUseContext(java.nio.file.Path.of("."), session)));
+        runner.start();
+
+        assertTrue(fastResultSeen.await(2, TimeUnit.SECONDS),
+                "fast result should publish before slow is released");
+        assertEquals(List.of("call-fast"), List.copyOf(resultEvents));
+
+        releaseSlow.countDown();
+        runner.join(2_000);
+        assertFalse(runner.isAlive(), "orchestrator should finish after slow release");
+    }
+
+    @Test
     void unsafeBatchRunsStrictlySerial() {
         // For unsafe tools we record entry/exit timestamps. Any two calls'
         // intervals must be disjoint.
@@ -185,6 +241,8 @@ class ToolOrchestratorTest {
         return new ToolCall("call-" + tag, toolName, input);
     }
 
+    private static final ThreadLocal<String> CURRENT_TAG = new ThreadLocal<>();
+
     /**
      * Tool that records the {@code tag} input and runs an optional side effect
      * on each call (used to inject delays, throws, or barrier waits).
@@ -241,8 +299,13 @@ class ToolOrchestratorTest {
         public ToolResult execute(ObjectNode input, ToolUseContext context) {
             String tag = input.path("tag").asText();
             seen.add(tag);
-            if (hook != null) {
-                hook.run();
+            CURRENT_TAG.set(tag);
+            try {
+                if (hook != null) {
+                    hook.run();
+                }
+            } finally {
+                CURRENT_TAG.remove();
             }
             return new ToolResult(name, true, "ok-" + tag);
         }

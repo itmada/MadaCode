@@ -144,10 +144,23 @@ public final class TurnRenderer implements SessionListener {
 
     @Override
     public synchronized void onToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {
+        ToolCardRenderable card = toolCards.get(toolUseId);
+        if (card != null) {
+            card.markStarted();
+        }
         String activity = toolDisplays.activityDescription(toolName, input);
         activeToolDescriptions.put(toolUseId, activity);
         showStatusLine(activity, TurnStatusRenderable.Mode.TOOL_USE);
         turnView.markDirty();
+    }
+
+    @Override
+    public synchronized void onToolResultAvailable(String toolUseId, boolean success, String output) {
+        ToolCardRenderable card = toolCards.get(toolUseId);
+        if (card != null) {
+            card.setResultOutput(success, output);
+            turnView.markDirty();
+        }
     }
 
     @Override

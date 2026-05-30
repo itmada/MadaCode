@@ -97,6 +97,15 @@ class FileReadToolTest {
     }
 
     @Test
+    void rejectsMissingPathWithClearMessage() {
+        ToolResult result = tool.execute(new FileReadTool.Input("missing.txt", null, null), context);
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("Path does not exist"));
+        assertTrue(result.output().contains("missing.txt"));
+    }
+
+    @Test
     void flagsLargeFileWithoutRangeAsTruncated() throws IOException {
         Path file = workingDir.resolve("big-bytes.txt");
         String content = "x".repeat(1_100_000);

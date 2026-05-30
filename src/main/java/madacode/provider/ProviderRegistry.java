@@ -29,7 +29,10 @@ public final class ProviderRegistry {
                 .map(byName::get)
                 .filter(Objects::nonNull)
                 .orElseGet(() -> byName.values().iterator().next());
-        this.active = buildState(initial, initial.defaultModel());
+        String initialModel = state.readActiveModel(initial.name())
+                .filter(modelName -> hasModel(initial, modelName))
+                .orElse(initial.defaultModel());
+        this.active = buildState(initial, initialModel);
     }
 
     /** Test helper: single-provider registry backed by in-memory state. */
@@ -73,7 +76,10 @@ public final class ProviderRegistry {
         Provider next = find(name).orElseThrow(
                 () -> new ProviderException("Unknown provider: " + name));
         synchronized (this) {
-            this.active = buildState(next, next.defaultModel());
+            String modelName = state.readActiveModel(next.name())
+                    .filter(saved -> hasModel(next, saved))
+                    .orElse(next.defaultModel());
+            this.active = buildState(next, modelName);
         }
         if (persist) {
             state.writeActiveProvider(name);
@@ -89,15 +95,24 @@ public final class ProviderRegistry {
         state.clearActiveProvider();
     }
 
-    /** Switch model within the active provider. Does not persist. */
-    public synchronized void setActiveModel(String modelName) {
-        Provider current = active.provider();
-        Model model = current.models().stream()
-                .filter(m -> m.name().equals(modelName))
-                .findFirst()
-                .orElseThrow(() -> new ProviderException(
-                        "Model '" + modelName + "' not in provider '" + current.name() + "'"));
-        this.active = new ActiveState(current, model);
+    /** Switch model within the active provider and persist it for future sessions. */
+    public void setActiveModel(String modelName) {
+        String providerName;
+        synchronized (this) {
+            Provider current = active.provider();
+            Model model = current.models().stream()
+                    .filter(m -> m.name().equals(modelName))
+                    .findFirst()
+                    .orElseThrow(() -> new ProviderException(
+                            "Model '" + modelName + "' not in provider '" + current.name() + "'"));
+            this.active = new ActiveState(current, model);
+            providerName = current.name();
+        }
+        state.writeActiveModel(providerName, modelName);
+    }
+
+    private static boolean hasModel(Provider provider, String modelName) {
+        return provider.models().stream().anyMatch(m -> m.name().equals(modelName));
     }
 
     private static ActiveState buildState(Provider provider, String modelName) {

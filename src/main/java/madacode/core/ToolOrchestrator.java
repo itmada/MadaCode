@@ -10,10 +10,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 public final class ToolOrchestrator {
 
@@ -77,37 +78,62 @@ public final class ToolOrchestrator {
         // otherwise the callback (now pointing at a closed executor) would
         // linger on the cancellation token until the turn ends.
         try (Subscription killSub = context.cancellationToken().onCancel(executor::shutdownNow)) {
-            List<Future<ToolResult>> futures = new ArrayList<>(endExclusive - start);
+            CompletionService<IndexedToolResult> completion = new ExecutorCompletionService<>(executor);
+            int submitted = 0;
             for (int k = start; k < endExclusive; k++) {
                 ToolCall call = toolCalls.get(k);
-                futures.add(executor.submit(() -> toolExecutor.execute(call, context)));
+                final int slot = k;
+                completion.submit(() -> {
+                    try {
+                        return new IndexedToolResult(slot, toolExecutor.execute(call, context));
+                    } catch (Throwable t) {
+                        if (t instanceof InterruptedException) {
+                            Thread.currentThread().interrupt();
+                        }
+                        String message = t instanceof CancellationException
+                                ? "Cancelled: " + t.getMessage()
+                                : "Tool execution failed: " + t.getMessage();
+                        return new IndexedToolResult(slot, errorResult(call, message, context));
+                    }
+                });
+                submitted++;
             }
-            for (int idx = 0; idx < futures.size(); idx++) {
-                int slot = start + idx;
+            for (int idx = 0; idx < submitted; idx++) {
                 try {
-                    results.set(slot, futures.get(idx).get());
+                    IndexedToolResult completed = completion.take().get();
+                    results.set(completed.index(), completed.result());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    results.set(slot, errorResult(toolCalls.get(slot),
-                            "Tool execution interrupted: " + e.getMessage(), context));
+                    fillMissingConcurrentResults(toolCalls, results, start, endExclusive,
+                            "Tool execution interrupted: " + e.getMessage(), context);
+                    break;
                 } catch (java.util.concurrent.CancellationException e) {
-                    results.set(slot, errorResult(toolCalls.get(slot),
-                            "Cancelled: " + reasonOrDefault(context), context));
+                    fillMissingConcurrentResults(toolCalls, results, start, endExclusive,
+                            "Cancelled: " + reasonOrDefault(context), context);
+                    break;
                 } catch (ExecutionException e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
-                    if (cause instanceof CancellationException) {
-                        results.set(slot, errorResult(toolCalls.get(slot),
-                                "Cancelled: " + cause.getMessage(), context));
-                    } else {
-                        results.set(slot, errorResult(toolCalls.get(slot),
-                                "Tool execution failed: " + cause.getMessage(), context));
-                    }
+                    fillMissingConcurrentResults(toolCalls, results, start, endExclusive,
+                            "Tool execution failed: " + cause.getMessage(), context);
+                    break;
                 }
             }
         } finally {
             executor.close();
         }
         // killSub auto-closes here via try-with-resources.
+    }
+
+    private static void fillMissingConcurrentResults(List<ToolCall> toolCalls,
+                                                     List<ToolResult> results,
+                                                     int start, int endExclusive,
+                                                     String message,
+                                                     ToolUseContext context) {
+        for (int slot = start; slot < endExclusive; slot++) {
+            if (results.get(slot) == null) {
+                results.set(slot, errorResult(toolCalls.get(slot), message, context));
+            }
+        }
     }
 
     private static String reasonOrDefault(ToolUseContext context) {
@@ -129,7 +155,10 @@ public final class ToolOrchestrator {
 
     private static ToolResult errorResult(ToolCall call, String message, ToolUseContext context) {
         ToolResult result = new ToolResult(call.toolName(), false, message);
+        context.session().fireToolResultAvailable(call.id(), false, message);
         context.session().fireToolExecutionCompleted(call.id(), false, 0);
         return result;
     }
+
+    private record IndexedToolResult(int index, ToolResult result) {}
 }

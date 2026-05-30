@@ -13,13 +13,12 @@ final class NewCommand implements SlashCommand {
     public SlashAction execute(SlashContext ctx, String args) {
         try {
             ctx.storage().save(ctx.session());
-            ctx.screen().scrollback("(saved current session)");
+            SlashFeedback.muted(ctx.screen(), "(saved current session)");
         } catch (SessionStorageException e) {
             ctx.screen().scrollback("[warn] Failed to save current session: " + e.getMessage());
         }
         ConversationSession fresh = new ConversationSession();
         SessionPointer.write(fresh.sessionId());
-        ctx.screen().scrollback("New session: " + fresh.sessionId());
-        return new SlashAction.SwitchSession(fresh);
+        return new SlashAction.SwitchSession(fresh, true);
     }
 }

@@ -19,6 +19,7 @@ import java.util.Objects;
  *
  * <p>Transitions through phases:
  * <ol>
+ *   <li>{@code queued} — tool_use has appeared, execution has not started</li>
  *   <li>{@code RUNNING} — spinner + title</li>
  *   <li>{@code RUNNING + permission WAITING} — adds inline permission prompt</li>
  *   <li>{@code SUCCESS / FAILED / DENIED} — final card with result lines</li>
@@ -39,6 +40,7 @@ public final class ToolCardRenderable implements Renderable {
     private int droppedActivityLineCount;
 
     private DisplayStatus status = DisplayStatus.RUNNING;
+    private boolean started;
     private long durationMs;
     private PermissionPhase permissionPhase = PermissionPhase.NONE;
     private int permissionSelectedIdx;
@@ -66,6 +68,7 @@ public final class ToolCardRenderable implements Renderable {
         if (line == null || line.text().isBlank()) {
             return;
         }
+        started = true;
         progressLines.add(line);
         if (progressLines.size() > MAX_PROGRESS_LINES_STORED) {
             ToolProgressLine dropped = progressLines.removeFirst();
@@ -112,6 +115,10 @@ public final class ToolCardRenderable implements Renderable {
         this.resultOutput = output != null ? output : "";
     }
 
+    public synchronized void markStarted() {
+        this.started = true;
+    }
+
     public synchronized void enterPermissionPhase() {
         this.permissionPhase = PermissionPhase.WAITING;
         this.permissionSelectedIdx = 0;
@@ -129,6 +136,15 @@ public final class ToolCardRenderable implements Renderable {
         return permissionPhase;
     }
 
+    public synchronized boolean isPureQueued() {
+        return status == DisplayStatus.RUNNING
+                && !started
+                && permissionPhase == PermissionPhase.NONE
+                && progressLines.isEmpty()
+                && resultOutput.isBlank()
+                && !finalized;
+    }
+
     @Override
     public synchronized List<String> render(int maxWidth) {
         List<String> lines = new ArrayList<>();
@@ -136,9 +152,11 @@ public final class ToolCardRenderable implements Renderable {
 
         switch (status) {
             case RUNNING -> {
-                display = displayRegistry.renderRunning(toolName, input, progressSnapshot());
+                display = started
+                        ? displayRegistry.renderRunning(toolName, input, progressSnapshot())
+                        : displayRegistry.renderQueued(toolName, input);
                 lines.addAll(ToolActivityCardRenderer.card(display, maxWidth));
-                if (display.detailLines().isEmpty()) {
+                if (started && display.detailLines().isEmpty()) {
                     int total = progressLines.size();
                     int start = Math.max(0, total - PROGRESS_RENDER_CAP);
                     int hiddenCount = droppedProgressLineCount + start;

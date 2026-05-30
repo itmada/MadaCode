@@ -177,6 +177,7 @@ public final class ToolExecutor {
                                       String id, String toolName, ObjectNode input,
                                       ToolResult result, long durationMs) {
         CURRENT_TOOL_USE_ID.remove();
+        session.fireToolResultAvailable(id, result.success(), result.output());
         session.fireToolExecutionCompleted(id, result.success(), durationMs);
     }
 

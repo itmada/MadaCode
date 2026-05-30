@@ -25,8 +25,7 @@ public record SlashContext(
         Optional<SessionChooser> sessionChooser,
         Optional<ModelChooser> modelChooser,
         Optional<ThemeChooser> themeChooser,
-        Optional<ProviderChooser> providerChooser,
-        Runnable clearScreen) {
+        Optional<ProviderChooser> providerChooser) {
 
     public SlashContext {
         Objects.requireNonNull(providerRegistry, "providerRegistry");
@@ -34,7 +33,6 @@ public record SlashContext(
         modelChooser = modelChooser == null ? Optional.empty() : modelChooser;
         themeChooser = themeChooser == null ? Optional.empty() : themeChooser;
         providerChooser = providerChooser == null ? Optional.empty() : providerChooser;
-        clearScreen = clearScreen == null ? () -> {} : clearScreen;
     }
 
     @FunctionalInterface

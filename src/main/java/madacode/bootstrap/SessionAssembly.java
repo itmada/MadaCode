@@ -96,11 +96,13 @@ final class SessionAssembly {
             EnvironmentRuntime environment,
             SessionStorage storage,
             TerminalRuntime terminal) {
-        String model = environment.providerRegistry().active().currentModel().name();
+        var active = environment.providerRegistry().active();
+        String provider = active.provider().name();
+        String model = active.currentModel().name();
         Path cwd = environment.projectDir();
         terminal.screen().scrollback("");
         terminal.screen().scrollback(
-                WelcomeCard.render(model, cwd, terminal.screen().width()));
+                WelcomeCard.render(provider, model, cwd, terminal.screen().width()));
         StartupSessionLauncher launcher = new StartupSessionLauncher(
                 storage,
                 new InlineChoicePrompt<StartupSessionLauncher.Choice>(

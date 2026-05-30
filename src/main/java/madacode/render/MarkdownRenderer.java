@@ -33,7 +33,7 @@ public class MarkdownRenderer {
 
     private final StringBuilder source = new StringBuilder();
     private final ArrayDeque<String> outputQueue = new ArrayDeque<>();
-    private boolean committedAnyBlock;
+    private boolean pendingBlockSeparator;
     private boolean inCodeBlock;
     private String codeBlockLang = "";
     private char codeFenceChar;
@@ -147,7 +147,6 @@ public class MarkdownRenderer {
 
         if (blocks.isEmpty()) {
             source.setLength(0);
-            committedAnyBlock = true;
             return;
         }
 
@@ -163,12 +162,17 @@ public class MarkdownRenderer {
             Node block = blocks.get(i);
             List<String> rendered = writer.render(block, width);
             if (!rendered.isEmpty()) {
-                if (!firstCommitted) outputQueue.addLast("");
+                if (!firstCommitted || pendingBlockSeparator) outputQueue.addLast("");
                 outputQueue.addAll(rendered);
+                pendingBlockSeparator = false;
                 firstCommitted = false;
             }
         }
-        committedAnyBlock = true;
+
+        boolean committedThroughEnd = !(keep > 0 && commitEnd < blocks.size());
+        if (committedThroughEnd && sourceEndsWithBlankLine(srcText)) {
+            pendingBlockSeparator = true;
+        }
 
         if (keep > 0 && commitEnd < blocks.size()) {
             Node keptBlock = blocks.get(commitEnd);
@@ -242,7 +246,6 @@ public class MarkdownRenderer {
             }
             source.setLength(0);
             source.append(remaining);
-            committedAnyBlock = true;
         } else {
             for (String cl : codeLines) {
                 outputQueue.addLast(AnsiMarkdownWriter.codeLine(cl, codeBlockLang));
@@ -257,7 +260,6 @@ public class MarkdownRenderer {
             }
             
             source.setLength(0);
-            committedAnyBlock = true;
         }
     }
 
@@ -470,7 +472,7 @@ public class MarkdownRenderer {
     public void reset() {
         source.setLength(0);
         outputQueue.clear();
-        committedAnyBlock = false;
+        pendingBlockSeparator = false;
         inCodeBlock = false;
         codeBlockLang = "";
         codeFenceChar = 0;
@@ -486,6 +488,11 @@ public class MarkdownRenderer {
 
     private boolean hasCompleteLine() {
         return source.indexOf("\n") >= 0;
+    }
+
+    private static boolean sourceEndsWithBlankLine(String text) {
+        if (text == null || text.isEmpty()) return false;
+        return text.endsWith("\n\n") || text.matches("(?s).*\\R[ \\t]*\\R$");
     }
 
     // ---- HTML-lite helpers (backward compat) --------------------------------

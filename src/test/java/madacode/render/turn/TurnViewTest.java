@@ -689,6 +689,78 @@ class TurnViewTest {
         tv.shutdown();
     }
 
+    @Test
+    void finalizedCardAfterPermissionWaiterStaysLiveUntilPrefixResolves() {
+        RecScreen screen = new RecScreen();
+        TurnView tv = new TurnView(screen);
+
+        ObjectNode input = MAPPER.createObjectNode();
+        ToolCardRenderable waiting = new ToolCardRenderable("c1", "bash", input, ToolDisplayRegistry.defaults());
+        waiting.enterPermissionPhase();
+        tv.add(waiting);
+
+        ToolCardRenderable completedAfter = new ToolCardRenderable("c2", "file_read", input, ToolDisplayRegistry.defaults());
+        completedAfter.setResultOutput(true, "hello");
+        completedAfter.finalizeTool(true, 5);
+        tv.add(completedAfter);
+
+        tv.flushNow();
+
+        assertTrue(screen.scrollbackCalls.isEmpty(),
+                "completed later card must not pass permission waiter into scrollback");
+        List<String> live = screen.statusCalls.get(screen.statusCalls.size() - 1);
+        String renderedLive = String.join("\n", live);
+        assertTrue(renderedLive.contains("Permission required"), renderedLive);
+        assertTrue(renderedLive.contains("Read()"), renderedLive);
+
+        waiting.resolvePermission();
+        waiting.setResultOutput(true, "ok");
+        waiting.finalizeTool(true, 10);
+        tv.flushNow();
+
+        assertFalse(screen.scrollbackCalls.isEmpty(),
+                "ordered prefix should spill once permission waiter finalizes");
+        String renderedScrollback = String.join("\n", screen.lastScrollback);
+        assertTrue(renderedScrollback.contains("Bash"), renderedScrollback);
+        assertTrue(renderedScrollback.contains("Read()"), renderedScrollback);
+
+        tv.shutdown();
+    }
+
+    @Test
+    void pureQueuedCardsAfterPermissionWaiterAreHiddenFromLive() {
+        RecScreen screen = new RecScreen();
+        TurnView tv = new TurnView(screen);
+
+        ObjectNode input = MAPPER.createObjectNode();
+        input.put("command", "find .");
+        ToolCardRenderable waiting = new ToolCardRenderable("c1", "bash", input, ToolDisplayRegistry.defaults());
+        waiting.enterPermissionPhase();
+        tv.add(waiting);
+
+        ObjectNode queuedInput = MAPPER.createObjectNode();
+        queuedInput.put("command", "ls -la");
+        ToolCardRenderable queuedAfter = new ToolCardRenderable("c2", "bash", queuedInput, ToolDisplayRegistry.defaults());
+        tv.add(queuedAfter);
+
+        tv.flushNow();
+
+        List<String> live = screen.statusCalls.get(screen.statusCalls.size() - 1);
+        String renderedLive = String.join("\n", live);
+        assertTrue(renderedLive.contains("Permission required"), renderedLive);
+        assertTrue(renderedLive.contains("find ."), renderedLive);
+        assertFalse(renderedLive.contains("ls -la"), renderedLive);
+
+        queuedAfter.markStarted();
+        tv.flushNow();
+
+        live = screen.statusCalls.get(screen.statusCalls.size() - 1);
+        renderedLive = String.join("\n", live);
+        assertTrue(renderedLive.contains("ls -la"), renderedLive);
+
+        tv.shutdown();
+    }
+
     /** Screen whose width can be changed to simulate terminal resize. */
     private static class ResizeScreen implements Screen {
         volatile int width;

@@ -14,9 +14,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  *       — one call per message, in session order.</li>
  *   <li>Tool execution events ({@link #onToolExecutionStarted},
  *       {@link #onToolExecutionCompleted}) fire immediately before and
- *       after execution; the matching {@code ToolResultBlock} arrives
- *       via {@code onMessageAppended} right after
- *       {@code onToolExecutionCompleted}.</li>
+ *       after execution. {@link #onToolResultAvailable} may arrive before the
+ *       persisted {@code ToolResultBlock}; renderers should treat it as
+ *       transient UI state only.</li>
  * </ul>
  *
  * <h3>Threading contract</h3>
@@ -54,6 +54,9 @@ public interface SessionListener {
 
     /** Tool execution just finished (transient). The matching ToolResultBlock follows via onMessageAppended. */
     default void onToolExecutionCompleted(String toolUseId, boolean success, long durationMs) {}
+
+    /** Tool result content is available before the ordered transcript message is appended. */
+    default void onToolResultAvailable(String toolUseId, boolean success, String output) {}
 
     /** Progress output from a running tool (stdout/stderr lines, MCP progress notifications). */
     default void onToolExecutionProgress(String toolUseId, String progressText) {}

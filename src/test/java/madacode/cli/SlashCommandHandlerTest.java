@@ -117,8 +117,10 @@ public class SlashCommandHandlerTest {
         var ss = (SlashAction.SwitchSession) action;
         assertTrue(!ss.session().sessionId().equals("current"),
                 "Should create a new session, not return current");
+        assertTrue(ss.fresh(), "new command should mark the switched session as fresh");
         String output = outBytes.toString();
-        assertTrue(output.contains("saved current session") || output.contains("New session:"));
+        assertTrue(output.contains("saved current session"));
+        assertTrue(!output.contains("New session:"));
     }
 
     @Test
@@ -355,20 +357,6 @@ public class SlashCommandHandlerTest {
 
         SlashAction.RunLocalTurn run = assertInstanceOf(SlashAction.RunLocalTurn.class, action);
         assertEquals("slash:/compact", run.label());
-    }
-
-    @Test
-    void clearCommandClearsMessagesAndPersists() {
-        storage.save(current);
-        current.fireMetaEvent(new MetaEvent.TokenReport(new TokenUsage(10, 20, 30, 40), 1, 2));
-
-        var action = handler.handle("/clear", current);
-
-        assertInstanceOf(SlashAction.Cleared.class, action);
-        assertEquals(1, current.messages().size());
-        assertEquals(TokenUsage.ZERO, current.tokenUsage());
-        assertTrue(outBytes.toString().contains("Session messages cleared"));
-        assertEquals(1, storage.load("current").messages().size());
     }
 
     @Test
