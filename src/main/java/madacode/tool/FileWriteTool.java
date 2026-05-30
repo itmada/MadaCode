@@ -13,7 +13,6 @@ import java.util.List;
 public class FileWriteTool implements Tool<FileWriteTool.Input> {
 
     public record Input(String file_path, String content) {}
-    private static final long MAX_DIFF_SOURCE_BYTES = 2L * 1024 * 1024; // 2 MiB
 
     @Override
     public String name() {
@@ -75,9 +74,6 @@ public class FileWriteTool implements Tool<FileWriteTool.Input> {
         String content = input.content() == null ? "" : input.content();
 
         boolean exists = Files.exists(target);
-        String originalContent = null;
-        String diffSkippedReason = null;
-        boolean canGenerateDiff = false;
 
         if (exists) {
             if (Files.isDirectory(target)) {
@@ -86,25 +82,6 @@ public class FileWriteTool implements Tool<FileWriteTool.Input> {
             String staleError = context.session().readFileState().checkStaleness(target);
             if (staleError != null) {
                 return new ToolResult(name(), false, staleError + " [errorCode=12]");
-            }
-            try {
-                long size = Files.size(target);
-                if (size > MAX_DIFF_SOURCE_BYTES) {
-                    diffSkippedReason = "existing file is larger than 2 MiB.";
-                } else if (FileSearchSupport.isLikelyBinary(target)) {
-                    diffSkippedReason = "existing file appears to be binary.";
-                } else {
-                    try {
-                        originalContent = Files.readString(target);
-                        canGenerateDiff = true;
-                    } catch (IOException readException) {
-                        diffSkippedReason = "existing file could not be read as text: "
-                                + readException.getMessage();
-                    }
-                }
-            } catch (IOException e) {
-                return new ToolResult(name(), false,
-                        "Failed to inspect existing file: " + e.getMessage());
             }
         } else {
             try {
@@ -126,39 +103,11 @@ public class FileWriteTool implements Tool<FileWriteTool.Input> {
 
         String displayPath = target.toString();
         if (exists) {
-            StringBuilder result = new StringBuilder();
-            result.append("The file ").append(displayPath)
-                    .append(" has been updated successfully.\n");
-            if (canGenerateDiff) {
-                List<String> patch = generatePatch(originalContent, content, displayPath);
-                if (!patch.isEmpty()) {
-                    result.append("Changes:\n");
-                    for (String line : patch) {
-                        result.append(line).append('\n');
-                    }
-                }
-            } else if (diffSkippedReason != null) {
-                result.append("Diff skipped: ").append(diffSkippedReason).append('\n');
-            }
-            return new ToolResult(name(), true, result.toString().trim());
+            return new ToolResult(name(), true,
+                    "The file " + displayPath + " has been updated successfully.");
         } else {
             return new ToolResult(name(), true,
                     "File created successfully at: " + displayPath);
         }
-    }
-
-    private List<String> generatePatch(String original, String updated, String filePath) {
-        return computeUnifiedDiff(original, updated, filePath);
-    }
-
-    static List<String> computeUnifiedDiff(String original, String updated, String filePath) {
-        return UnifiedDiffSupport.computeUnifiedDiff(original, updated, filePath);
-    }
-
-    static List<String> computeUnifiedDiff(
-            List<String> originalLines,
-            List<String> updatedLines,
-            String filePath) {
-        return UnifiedDiffSupport.computeUnifiedDiff(originalLines, updatedLines, filePath);
     }
 }

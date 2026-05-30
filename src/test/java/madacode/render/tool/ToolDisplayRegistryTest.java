@@ -56,23 +56,19 @@ class ToolDisplayRegistryTest {
     }
 
     @Test
-    void keepsDiffDetailsForEdits() {
+    void editDisplayShowsLineChangeCountsOnly() {
         ObjectNode input = mapper.createObjectNode();
         input.put("file_path", "/tmp/App.java");
 
         ToolDisplay display = registry.renderResult("edit", input, true, """
                 The file /tmp/App.java has been updated successfully.
-                @@ -1,1 +1,1 @@
-                -old
-                +new
+                Line changes: +1 -1
                 """, 42);
 
-        assertEquals("Updated 1 file", display.summary());
-        // detail lines are now ANSI-styled by DiffHighlighter — strip for assertion
-        String flat = String.join("\n", display.detailLines()).replaceAll("\\[[0-9;]*[a-zA-Z]", "");
-        assertTrue(flat.contains("@@ -1,1 +1,1 @@"), "hunk header: " + flat);
-        assertTrue(flat.contains("-") && flat.contains("old"), "old line: " + flat);
-        assertTrue(flat.contains("+") && flat.contains("new"), "new line: " + flat);
+        String plainSummary = display.summary().replaceAll("\\[[0-9;]*[a-zA-Z]", "");
+        assertEquals("Updated 1 file  +1 -1", plainSummary);
+        assertTrue(display.summary().contains(""), "line counts should be ANSI-styled");
+        assertTrue(display.detailLines().isEmpty());
     }
 
     @Test

@@ -2,8 +2,6 @@ package madacode.render.tool;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.util.List;
-
 public final class FileEditDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
@@ -24,22 +22,22 @@ public final class FileEditDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderResult(ObjectNode input, boolean success, String output, long durationMs) {
-        return render(input, success, output, durationMs, success ? 10 : 3);
+        return render(input, success, output, durationMs, 3);
     }
 
     @Override
     public ToolDisplay renderResultVerbose(ObjectNode input, boolean success, String output, long durationMs) {
-        return render(input, success, output, durationMs, success ? 200 : 50);
+        return render(input, success, output, durationMs, 50);
     }
 
     private ToolDisplay render(ObjectNode input, boolean success, String output, long durationMs, int maxLines) {
-        String summary = success ? "Updated 1 file" : ToolDisplaySupport.completedSummary(false, durationMs);
-        List<String> details = success
-                ? ToolDisplaySupport.diffLines(output, maxLines)
-                : ToolDisplaySupport.firstUsefulLines(output, maxLines);
+        String changes = ToolDisplaySupport.lineChangeSummary(output);
+        String summary = success
+                ? "Updated 1 file" + (changes.isBlank() ? "" : "  " + changes)
+                : ToolDisplaySupport.completedSummary(false, durationMs);
         return success
-                ? ToolDisplay.success(title(input), summary, details)
-                : ToolDisplay.failed(title(input), summary, details);
+                ? ToolDisplay.success(title(input), summary, java.util.List.of())
+                : ToolDisplay.failed(title(input), summary, ToolDisplaySupport.firstUsefulLines(output, maxLines));
     }
 
     private static String title(ObjectNode input) {

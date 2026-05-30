@@ -93,7 +93,7 @@ public class FileWriteEditToolTest {
     }
 
     @Test
-    void writeIncludesPatchForUpdates(@TempDir Path tempDir) throws IOException {
+    void writeDoesNotIncludePatchOrLineChangesForUpdates(@TempDir Path tempDir) throws IOException {
         Path target = tempDir.resolve("patch.txt");
         Files.writeString(target, "line1\nline2\nline3\nline4\nline5\n");
         context.session().readFileState().record(target, false);
@@ -103,8 +103,10 @@ public class FileWriteEditToolTest {
 
         assertTrue(result.success());
         String output = result.output();
-        assertTrue(output.contains("@@"));
-        assertTrue(output.contains("+CHANGED"));
+        assertTrue(output.contains("updated successfully"));
+        assertFalse(output.contains("Line changes:"));
+        assertFalse(output.contains("@@"));
+        assertFalse(output.contains("+CHANGED"));
     }
 
     @Test
@@ -263,7 +265,7 @@ public class FileWriteEditToolTest {
     }
 
     @Test
-    void editIncludesPatchInResult(@TempDir Path tempDir) throws IOException {
+    void editReportsLineChangesInResult(@TempDir Path tempDir) throws IOException {
         Path target = tempDir.resolve("patch.txt");
         Files.writeString(target, "line1\nline2\nline3\nline4\nline5\n");
         context.session().readFileState().record(target, false);
@@ -272,8 +274,9 @@ public class FileWriteEditToolTest {
         ToolResult result = ToolTestSupport.invoke(editTool, input, context);
 
         assertTrue(result.success());
-        assertTrue(result.output().contains("@@"));
-        assertTrue(result.output().contains("+LINE_THREE"));
+        assertTrue(result.output().contains("Line changes: +1 -1"));
+        assertFalse(result.output().contains("@@"));
+        assertFalse(result.output().contains("+LINE_THREE"));
     }
 
     @Test
@@ -387,7 +390,7 @@ public class FileWriteEditToolTest {
     }
 
     @Test
-    void writeOverwritesLargeExistingFileAndSkipsDiff(@TempDir Path tempDir) throws IOException {
+    void writeOverwritesLargeExistingFileWithoutLineChanges(@TempDir Path tempDir) throws IOException {
         Path target = tempDir.resolve("large-existing.txt");
         Files.writeString(target, "x".repeat(3 * 1024 * 1024));
         context.session().readFileState().record(target, false);
@@ -397,11 +400,11 @@ public class FileWriteEditToolTest {
 
         assertTrue(result.success());
         assertEquals("new content", Files.readString(target));
-        assertTrue(result.output().contains("Diff skipped: existing file is larger than 2 MiB."));
+        assertFalse(result.output().contains("Line changes:"));
     }
 
     @Test
-    void writeOverwritesBinaryExistingFileAndSkipsDiff(@TempDir Path tempDir) throws IOException {
+    void writeOverwritesBinaryExistingFileWithoutLineChanges(@TempDir Path tempDir) throws IOException {
         Path target = tempDir.resolve("binary-existing.bin");
         Files.write(target, new byte[] {1, 2, 0, 3, 4});
         context.session().readFileState().record(target, false);
@@ -411,7 +414,7 @@ public class FileWriteEditToolTest {
 
         assertTrue(result.success());
         assertEquals("text now", Files.readString(target));
-        assertTrue(result.output().contains("Diff skipped: existing file appears to be binary."));
+        assertFalse(result.output().contains("Line changes:"));
     }
 
     @Test
@@ -427,7 +430,7 @@ public class FileWriteEditToolTest {
     }
 
     @Test
-    void writeDiffIncludesInsertionInsteadOfSkipping(@TempDir Path tempDir) throws IOException {
+    void writeDoesNotReportInsertedLines(@TempDir Path tempDir) throws IOException {
         Path target = tempDir.resolve("insert-delete.txt");
         Files.writeString(target, "a\nb\n");
         context.session().readFileState().record(target, false);
@@ -436,13 +439,12 @@ public class FileWriteEditToolTest {
         ToolResult result = ToolTestSupport.invoke(writeTool, input, context);
 
         assertTrue(result.success());
-        assertTrue(result.output().contains("@@ -1,3 +1,4 @@"));
-        assertTrue(result.output().contains("+c"));
-        assertFalse(result.output().contains("Diff skipped"));
+        assertFalse(result.output().contains("Line changes:"));
+        assertFalse(result.output().contains("@@"));
     }
 
     @Test
-    void writeDiffIncludesDeletionInsteadOfSkipping(@TempDir Path tempDir) throws IOException {
+    void writeDoesNotReportDeletedLines(@TempDir Path tempDir) throws IOException {
         Path target = tempDir.resolve("delete.txt");
         Files.writeString(target, "a\nb\nc\n");
         context.session().readFileState().record(target, false);
@@ -451,8 +453,8 @@ public class FileWriteEditToolTest {
         ToolResult result = ToolTestSupport.invoke(writeTool, input, context);
 
         assertTrue(result.success());
-        assertTrue(result.output().contains("-b"));
-        assertFalse(result.output().contains("Diff skipped"));
+        assertFalse(result.output().contains("Line changes:"));
+        assertFalse(result.output().contains("@@"));
     }
 
     // ---- ReadFileState enforcement tests ----

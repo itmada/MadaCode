@@ -2,8 +2,6 @@ package madacode.render.tool;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.util.List;
-
 public final class FileWriteDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
@@ -24,7 +22,7 @@ public final class FileWriteDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderResult(ObjectNode input, boolean success, String output, long durationMs) {
-        return render(input, success, output, durationMs, success ? 8 : 3);
+        return render(input, success, output, durationMs, 3);
     }
 
     @Override
@@ -37,12 +35,9 @@ public final class FileWriteDisplayAdapter implements ToolDisplayAdapter {
         String summary = success
                 ? "Wrote " + ToolDisplaySupport.plural(ToolDisplaySupport.countNonBlankLines(content), "line", "lines")
                 : ToolDisplaySupport.completedSummary(false, durationMs);
-        List<String> details = success
-                ? ToolDisplaySupport.diffLines(output, maxLines)
-                : ToolDisplaySupport.firstUsefulLines(output, maxLines);
         return success
-                ? ToolDisplay.success(title(input), summary, details)
-                : ToolDisplay.failed(title(input), summary, details);
+                ? ToolDisplay.success(title(input), summary, java.util.List.of())
+                : ToolDisplay.failed(title(input), summary, ToolDisplaySupport.firstUsefulLines(output, maxLines));
     }
 
     private static String title(ObjectNode input) {

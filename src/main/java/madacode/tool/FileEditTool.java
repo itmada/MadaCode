@@ -234,7 +234,7 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
                     "Failed to write file: " + e.getMessage());
         }
 
-        var patch = FileWriteTool.computeUnifiedDiff(original, updated, filePath);
+        LineChangeStats stats = LineChangeStats.between(original, updated);
 
         StringBuilder result = new StringBuilder();
         result.append("The file ").append(filePath)
@@ -242,12 +242,7 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
         if (replaceAll) {
             result.append(". All occurrences were replaced");
         }
-        result.append(".\n");
-        if (!patch.isEmpty()) {
-            for (String line : patch) {
-                result.append(line).append('\n');
-            }
-        }
+        result.append(".\nLine changes: ").append(stats.formatPlain());
         return new ToolResult(name(), true, result.toString().trim());
     }
 
@@ -261,15 +256,11 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
                     "Failed to write file: " + e.getMessage());
         }
 
-        var patch = FileWriteTool.computeUnifiedDiff("", normalized, filePath);
+        LineChangeStats stats = LineChangeStats.between("", normalized);
         StringBuilder result = new StringBuilder();
         result.append("The file ").append(filePath)
-                .append(" has been updated successfully.\n");
-        if (!patch.isEmpty()) {
-            for (String line : patch) {
-                result.append(line).append('\n');
-            }
-        }
+                .append(" has been updated successfully.\n")
+                .append("Line changes: ").append(stats.formatPlain());
         return new ToolResult(name(), true, result.toString().trim());
     }
 

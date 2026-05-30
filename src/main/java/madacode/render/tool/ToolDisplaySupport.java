@@ -14,6 +14,8 @@ final class ToolDisplaySupport {
 
     private static final Pattern MAVEN_TESTS =
             Pattern.compile("Tests run: (\\d+), Failures: (\\d+), Errors: (\\d+)");
+    private static final Pattern LINE_CHANGES =
+            Pattern.compile("Line changes:\\s*\\+(\\d+)\\s+-(\\d+)");
 
     private ToolDisplaySupport() {}
 
@@ -192,5 +194,13 @@ final class ToolDisplaySupport {
             return List.of();
         }
         return madacode.render.DiffHighlighter.highlightAndRender(output, maxLines);
+    }
+
+    static String lineChangeSummary(String output) {
+        Matcher matcher = LINE_CHANGES.matcher(output == null ? "" : output);
+        if (!matcher.find()) {
+            return "";
+        }
+        return Tk.diffAdd("+" + matcher.group(1)) + " " + Tk.diffDel("-" + matcher.group(2));
     }
 }
