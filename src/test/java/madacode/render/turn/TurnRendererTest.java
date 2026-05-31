@@ -47,8 +47,9 @@ class TurnRendererTest {
         renderer.onAssistantBlockAppended(0, new ContentBlock.ToolUseBlock("t1", "bash", input));
 
         List<Renderable> items = turnView.items();
-        assertEquals(1, items.size(), "tool card should be added immediately");
+        assertEquals(2, items.size(), "tool card plus the pending spinner");
         assertSameTool("t1", items.getFirst());
+        assertInstanceOf(TurnStatusRenderable.class, items.get(1), "spinner sits below the card");
         assertTrue(items.getFirst().render(120).isEmpty(), "pure queued tool card should be hidden");
 
         renderer.onToolExecutionReached("t1", "bash", input);
@@ -182,9 +183,10 @@ class TurnRendererTest {
         renderer.onAssistantBlockAppended(0, new ContentBlock.ToolUseBlock("t2", "bash", input2));
 
         List<Renderable> items = turnView.items();
-        assertEquals(2, items.size(), "declared tools should be present in model order");
+        assertEquals(3, items.size(), "two declared tools plus the pending spinner");
         assertSameTool("t1", items.get(0));
         assertSameTool("t2", items.get(1));
+        assertInstanceOf(TurnStatusRenderable.class, items.get(2), "spinner sits below the cards");
         assertTrue(items.get(0).render(120).isEmpty(), "pure queued first tool should be hidden");
         assertTrue(items.get(1).render(120).isEmpty(), "pure queued second tool should be hidden");
 
@@ -210,7 +212,7 @@ class TurnRendererTest {
 
         renderer.onToolExecutionReached("t1", "bash", input1);
         List<Renderable> items = turnView.items();
-        assertEquals(2, items.size(), "tool cards are added immediately");
+        assertEquals(3, items.size(), "two tool cards added immediately, plus the pending spinner");
         assertSameTool("t1", items.getFirst());
         assertSameTool("t2", items.get(1));
         assertTrue(items.getFirst().render(120).isEmpty(), "unstarted approval tool is hidden before permission");
@@ -218,7 +220,7 @@ class TurnRendererTest {
         renderer.beginPermission("t1");
 
         items = turnView.items();
-        assertEquals(2, items.size());
+        assertEquals(3, items.size());
         assertSameTool("t1", items.getFirst());
         assertTrue(items.getFirst().render(120).stream().anyMatch(l -> stripAnsi(l).contains("Permission required")));
         assertTrue(items.get(1).render(120).isEmpty(), "pure queued sibling remains hidden");

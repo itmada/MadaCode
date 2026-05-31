@@ -101,10 +101,23 @@ public final class TurnRenderer implements SessionListener {
         activeStreamIndex = -1;
         if (!activeToolDescriptions.isEmpty()) {
             maybeRestoreToolStatus();
+        } else if (hasPendingToolCard()) {
+            // Tools are declared but none has started yet — keep the spinner
+            // alive across the permission/hook gap so the UI never goes blank.
+            showStatusLine("Preparing...", TurnStatusRenderable.Mode.TOOL_USE);
         } else {
             dismissStatusLine();
         }
         turnView.markDirty();
+    }
+
+    private synchronized boolean hasPendingToolCard() {
+        for (ToolCardRenderable card : toolCards.values()) {
+            if (!card.isFinalized()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---- tool blocks ------------------------------------------------------
@@ -112,8 +125,9 @@ public final class TurnRenderer implements SessionListener {
     @Override
     public synchronized void onAssistantBlockAppended(int index, ContentBlock block) {
         if (block instanceof ContentBlock.ToolUseBlock tu) {
-            dismissStatusLine();
             if (toolCards.containsKey(tu.id())) return;
+            // Drop the thinking spinner so it is rebuilt below the card, not above it.
+            dismissStatusLine();
             if (currentText != null) {
                 currentText.finalizeText();
                 currentText = null;
@@ -122,6 +136,11 @@ public final class TurnRenderer implements SessionListener {
                     tu.id(), tu.name(), tu.input(), toolDisplays);
             toolCards.put(tu.id(), card);
             turnView.add(card);
+            // The card is pure-queued and renders empty until execution starts.
+            // Keep a spinner running (below the card) so the gap between block
+            // arrival and onToolExecutionStarted (permission gate, hook I/O) is
+            // not blank.
+            showStatusLine("Preparing...", TurnStatusRenderable.Mode.TOOL_USE);
             turnView.markDirty();
         }
     }
