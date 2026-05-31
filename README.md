@@ -1,24 +1,22 @@
 # MadaCode
 
-[简体中文](README.zh-CN.md)
+[English](README.en.md)
 
-MadaCode is a coding agent that runs in your terminal. It can read and edit
-project files, run commands, search code, plan tasks, call tools, and use any
-Anthropic-compatible model to help with development work.
+MadaCode 是一个运行在终端里的编码 agent。它可以读取和修改项目文件、执行命令、
+搜索代码、规划任务、调用工具，并通过 Anthropic 兼容模型协助完成开发工作。
 
-MadaCode provides modular capabilities including resumable sessions with
-automatic compaction, dynamic model and provider switching, MCP integration,
-sub-agents, and skills. It runs as a Java 21 CLI and can be launched from source
-or installed as the local `mada` command.
+MadaCode 支持会话恢复与自动压缩、模型和 provider 动态切换、MCP 接入、sub agent
+和 skill 等模块化能力。它以 Java 21 CLI 的形式运行，可以直接从源码启动，也可以安装
+为本地 `mada` 命令。
 
-## Quick Start
+## 快速开始
 
-Requirements:
+环境要求：
 
-- Java 21 or newer
-- Maven 3.9.x, or the bundled `./mvnw` wrapper
+- Java 21 或更新版本
+- Maven 3.9.x，或项目自带的 `./mvnw` wrapper
 
-Install the `mada` command:
+安装 `mada` 命令：
 
 ```sh
 git clone https://github.com/itmada/MadaCode.git
@@ -26,29 +24,28 @@ cd MadaCode
 ./install.sh
 ```
 
-The installer builds `target/MadaCode.jar`, copies it to
-`~/.mada/MadaCode.jar`, and writes the launcher to `~/.local/bin/mada`.
+安装脚本会构建 `target/MadaCode.jar`，复制到 `~/.mada/MadaCode.jar`，
+并把启动器写入 `~/.local/bin/mada`。
 
-If `~/.local/bin` is not on your `PATH`, add this to your shell profile:
+如果 `~/.local/bin` 不在 `PATH` 中，把下面这行加入 shell 配置：
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-You can also run directly from the repository:
+也可以直接从仓库运行：
 
 ```sh
 ./bin/mada
 ```
 
-The repo launcher rebuilds the jar when it is missing or stale, then starts
-MadaCode.
+仓库启动器会在 jar 缺失或过期时自动重新构建，然后启动 MadaCode。
 
-## First Run
+## 首次运行
 
-On first startup, if no provider is configured yet, MadaCode opens a TUI setup
-panel for the provider name, base URL, auth token, default model, and available
-models, then saves the result to `~/.mada/providers.json`.
+首次启动时，如果还没有 provider 配置，MadaCode 会在 TUI 中打开配置面板，引导你填写
+provider 名称、base URL、auth token、默认模型和可用模型，并保存到
+`~/.mada/providers.json`。
 
 ```json
 {
@@ -66,44 +63,32 @@ models, then saves the result to `~/.mada/providers.json`.
 }
 ```
 
-When the provider file does not exist yet, MadaCode opens the terminal setup
-panel to collect and save those values.
-
-After configuring the provider, start a session:
+## 使用
 
 ```sh
-mada
+mada                     # 交互式启动选择器
+mada --new               # 开始新会话
+mada --continue          # 继续最近一次会话
+mada --resume <id>       # 按 ID 恢复已保存会话
+mada --list              # 列出已保存会话
+mada --provider <name>   # 使用 providers.json 中的 provider 启动
+mada --no-memory         # 本次运行禁用记忆
+mada --help              # 显示 CLI 帮助
 ```
 
-## Usage
+进入会话后，用 `/help` 查看 slash 命令。常用命令包括 `/model`、`/provider`、
+`/sessions`、`/resume`、`/compact`、`/skills`、`/status` 和 `/exit`。
 
-```sh
-mada                     # interactive startup selector
-mada --new               # start a new session
-mada --continue          # continue the most recent session
-mada --resume <id>       # resume a saved session by ID
-mada --list              # list saved sessions
-mada --provider <name>   # start with a provider from providers.json
-mada --no-memory         # disable memory for this run
-mada --help              # show CLI help
-```
+## 配置
 
-Inside a session, use `/help` to list slash commands. Common commands include
-`/model`, `/provider`, `/sessions`, `/resume`, `/compact`, `/skills`,
-`/status`, and `/exit`.
+大部分状态保存在 `~/.mada`，包括 provider、当前模型状态、会话、blob、agent、
+技能、MCP 配置、记忆和权限审计日志。如果项目中存在 `.mada/agents` 和
+`.mada/skills`，也会被加载。
 
-## Configuration
+MCP server 配置位于 `~/.mada/mcp.json`。文本资源会直接返回；二进制资源会保存到
+`~/.mada/blobs`，并以本地路径返回。
 
-Most state lives under `~/.mada`, including providers, active model state,
-sessions, blobs, agents, skills, MCP config, memory, and permission audit logs.
-Project-local `.mada/agents` and `.mada/skills` directories are also loaded when
-present.
-
-MCP servers are configured in `~/.mada/mcp.json`. Text resources are returned
-inline; binary resources are persisted under `~/.mada/blobs` and returned as
-local paths.
-
-## Development
+## 开发
 
 ```sh
 ./mvnw test-compile
@@ -111,15 +96,10 @@ local paths.
 ./mvnw package
 ```
 
-The build enforces Java 21 and Maven 3.9.x. The shaded application jar is
-written to `target/MadaCode.jar`.
+构建会强制 Java 21 和 Maven 3.9.x。shade 后的应用 jar 会输出到
+`target/MadaCode.jar`。
 
-## Contributing
+## 贡献
 
-Issues and pull requests are welcome at
-[github.com/itmada/MadaCode](https://github.com/itmada/MadaCode). Please run
-`./mvnw test` before opening a PR.
-
-## License
-
-MadaCode is released under the [MIT License](LICENSE).
+欢迎在 [github.com/itmada/MadaCode](https://github.com/itmada/MadaCode) 提交
+issue 和 pull request。提 PR 前请先跑 `./mvnw test`。
