@@ -120,6 +120,7 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
+                            <finalName>MadaCode</finalName>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <filters>
                                 <filter>

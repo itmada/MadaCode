@@ -1,0 +1,53 @@
+#!/bin/sh
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd "$SCRIPT_DIR/.." && pwd)
+JAR="$ROOT_DIR/target/MadaCode.jar"
+
+if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    JAVA="$JAVA_HOME/bin/java"
+else
+    JAVA=$(command -v java || true)
+fi
+
+if [ -z "${JAVA:-}" ]; then
+    echo "mada: Java 21 or newer is required, but java was not found." >&2
+    exit 1
+fi
+
+VERSION_OUTPUT=$("$JAVA" -version 2>&1 | sed -n '1p')
+VERSION=$(printf '%s\n' "$VERSION_OUTPUT" | sed -n 's/.*version "\([^"]*\)".*/\1/p')
+MAJOR=$(printf '%s\n' "$VERSION" | awk -F. '{ if ($1 == "1") print $2; else print $1 }')
+
+case "$MAJOR" in
+    ''|*[!0-9]*)
+        echo "mada: could not determine Java version from: $VERSION_OUTPUT" >&2
+        exit 1
+        ;;
+esac
+
+if [ "$MAJOR" -lt 21 ]; then
+    echo "mada: Java 21 or newer is required. Found: $VERSION_OUTPUT" >&2
+    exit 1
+fi
+
+NEEDS_BUILD=false
+if [ ! -f "$JAR" ]; then
+    NEEDS_BUILD=true
+elif find "$ROOT_DIR/pom.xml" "$ROOT_DIR/src" -newer "$JAR" -print -quit | grep . >/dev/null; then
+    NEEDS_BUILD=true
+fi
+
+if [ "$NEEDS_BUILD" = true ]; then
+    echo "mada: building target/MadaCode.jar..." >&2
+    (cd "$ROOT_DIR" && ./mvnw package -DskipTests)
+fi
+
+if [ ! -f "$JAR" ]; then
+    echo "mada: build completed but expected jar was not found at $JAR" >&2
+    exit 1
+fi
+
+exec "$JAVA" -jar "$JAR" "$@"
