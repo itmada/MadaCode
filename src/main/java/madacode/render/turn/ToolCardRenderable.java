@@ -4,6 +4,7 @@ import madacode.render.tool.DisplayStatus;
 import madacode.render.tool.ToolActivityCardRenderer;
 import madacode.render.tool.ToolDisplay;
 import madacode.render.tool.ToolDisplayRegistry;
+import madacode.render.tool.ToolActivitySkip;
 import madacode.render.tool.ToolProgressLine;
 import madacode.render.tool.ToolProgressSnapshot;
 import madacode.tui.theme.Tk;
@@ -147,6 +148,9 @@ public final class ToolCardRenderable implements Renderable {
 
     @Override
     public synchronized List<String> render(int maxWidth) {
+        if (isPureQueued()) {
+            return List.of();
+        }
         List<String> lines = new ArrayList<>();
         ToolDisplay display;
 
@@ -172,7 +176,11 @@ public final class ToolCardRenderable implements Renderable {
             case SUCCESS, FAILED, DENIED -> {
                 display = switch (status) {
                     case SUCCESS -> displayRegistry.renderSuccess(toolName, input, resultOutput, durationMs);
-                    case FAILED -> displayRegistry.renderError(toolName, input, resultOutput, durationMs);
+                    case FAILED -> {
+                        ToolDisplay failed = displayRegistry.renderError(toolName, input, resultOutput, durationMs);
+                        ToolDisplay compact = ToolActivitySkip.compactDisplay(failed, resultOutput);
+                        yield compact != null ? compact : failed;
+                    }
                     case DENIED -> displayRegistry.renderDenied(
                             toolName,
                             input,

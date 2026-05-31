@@ -338,6 +338,7 @@ class TurnViewTest {
         // Running card (unfinalized) blocks everything after it
         ObjectNode input = MAPPER.createObjectNode();
         ToolCardRenderable card = new ToolCardRenderable("c1", "bash", input, ToolDisplayRegistry.defaults());
+        card.markStarted();
         tv.add(card);
 
         // Text after running card — committed lines can't drain past the card
@@ -439,6 +440,7 @@ class TurnViewTest {
         // Unfinalized tool card
         ObjectNode input = MAPPER.createObjectNode();
         ToolCardRenderable card = new ToolCardRenderable("c1", "bash", input, ToolDisplayRegistry.defaults());
+        card.markStarted();
         tv.add(card);
 
         tv.flushNow();
@@ -460,6 +462,7 @@ class TurnViewTest {
 
         ObjectNode input = MAPPER.createObjectNode();
         ToolCardRenderable card = new ToolCardRenderable("c1", "bash", input, ToolDisplayRegistry.defaults());
+        card.markStarted();
         tv.add(card);
 
         // Pass 1: unfinalized card in live with leading margin
@@ -496,6 +499,7 @@ class TurnViewTest {
         // Running card
         ObjectNode input = MAPPER.createObjectNode();
         ToolCardRenderable card = new ToolCardRenderable("c1", "bash", input, ToolDisplayRegistry.defaults());
+        card.markStarted();
         tv.add(card);
 
         tv.flushNow();
@@ -521,6 +525,7 @@ class TurnViewTest {
         // Running card blocks prefix
         ObjectNode input = MAPPER.createObjectNode();
         ToolCardRenderable card = new ToolCardRenderable("c1", "bash", input, ToolDisplayRegistry.defaults());
+        card.markStarted();
         tv.add(card);
 
         // Streaming text with committed line after the card
@@ -728,7 +733,7 @@ class TurnViewTest {
     }
 
     @Test
-    void pureQueuedCardsAfterPermissionWaiterAreHiddenFromLive() {
+    void pureQueuedCardsAfterPermissionWaiterAreRenderedByView() {
         RecScreen screen = new RecScreen();
         TurnView tv = new TurnView(screen);
 

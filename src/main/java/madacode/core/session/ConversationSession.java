@@ -176,6 +176,16 @@ public class ConversationSession {
 
     // ---- Firing helpers (called by QueryEngine / ToolOrchestrator) -------
 
+    public void fireToolExecutionReached(String toolUseId, String toolName, ObjectNode input) {
+        for (SessionListener l : listeners) {
+            try {
+                l.onToolExecutionReached(toolUseId, toolName, input);
+            } catch (RuntimeException e) {
+                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolExecutionReached", e);
+            }
+        }
+    }
+
     public void fireToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {
         for (SessionListener l : listeners) {
             try {

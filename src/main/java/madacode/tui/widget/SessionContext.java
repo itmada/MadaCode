@@ -1,5 +1,7 @@
 package madacode.tui.widget;
 
+import madacode.core.session.SessionMode;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -9,14 +11,12 @@ import java.nio.file.Paths;
  */
 public final class SessionContext {
 
-    public enum Mode { AUTO, PLAN }
-
     private Path cwd;
     private String sessionId;
     private String model;
     private int tokens;
     private int tokenLimit;
-    private Mode mode = Mode.AUTO;
+    private SessionMode mode = SessionMode.STRICT;
 
     public SessionContext() {}
 
@@ -25,8 +25,8 @@ public final class SessionContext {
     public synchronized void setModel(String model) { this.model = model; }
     public synchronized String model() { return model; }
     public synchronized void setTokenLimit(int tokenLimit) { this.tokenLimit = Math.max(0, tokenLimit); }
-    public synchronized void setMode(Mode mode) { this.mode = mode == null ? Mode.AUTO : mode; }
-    public synchronized Mode mode() { return mode; }
+    public synchronized void setMode(SessionMode mode) { this.mode = mode == null ? SessionMode.STRICT : mode; }
+    public synchronized SessionMode mode() { return mode; }
     public synchronized void setTokens(int used) { setTokens(used, tokenLimit); }
     public synchronized void setTokens(int used, int max) { this.tokenLimit = Math.max(0, max); this.tokens = used; }
 

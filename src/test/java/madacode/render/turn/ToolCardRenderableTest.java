@@ -19,10 +19,18 @@ class ToolCardRenderableTest {
     @Test
     void shouldRenderRunningCard() {
         ToolCardRenderable card = new ToolCardRenderable("id1", "bash", input, registry);
+        card.markStarted();
         var lines = card.render(80);
         assertFalse(lines.isEmpty());
         assertTrue(lines.get(0).contains("Bash"));
         assertFalse(card.isFinalized());
+    }
+
+    @Test
+    void pureQueuedCardRendersEmpty() {
+        ToolCardRenderable card = new ToolCardRenderable("id1", "bash", input, registry);
+        assertTrue(card.isPureQueued());
+        assertTrue(card.render(80).isEmpty());
     }
 
     @Test

@@ -24,6 +24,7 @@ public record SlashContext(
         SessionContext sessionContext,
         Optional<SessionChooser> sessionChooser,
         Optional<ModelChooser> modelChooser,
+        Optional<ModeChooser> modeChooser,
         Optional<ThemeChooser> themeChooser,
         Optional<ProviderChooser> providerChooser) {
 
@@ -31,6 +32,7 @@ public record SlashContext(
         Objects.requireNonNull(providerRegistry, "providerRegistry");
         sessionChooser = sessionChooser == null ? Optional.empty() : sessionChooser;
         modelChooser = modelChooser == null ? Optional.empty() : modelChooser;
+        modeChooser = modeChooser == null ? Optional.empty() : modeChooser;
         themeChooser = themeChooser == null ? Optional.empty() : themeChooser;
         providerChooser = providerChooser == null ? Optional.empty() : providerChooser;
     }
@@ -38,6 +40,11 @@ public record SlashContext(
     @FunctionalInterface
     public interface ModelChooser {
         Optional<String> chooseModel(List<String> models);
+    }
+
+    @FunctionalInterface
+    public interface ModeChooser {
+        Optional<String> chooseMode(List<String> modes);
     }
 
     @FunctionalInterface

@@ -6,8 +6,8 @@ import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.SessionListener;
-import madacode.render.ThinkingVerbs;
 import madacode.render.BlockSpacing;
+import madacode.render.ThinkingVerbs;
 import madacode.render.tool.ToolProgressLine;
 import madacode.render.tool.ToolDisplayRegistry;
 import madacode.tui.JLineScreen;
@@ -326,6 +326,15 @@ public final class TurnRenderer implements SessionListener {
             } else {
                 card.resolvePermission();
             }
+            if (screen instanceof JLineScreen jls) jls.unlockModal();
+            turnView.markDirty();
+        }
+    }
+
+    public synchronized void cancelPermission(String toolUseId) {
+        ToolCardRenderable card = toolCards.get(toolUseId);
+        if (card != null) {
+            card.markDenied("User denied permission");
             if (screen instanceof JLineScreen jls) jls.unlockModal();
             turnView.markDirty();
         }

@@ -3,6 +3,7 @@ package madacode.cli;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.core.engine.QueryEngine;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.provider.ProviderRegistry;
@@ -10,6 +11,7 @@ import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
 import madacode.services.compact.CompactPlanner;
 import madacode.tui.TextScreen;
+import madacode.tui.widget.SessionContext;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -64,6 +66,8 @@ final class ScriptedRepl extends Repl {
         config.turnRenderer = new TurnRenderer(turnView, screen);
         config.providerRegistry = providerRegistry;
         config.compactPlanner = compactPlanner;
+        config.sessionContext = new SessionContext();
+        config.sessionContext.setMode(SessionMode.from(session));
         return config;
     }
 

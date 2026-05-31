@@ -200,8 +200,11 @@ public class MarkdownRenderer {
                     inCodeBlock = true;
                     String info = fcb.getInfo();
                     codeBlockLang = (info != null && !info.isEmpty()) ? info.split("\\s+", 2)[0] : "";
-                    codeFenceChar = fcb.getFenceChar();
-                    codeFenceLen = fcb.getFenceLength();
+                    String fenceCharacter = fcb.getFenceCharacter();
+                    codeFenceChar = (fenceCharacter != null && !fenceCharacter.isEmpty())
+                            ? fenceCharacter.charAt(0) : '`';
+                    Integer openingLen = fcb.getOpeningFenceLength();
+                    codeFenceLen = (openingLen != null) ? openingLen : 3;
                 }
             }
         }

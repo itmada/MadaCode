@@ -97,7 +97,7 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
                 try {
                     key = TerminalKeys.readKey(terminal.reader());
                 } catch (IOException e) {
-                    tr.resolvePermission(toolUseId, true);
+                    tr.cancelPermission(toolUseId);
                     return ApprovalResponse.DENY;
                 }
                 switch (key.key()) {
@@ -113,7 +113,7 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
                         tr.setPermissionSelected(toolUseId, selectedIdx);
                     }
                     case ESCAPE, CTRL_C, EOF -> {
-                        tr.resolvePermission(toolUseId, true);
+                        tr.cancelPermission(toolUseId);
                         fireInterrupt(CancellationToken.REASON_PERMISSION_DENIED);
                         return ApprovalResponse.DENY;
                     }

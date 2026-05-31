@@ -22,6 +22,8 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.EnumSet;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Queue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -124,6 +126,38 @@ class ToolExecutorTest {
         assertTrue(events.completedFired, "unknown tool must still finalize its card via a completed event");
     }
 
+    @Test
+    void firesReachedBeforePermissionPromptAndStart() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        ToolExecutor executor = new ToolExecutor(
+                registryWith(new BashTool()),
+                new ToolInputValidator(),
+                new DefaultPermissionGate(prompt),
+                null);
+
+        ConversationSession session = new ConversationSession(tempDir);
+        List<String> events = new ArrayList<>();
+        session.addListener(new SessionListener() {
+            @Override
+            public void onToolExecutionReached(String toolUseId, String toolName, ObjectNode input) {
+                events.add("reached:" + toolUseId);
+            }
+
+            @Override
+            public void onToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {
+                events.add("started:" + toolUseId);
+            }
+        });
+        prompt.onPrompt(() -> events.add("prompt"));
+
+        ToolResult result = executor.execute(
+                new ToolCall("toolu_reached", "bash", bashInput("printf hi")),
+                new ToolUseContext(tempDir, session));
+
+        assertTrue(result.success());
+        assertEquals(List.of("reached:toolu_reached", "prompt", "started:toolu_reached"), events);
+    }
+
     private HookManager hookManager(String json) throws IOException {
         Path config = tempDir.resolve("hooks.json");
         Files.writeString(config, json);
@@ -180,6 +214,7 @@ class ToolExecutorTest {
     private static final class RecordingPrompt implements UserApprovalPrompt {
         private final Queue<ApprovalResponse> responses = new ArrayDeque<>();
         private int calls;
+        private Runnable onPrompt;
 
         private RecordingPrompt(ApprovalResponse... responses) {
             this.responses.addAll(java.util.List.of(responses));
@@ -188,11 +223,18 @@ class ToolExecutorTest {
         @Override
         public ApprovalResponse requestApproval(madacode.tool.Tool<?> tool, String input) {
             calls++;
+            if (onPrompt != null) {
+                onPrompt.run();
+            }
             return responses.isEmpty() ? ApprovalResponse.DENY : responses.remove();
         }
 
         private int calls() {
             return calls;
+        }
+
+        private void onPrompt(Runnable onPrompt) {
+            this.onPrompt = onPrompt;
         }
     }
 }

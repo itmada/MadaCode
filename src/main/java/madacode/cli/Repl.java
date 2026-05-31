@@ -4,8 +4,11 @@ import madacode.cli.session.SessionChooser;
 import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashContext;
+import madacode.core.model.MetaEvent;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionListener;
+import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorageException;
 import madacode.core.turn.TurnExecutor;
@@ -37,6 +40,7 @@ public abstract class Repl {
     final Screen screen;
     final TurnRenderer turnRenderer;
     final MetaEventRenderer metaEventRenderer;
+    final SessionModeSyncListener sessionModeSyncListener;
     final HistoryPrinter historyPrinter;
     final SessionContext sessionContext;
     final ProviderRegistry providerRegistry;
@@ -59,6 +63,7 @@ public abstract class Repl {
         this.shutdownTargets = config.shutdownTargets != null
                 ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
+        this.sessionModeSyncListener = new SessionModeSyncListener(sessionContext, session);
         this.slashHandler = SlashCommandHandler.builder(sessionStorage, screen)
                 .sessionChooser(config.sessionChooser)
                 .registry(Objects.requireNonNull(config.slashRegistry, "slashRegistry"))
@@ -67,11 +72,13 @@ public abstract class Repl {
                 .compactPlanner(config.compactPlanner)
                 .sessionContext(sessionContext)
                 .modelChooser(config.modelChooser)
+                .modeChooser(config.modeChooser)
                 .themeChooser(config.themeChooser)
                 .providerChooser(config.providerChooser)
                 .notifications(notifications)
                 .build();
         session.addListener(turnRenderer);
+        session.addListener(sessionModeSyncListener);
         session.addListener(metaEventRenderer);
     }
 
@@ -157,11 +164,14 @@ public abstract class Repl {
 
     final void replaceSession(ConversationSession newSession, boolean fresh) {
         session.removeListener(turnRenderer);
+        session.removeListener(sessionModeSyncListener);
         session.removeListener(metaEventRenderer);
         turnRenderer.reset();
         metaEventRenderer.reset();
         this.session = newSession;
+        sessionModeSyncListener.setSession(newSession);
         newSession.addListener(turnRenderer);
+        newSession.addListener(sessionModeSyncListener);
         newSession.addListener(metaEventRenderer);
         onSessionReplaced(newSession, fresh);
         if (fresh) {
@@ -201,6 +211,37 @@ public abstract class Repl {
     }
 
     private record ActiveModel(String provider, String model) {}
+
+    private static final class SessionModeSyncListener implements SessionListener {
+        private final SessionContext sessionContext;
+        private volatile ConversationSession session;
+
+        SessionModeSyncListener(SessionContext sessionContext, ConversationSession session) {
+            this.sessionContext = sessionContext;
+            this.session = session;
+            sync();
+        }
+
+        void setSession(ConversationSession session) {
+            this.session = session;
+            sync();
+        }
+
+        @Override
+        public void onMetaEvent(MetaEvent meta) {
+            if (meta instanceof MetaEvent.PlanModeEntered
+                    || meta instanceof MetaEvent.PlanModeExited
+                    || meta instanceof MetaEvent.PlanRejected) {
+                sync();
+            }
+        }
+
+        private void sync() {
+            if (sessionContext != null && session != null) {
+                sessionContext.setMode(SessionMode.from(session));
+            }
+        }
+    }
 
     final void persistSession() {
         try {
@@ -247,6 +288,7 @@ public abstract class Repl {
         CompactPlanner compactPlanner;
         SessionContext sessionContext;
         SlashContext.ModelChooser modelChooser;
+        SlashContext.ModeChooser modeChooser;
         SlashContext.ThemeChooser themeChooser;
         SlashContext.ProviderChooser providerChooser;
         NotificationCenter notifications;

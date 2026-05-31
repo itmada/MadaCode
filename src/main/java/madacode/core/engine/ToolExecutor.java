@@ -131,6 +131,8 @@ public final class ToolExecutor {
             return result;
         }
 
+        session.fireToolExecutionReached(toolCall.id(), tool.name(), effectiveInput);
+
         PermissionDecision decision = permissionGate.check(tool, effectiveInput, context);
         if (!decision.isAllowed()) {
             ToolResult result = new ToolResult(tool.name(), false,

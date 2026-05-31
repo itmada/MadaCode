@@ -1,5 +1,6 @@
 package madacode.cli.slash;
 
+import madacode.core.session.SessionMode;
 import madacode.tui.theme.Tk;
 
 final class StatusCommand implements SlashCommand {
@@ -15,7 +16,7 @@ final class StatusCommand implements SlashCommand {
         ctx.screen().scrollback(Tk.dim("messages") + " " + ctx.session().messages().size());
         String model = ctx.providerRegistry() == null ? "(unknown)" : ctx.providerRegistry().active().currentModel().name();
         ctx.screen().scrollback(Tk.dim("model") + " " + model);
-        String mode = ctx.sessionContext() == null ? (ctx.session().isPlanMode() ? "plan" : "auto") : ctx.sessionContext().mode().name().toLowerCase();
+        String mode = SessionMode.from(ctx.session()).id();
         ctx.screen().scrollback(Tk.dim("mode") + " " + mode);
         return new SlashAction.Handled();
     }

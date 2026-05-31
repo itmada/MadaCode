@@ -18,11 +18,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  *   <li>Static messages (user inputs, tool results, and all messages
  *       during replay): callbacks arrive via {@link #onMessageAppended}
  *       — one call per message, in session order.</li>
- *   <li>Tool execution events ({@link #onToolExecutionStarted},
- *       {@link #onToolExecutionCompleted}) fire immediately before and
- *       after execution. {@link #onToolResultAvailable} may arrive before the
- *       persisted {@code ToolResultBlock}; renderers should treat it as
- *       transient UI state only.</li>
+ *   <li>Tool execution events ({@link #onToolExecutionReached},
+ *       {@link #onToolExecutionStarted}, {@link #onToolExecutionCompleted})
+ *       fire when the ordered execution timeline reaches a tool, immediately
+ *       before actual execution, and after execution. {@link #onToolResultAvailable}
+ *       may arrive before the persisted {@code ToolResultBlock}; renderers
+ *       should treat it as transient UI state only.</li>
  * </ul>
  *
  * <h3>Threading contract</h3>
@@ -55,7 +56,19 @@ public interface SessionListener {
     /** The streaming assistant message was finalized and added to the session. */
     default void onAssistantStreamFinalized(int index) {}
 
-    /** Tool execution is about to begin (transient — not persisted). */
+    /**
+     * Ordered tool execution has reached this tool, before permission approval or execution.
+     *
+     * <p>Defines the {@code reached → (permission prompt) → started} timing contract
+     * verified by {@code ToolExecutorTest}: by the time a tool is "reached" its card
+     * already exists, so an inline permission prompt always has a card to attach to.
+     * No renderer currently consumes this callback (card visibility is derived per-card
+     * from started/permission/result state), but the event is retained as the timeline
+     * anchor for that contract and as an extension point.
+     */
+    default void onToolExecutionReached(String toolUseId, String toolName, ObjectNode input) {}
+
+    /** Tool execution is about to begin after permission approval (transient — not persisted). */
     default void onToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {}
 
     /** Tool execution just finished (transient). The matching ToolResultBlock follows via onMessageAppended. */

@@ -5,7 +5,9 @@ import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
+import madacode.core.model.MetaEvent;
 import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionMode;
 import madacode.core.session.SessionListener;
 import madacode.provider.Model;
 import madacode.provider.Provider;
@@ -15,6 +17,7 @@ import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.core.turn.TurnLog;
 import madacode.permission.PermissionGate;
+import madacode.permission.PermissionMode;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.services.compact.CompactBudget;
 import madacode.services.compact.CompactPlanner;
@@ -292,6 +295,37 @@ class ReplSupervisionTest {
         assertTrue(savedIndex >= 0);
         assertTrue(welcomeIndex > savedIndex);
         assertTrue(initializedIndex > welcomeIndex);
+    }
+
+    @Test
+    void sessionModeSyncDerivesDisplayModeFromSessionAfterPlanEvents() {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws"));
+        session.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> {
+                    throw new AssertionError("test does not run model turns");
+                },
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns")));
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(buf, true),
+                storage,
+                madacode.cli.slash.SlashCommandRegistry.create(null),
+                null,
+                null);
+
+        session.setPlanMode(true);
+        session.fireMetaEvent(new MetaEvent.PlanModeEntered());
+        assertEquals(SessionMode.PLAN, repl.sessionContext.mode());
+
+        session.setPlanMode(false);
+        session.fireMetaEvent(new MetaEvent.PlanModeExited());
+        assertEquals(SessionMode.NORMAL, repl.sessionContext.mode());
     }
 
     private static String firstText(Message m) {

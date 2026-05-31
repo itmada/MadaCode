@@ -3,6 +3,7 @@ package madacode.render;
 import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
 import madacode.tui.TextScreen;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -13,6 +14,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class HistoryPrinterTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
     void userSingleLine() {
@@ -77,6 +80,60 @@ class HistoryPrinterTest {
     }
 
     @Test
+    void skippedToolResultRendersCompactInfoCard() {
+        String out = print(
+                Message.assistant(List.of(new ContentBlock.ToolUseBlock(
+                        "tool-1", "bash", MAPPER.createObjectNode().put("command", "echo hi")))),
+                Message.user(List.of(new ContentBlock.ToolResultBlock(
+                        "tool-1", "Tool call skipped: max tool calls reached.", false, 0))));
+
+        assertTrue(out.contains("Bash(echo hi)"), "should keep adapter title; got: " + out);
+        assertTrue(out.contains("Skipped"), "should render compact skipped summary; got: " + out);
+        assertTrue(out.contains("Tool call skipped: max tool calls reached."), "should include skip reason; got: " + out);
+        assertFalse(out.contains("Failed"), "skipped tool should not render as failed; got: " + out);
+    }
+
+    @Test
+    void cancelledBeforeExecutionRendersCompactInfoCard() {
+        String out = print(
+                Message.assistant(List.of(new ContentBlock.ToolUseBlock(
+                        "tool-1", "bash", MAPPER.createObjectNode().put("command", "echo hi")))),
+                Message.user(List.of(new ContentBlock.ToolResultBlock(
+                        "tool-1", "Cancelled before execution: permission denied", false, 0))));
+
+        assertTrue(out.contains("Bash(echo hi)"), "should keep adapter title; got: " + out);
+        assertTrue(out.contains("Cancelled"), "should render compact cancellation summary; got: " + out);
+        assertTrue(out.contains("Cancelled before execution: permission denied"), "should include cancel reason; got: " + out);
+        assertFalse(out.contains("Failed"), "cancelled tool should not render as failed; got: " + out);
+    }
+
+    @Test
+    void cancelledTailRendersCompactInfoCard() {
+        String out = print(
+                Message.assistant(List.of(new ContentBlock.ToolUseBlock(
+                        "tool-1", "bash", MAPPER.createObjectNode().put("command", "long command")))),
+                Message.user(List.of(new ContentBlock.ToolResultBlock(
+                        "tool-1", "partial output\nCancelled: user interrupted", false, 0))));
+
+        assertTrue(out.contains("Cancelled"), "should render compact cancellation summary; got: " + out);
+        assertTrue(out.contains("Cancelled: user interrupted"), "should include tail cancel reason; got: " + out);
+        assertFalse(out.contains("Failed"), "cancelled tool should not render as failed; got: " + out);
+        assertFalse(out.contains("partial output"), "compact cancellation should omit prior output; got: " + out);
+    }
+
+    @Test
+    void ordinaryFailureWithCancelledMiddleLineStaysFailed() {
+        String out = print(
+                Message.assistant(List.of(new ContentBlock.ToolUseBlock(
+                        "tool-1", "bash", MAPPER.createObjectNode().put("command", "echo hi")))),
+                Message.user(List.of(new ContentBlock.ToolResultBlock(
+                        "tool-1", "first line\nCancelled: not the terminal reason\nreal failure", false, 0))));
+
+        assertTrue(out.contains("Failed"), "ordinary failure should stay failed; got: " + out);
+        assertFalse(out.contains("Skipped"), "ordinary failure should not become skipped; got: " + out);
+    }
+
+    @Test
     void printFromSkipsEarlierMessages() {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         TextScreen screen = new TextScreen(new PrintStream(bytes, true, StandardCharsets.UTF_8));
@@ -114,10 +171,18 @@ class HistoryPrinterTest {
     }
 
     private static String print(Message message) {
+        return print(List.of(message));
+    }
+
+    private static String print(Message... messages) {
+        return print(List.of(messages));
+    }
+
+    private static String print(List<Message> messages) {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         TextScreen screen = new TextScreen(new PrintStream(bytes, true, StandardCharsets.UTF_8));
         HistoryPrinter printer = new HistoryPrinter(screen, null);
-        printer.printAll(List.of(message));
+        printer.printAll(messages);
         return strip(bytes.toString(StandardCharsets.UTF_8));
     }
 

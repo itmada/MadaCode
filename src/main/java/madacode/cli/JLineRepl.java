@@ -4,6 +4,7 @@ import madacode.cli.editor.SessionHistory;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
 import madacode.core.engine.QueryEngine;
+import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.services.compact.CompactPlanner;
@@ -94,14 +95,13 @@ public final class JLineRepl extends Repl {
                 ctx.setModel(active.currentModel().name());
                 ctx.setTokenLimit(active.currentModel().contextWindow());
             }
+            ctx.setMode(SessionMode.from(session));
         });
-        if (session.isPlanMode()) {
-            ctx.setMode(SessionContext.Mode.PLAN);
-        }
 
         ExpandableHistory expandableHistory = new ExpandableHistory();
 
         SlashContext.ModelChooser modelChooser = inlineModelChooser(screen, terminal);
+        SlashContext.ModeChooser modeChooser = inlineModeChooser(screen, terminal);
         SlashContext.ThemeChooser themeChooser = inlineThemeChooser(screen, terminal);
         SlashContext.ProviderChooser providerChooser = inlineProviderChooser(screen, terminal);
         SessionChooser sessionChooser = inlineSessionChooser(sessionStorage, screen, terminal);
@@ -110,7 +110,8 @@ public final class JLineRepl extends Repl {
         SlashContext slashCtx = new SlashContext(
                 session, screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
                 compactPlanner, ctx, Optional.ofNullable(sessionChooser),
-                Optional.of(modelChooser), Optional.of(themeChooser), Optional.of(providerChooser));
+                Optional.of(modelChooser), Optional.of(modeChooser),
+                Optional.of(themeChooser), Optional.of(providerChooser));
         SlashComposer slashComposer = new SlashComposer(
                 slashRegistry, slashCtx, screen, screen, terminal);
 
@@ -149,6 +150,7 @@ public final class JLineRepl extends Repl {
         config.compactPlanner = compactPlanner;
         config.sessionContext = ctx;
         config.modelChooser = modelChooser;
+        config.modeChooser = modeChooser;
         config.themeChooser = themeChooser;
         config.providerChooser = providerChooser;
         config.notifications = notifications;
@@ -248,6 +250,7 @@ public final class JLineRepl extends Repl {
         sessionContext.batch(() -> {
             sessionContext.setCwd(newSession.workingDirectory());
             sessionContext.setSessionId(newSession.sessionId());
+            sessionContext.setMode(SessionMode.from(newSession));
         });
         loadHistory();
     }
@@ -325,6 +328,12 @@ public final class JLineRepl extends Repl {
             JLineScreen screen, Terminal terminal) {
         return models -> chooseFromList(screen, terminal,
                 "Model", "Choose model for subsequent turns", models);
+    }
+
+    private static SlashContext.ModeChooser inlineModeChooser(
+            JLineScreen screen, Terminal terminal) {
+        return modes -> chooseFromList(screen, terminal,
+                "Mode", "Choose active mode", modes);
     }
 
     private static SlashContext.ThemeChooser inlineThemeChooser(

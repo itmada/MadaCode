@@ -6,6 +6,7 @@ import madacode.core.model.MessageRole;
 import madacode.render.tool.ToolCardWriter;
 import madacode.render.tool.ToolDisplay;
 import madacode.render.tool.ToolDisplayRegistry;
+import madacode.render.tool.ToolActivitySkip;
 import madacode.tui.Screen;
 
 import java.util.LinkedHashMap;
@@ -64,6 +65,12 @@ public final class HistoryPrinter {
                 if (tu == null) return;
                 ToolDisplay display = toolDisplays.renderResult(
                         tu.name(), tu.input(), tr.success(), tr.content(), tr.durationMs());
+                if (!tr.success()) {
+                    ToolDisplay compact = ToolActivitySkip.compactDisplay(display, tr.content());
+                    if (compact != null) {
+                        display = compact;
+                    }
+                }
                 ToolCardWriter.write(screen, display, expandableHistory);
             }
         }

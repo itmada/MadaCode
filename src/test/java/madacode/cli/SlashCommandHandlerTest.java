@@ -5,11 +5,13 @@ import madacode.cli.slash.SlashCommandRegistry;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
 import madacode.core.model.MetaEvent;
+import madacode.core.session.SessionMode;
 import madacode.provider.Model;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
 import madacode.core.session.SessionStorage;
 import madacode.core.model.TokenUsage;
+import madacode.permission.PermissionMode;
 import madacode.services.compact.CompactBudget;
 import madacode.services.compact.CompactPlanner;
 import madacode.services.compact.TokenEstimator;
@@ -19,6 +21,7 @@ import madacode.skill.SkillRegistry;
 import madacode.skill.SkillSource;
 import madacode.skill.SkillStateStore;
 import madacode.tui.TextScreen;
+import madacode.tui.widget.SessionContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -307,6 +310,101 @@ public class SlashCommandHandlerTest {
     }
 
     @Test
+    void modeCommandListsModesAndMarksCurrent() {
+        current.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+
+        var action = handler.handle("/mode", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.contains("Modes:"));
+        assertTrue(output.contains("* normal"));
+        assertTrue(output.contains("strict"));
+        assertTrue(output.contains("all-pass"));
+    }
+
+    @Test
+    void modeCommandUsesChooserWhenAvailable() {
+        SessionContext sessionContext = new SessionContext();
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .sessionContext(sessionContext)
+                .modeChooser(modes -> Optional.of("normal"))
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/mode", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
+        assertEquals(SessionMode.NORMAL, sessionContext.mode());
+        assertTrue(stripAnsi(outBytes.toString()).contains("Mode set to: normal"));
+    }
+
+    @Test
+    void modeCommandCancelOutputIsDimmedAndSeparatedFromNextPrompt() {
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .modeChooser(modes -> Optional.empty())
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/mode", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Mode selection cancelled."));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void modeCommandSwitchesSessionAndSessionContext() {
+        SessionContext sessionContext = new SessionContext();
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .sessionContext(sessionContext)
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/mode all-pass", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(PermissionMode.BYPASS, current.permissionMode());
+        assertEquals(false, current.isPlanMode());
+        assertEquals(SessionMode.ALL_PASS, sessionContext.mode());
+        String output = outBytes.toString();
+        String plain = stripAnsi(output);
+        assertTrue(plain.contains("Mode set to: all-pass"));
+        assertTrue(plain.contains(System.lineSeparator() + System.lineSeparator()
+                + "Warning: all-pass suppresses interactive approval"));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void modeCommandPlanUsesDefaultPermissionAndPlanAxis() {
+        current.setPermissionMode(PermissionMode.BYPASS);
+
+        var action = handler.handle("/mode plan", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(PermissionMode.DEFAULT, current.permissionMode());
+        assertTrue(current.isPlanMode());
+    }
+
+    @Test
+    void modeCommandUnknownModeDoesNotChangeSession() {
+        current.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+
+        var action = handler.handle("/mode nope", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
+        assertEquals(false, current.isPlanMode());
+        assertTrue(outBytes.toString().contains("Unknown mode: nope"));
+    }
+
+    @Test
     void providerCommandSetOutputIsDimmedAndSeparatedFromNextPrompt() {
         var action = handler.handle("/provider test", current);
 
@@ -405,10 +503,11 @@ public class SlashCommandHandlerTest {
         var action = handler.handle("/status", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
-        String output = outBytes.toString();
+        String output = stripAnsi(outBytes.toString());
         assertTrue(output.contains("session"));
         assertTrue(output.contains("current"));
         assertTrue(output.contains("messages"));
+        assertTrue(output.contains("mode strict"));
         assertTrue(!output.contains("configured at startup"));
         assertTrue(!output.contains("active gate"));
     }
