@@ -23,7 +23,7 @@ public final class StartupSessionLauncher {
 
     public Choice choose() {
         List<SessionSummary> recent = SessionListings.recent(storage, MAX_RECENT);
-        if (recent.isEmpty() || "true".equals(System.getenv("MADA_NO_PICKER"))) {
+        if (recent.isEmpty()) {
             return new Choice.NewSession();
         }
         List<ChoicePrompt.Option<Choice>> options = new ArrayList<>();

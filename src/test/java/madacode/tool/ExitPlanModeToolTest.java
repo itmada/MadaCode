@@ -1,7 +1,7 @@
 package madacode.tool;
 
 import madacode.cli.FakeUserPromptChannel;
-import madacode.cli.HeadlessPromptChannel;
+import madacode.cli.UnavailablePromptChannel;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.SessionListener;
@@ -57,25 +57,25 @@ class ExitPlanModeToolTest {
 
     @Test
     void returns_failure_when_not_in_plan_mode() {
-        ToolResult result = ToolTestSupport.invoke(tool, input(""), ctx(HeadlessPromptChannel.INSTANCE));
+        ToolResult result = ToolTestSupport.invoke(tool, input(""), ctx(UnavailablePromptChannel.INSTANCE));
         assertFalse(result.success());
         assertTrue(result.output().contains("Not in plan mode"));
     }
 
-    // ---- headless auto-approve --------------------------------------------
+    // ---- unavailable prompt channel ---------------------------------------
 
     @Test
-    void headless_auto_approves_clears_plan_mode_fires_PlanModeExited() {
+    void unavailable_prompt_channel_keeps_plan_mode_active() {
         session.setPlanMode(true);
         List<MetaEvent> events = captureEvents();
 
         ToolResult result = ToolTestSupport.invoke(tool, input("Do X then Y"),
-                ctx(HeadlessPromptChannel.INSTANCE));
+                ctx(UnavailablePromptChannel.INSTANCE));
 
-        assertTrue(result.success());
-        assertFalse(session.isPlanMode(), "plan mode should be cleared");
-        assertTrue(events.stream().anyMatch(e -> e instanceof MetaEvent.PlanModeExited),
-                "PlanModeExited must fire on headless approval");
+        assertFalse(result.success());
+        assertTrue(session.isPlanMode(), "plan mode should stay active");
+        assertFalse(events.stream().anyMatch(e -> e instanceof MetaEvent.PlanModeExited),
+                "PlanModeExited must not fire without approval");
     }
 
     // ---- interactive approve ----------------------------------------------

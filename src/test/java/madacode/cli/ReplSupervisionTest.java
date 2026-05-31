@@ -85,7 +85,7 @@ class ReplSupervisionTest {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         TurnExecutor turnExecutor = new TurnExecutor(
                 new QueryEngineTurnRunner(engine), new TurnLog(tempDir));
-        BufferedRepl repl = new BufferedRepl(engine, turnExecutor, session,
+        ScriptedRepl repl = new ScriptedRepl(engine, turnExecutor, session,
                 reader, new PrintStream(buf, true), storage);
 
         repl.run();   // must return without throwing
@@ -128,7 +128,7 @@ class ReplSupervisionTest {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         TurnExecutor turnExecutor2 = new TurnExecutor(
                 new QueryEngineTurnRunner(engine), new TurnLog(tempDir));
-        BufferedRepl repl = new BufferedRepl(engine, turnExecutor2, session,
+        ScriptedRepl repl = new ScriptedRepl(engine, turnExecutor2, session,
                 reader, new PrintStream(buf, true), storage);
 
         repl.run();   // must not throw
@@ -219,7 +219,7 @@ class ReplSupervisionTest {
                         java.net.URI.create("https://api.anthropic.com"),
                         "claude-opus-4-7",
                         List.of(new Model("claude-opus-4-7", 200_000))));
-        BufferedRepl repl = new BufferedRepl(engine, executor, session,
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
                 new BufferedReader(new StringReader("/compact\nexit\n")),
                 new PrintStream(buf, true),
                 storage,
@@ -266,7 +266,7 @@ class ReplSupervisionTest {
                 PermissionGate.permissive());
         TurnExecutor executor = new TurnExecutor(
                 new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns")));
-        BufferedRepl repl = new BufferedRepl(engine, executor, session,
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
                 new BufferedReader(new StringReader("/new\nexit\n")),
                 new PrintStream(buf, true),
                 storage,

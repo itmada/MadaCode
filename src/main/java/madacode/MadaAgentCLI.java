@@ -95,9 +95,7 @@ public final class MadaAgentCLI {
                   --dangerously-bypass-permissions
                                       Skip approval prompts (DANGEROUS — use only in
                                       trusted automation contexts; safety rules still apply)
-                  --provider <name>    Start with a specific provider from providers.json
-                Environment:
-                  MADA_NO_PICKER=true  Skip interactive selector, start new session""");
+                  --provider <name>    Start with a specific provider from providers.json""");
     }
 
     private static void printSessionList(SessionStorage storage) {

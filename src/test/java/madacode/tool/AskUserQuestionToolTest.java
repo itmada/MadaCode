@@ -1,7 +1,7 @@
 package madacode.tool;
 
 import madacode.cli.FakeUserPromptChannel;
-import madacode.cli.HeadlessPromptChannel;
+import madacode.cli.UnavailablePromptChannel;
 import madacode.cli.UserPromptChannel;
 import madacode.core.turn.CancellationToken;
 import madacode.core.session.ConversationSession;
@@ -79,7 +79,7 @@ class AskUserQuestionToolTest {
     @Test
     void returns_failure_when_questions_array_is_null() {
         ObjectNode input = mapper.createObjectNode();
-        ToolResult result = ToolTestSupport.invoke(tool, input, ctx(HeadlessPromptChannel.INSTANCE));
+        ToolResult result = ToolTestSupport.invoke(tool, input, ctx(UnavailablePromptChannel.INSTANCE));
         assertFalse(result.success());
     }
 
@@ -87,7 +87,7 @@ class AskUserQuestionToolTest {
     void returns_failure_when_questions_array_is_empty() {
         ObjectNode input = mapper.createObjectNode();
         input.set("questions", mapper.createArrayNode());
-        ToolResult result = ToolTestSupport.invoke(tool, input, ctx(HeadlessPromptChannel.INSTANCE));
+        ToolResult result = ToolTestSupport.invoke(tool, input, ctx(UnavailablePromptChannel.INSTANCE));
         assertFalse(result.success());
     }
 

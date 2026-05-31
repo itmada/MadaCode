@@ -24,20 +24,16 @@ final class SessionAssembly {
     static SessionRuntime resolve(EnvironmentRuntime environment, TerminalRuntime terminal) {
         SessionStorage storage = SessionStorage.defaultStorage();
 
-        if (!terminal.interactive()) {
-            return new SessionRuntime(storage,
-                    resolveSession(environment.args(), storage, false));
-        }
         if (environment.args() instanceof CliArgs.Interactive) {
             return new SessionRuntime(storage,
                     resolveStartupSession(environment, storage, terminal));
         }
         return new SessionRuntime(storage,
-                resolveSession(environment.args(), storage, true));
+                resolveSession(environment.args(), storage));
     }
 
     private static ConversationSession resolveSession(
-            CliArgs args, SessionStorage storage, boolean interactive) {
+            CliArgs args, SessionStorage storage) {
         return switch (args) {
             case CliArgs.NewSession n -> {
                 ConversationSession session = new ConversationSession();
@@ -79,10 +75,6 @@ final class SessionAssembly {
                 yield session;
             }
             case CliArgs.Interactive i -> {
-                if (interactive) {
-                    throw new IllegalStateException(
-                            "interactive startup is resolved by launcher");
-                }
                 ConversationSession session = new ConversationSession();
                 SessionPointer.write(session.sessionId());
                 yield session;

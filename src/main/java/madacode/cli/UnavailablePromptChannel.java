@@ -4,17 +4,16 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Non-interactive prompt channel — always unavailable.
+ * Prompt channel used when a tool is intentionally not allowed to ask the user.
  *
- * <p>Used in headless mode, sub-agents, and tests where no real user
- * interaction is possible. Tools should fail honestly rather than
- * fabricating a "(none selected)" answer.
+ * <p>Sub-agents and unit tests use this channel so tools fail clearly instead
+ * of inventing a default answer.
  */
-public final class HeadlessPromptChannel implements UserPromptChannel {
+public final class UnavailablePromptChannel implements UserPromptChannel {
 
-    public static final HeadlessPromptChannel INSTANCE = new HeadlessPromptChannel();
+    public static final UnavailablePromptChannel INSTANCE = new UnavailablePromptChannel();
 
-    private HeadlessPromptChannel() {}
+    private UnavailablePromptChannel() {}
 
     @Override public boolean isAvailable() { return false; }
     @Override public Optional<String> chooseOne(String title, List<ChannelOption> options) { return Optional.empty(); }

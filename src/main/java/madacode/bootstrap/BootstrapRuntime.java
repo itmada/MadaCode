@@ -39,12 +39,7 @@ record TerminalRuntime(
         Terminal terminal,
         JLineScreen screen,
         InterruptController interrupts,
-        JLineApprovalPrompt approval) {
-
-    boolean interactive() {
-        return terminal != null;
-    }
-}
+        JLineApprovalPrompt approval) {}
 
 record EventsRuntime(
         AppEventPublisher publisher,

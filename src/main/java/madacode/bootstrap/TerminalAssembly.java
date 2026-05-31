@@ -13,9 +13,6 @@ final class TerminalAssembly {
     }
 
     static TerminalRuntime create(BootstrapResources resources) {
-        if (!isInteractiveTerminal()) {
-            return new TerminalRuntime(null, null, null, null);
-        }
         Terminal terminal = JLineRepl.createTerminal();
         JLineScreen screen = new JLineScreen(terminal);
         resources.closeOnBootstrapFailure(() -> {
@@ -26,13 +23,5 @@ final class TerminalAssembly {
         JLineApprovalPrompt approval = new JLineApprovalPrompt(
                 screen, terminal, interrupts, interrupts::interrupt);
         return new TerminalRuntime(terminal, screen, interrupts, approval);
-    }
-
-    private static boolean isInteractiveTerminal() {
-        String term = System.getenv("TERM");
-        return System.console() != null
-                && !"true".equalsIgnoreCase(System.getenv("CI"))
-                && !"true".equalsIgnoreCase(System.getenv("MADA_NO_PICKER"))
-                && (term == null || !"dumb".equalsIgnoreCase(term));
     }
 }

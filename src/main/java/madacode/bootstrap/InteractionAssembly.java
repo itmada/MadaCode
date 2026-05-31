@@ -1,6 +1,5 @@
 package madacode.bootstrap;
 
-import madacode.cli.HeadlessPromptChannel;
 import madacode.cli.JLinePromptChannel;
 import madacode.cli.LineReaderFactory;
 import madacode.cli.UserPromptChannel;
@@ -36,16 +35,12 @@ final class InteractionAssembly {
         LineReader lineReader = null;
         SessionHistory sessionHistory = null;
 
-        if (terminal.interactive()) {
-            sessionHistory = new SessionHistory();
-            lineReader = LineReaderFactory.create(
-                    terminal.terminal(), slashRegistry, sessionHistory,
-                    session.session().workingDirectory());
-            channel = new JLinePromptChannel(terminal.screen(), terminal.terminal(),
-                    terminal.interrupts(), terminal.interrupts()::interrupt);
-        } else {
-            channel = HeadlessPromptChannel.INSTANCE;
-        }
+        sessionHistory = new SessionHistory();
+        lineReader = LineReaderFactory.create(
+                terminal.terminal(), slashRegistry, sessionHistory,
+                session.session().workingDirectory());
+        channel = new JLinePromptChannel(terminal.screen(), terminal.terminal(),
+                terminal.interrupts(), terminal.interrupts()::interrupt);
 
         var turnRunner = new QueryEngineTurnRunner(engine.engine(), channel);
         var turnLog = new TurnLog(environment.homeDir().resolve(".mada/sessions"));

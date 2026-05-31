@@ -9,7 +9,6 @@ import java.io.PrintStream;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.function.BooleanSupplier;
 
 public class SessionPicker {
 
@@ -20,28 +19,14 @@ public class SessionPicker {
     private final SessionStorage storage;
     private final BufferedReader in;
     private final PrintStream out;
-    private final BooleanSupplier interactiveTerminal;
 
     public SessionPicker(SessionStorage storage, BufferedReader in, PrintStream out) {
-        this(storage, in, out, () -> System.console() != null);
-    }
-
-    public SessionPicker(
-            SessionStorage storage,
-            BufferedReader in,
-            PrintStream out,
-            BooleanSupplier interactiveTerminal) {
         this.storage = storage;
         this.in = in;
         this.out = out;
-        this.interactiveTerminal = interactiveTerminal;
     }
 
     public PickResult pick() {
-        if (isNonInteractive()) {
-            return new PickResult.New();
-        }
-
         List<SessionSummary> recent = SessionListings.recent(storage, MAX_RECENT);
 
         if (recent.isEmpty()) {
@@ -94,11 +79,6 @@ public class SessionPicker {
             }
             out.println("Invalid choice. Enter 1-" + recent.size() + ", N, or Q.");
         }
-    }
-
-    private boolean isNonInteractive() {
-        return !interactiveTerminal.getAsBoolean()
-                || "true".equals(System.getenv("MADA_NO_PICKER"));
     }
 
     public sealed interface PickResult {

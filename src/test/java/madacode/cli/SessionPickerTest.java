@@ -26,18 +26,9 @@ public class SessionPickerTest {
     Path tempDir;
 
     @Test
-    void nonInteractiveModeStartsNewSession() {
-        SessionPicker picker = picker("", false);
-
-        SessionPicker.PickResult result = picker.pick();
-
-        assertInstanceOf(SessionPicker.PickResult.New.class, result);
-    }
-
-    @Test
     void emptySessionListStartsNewSessionAndExplainsWhy() {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        SessionPicker picker = picker("", true, out);
+        SessionPicker picker = picker("", out);
 
         SessionPicker.PickResult result = picker.pick();
 
@@ -55,8 +46,7 @@ public class SessionPickerTest {
         SessionPicker picker = new SessionPicker(
                 storage,
                 new BufferedReader(new StringReader("1\n")),
-                new PrintStream(out, true, StandardCharsets.UTF_8),
-                () -> true);
+                new PrintStream(out, true, StandardCharsets.UTF_8));
 
         SessionPicker.PickResult result = picker.pick();
 
@@ -74,8 +64,7 @@ public class SessionPickerTest {
         SessionPicker picker = new SessionPicker(
                 storage,
                 new BufferedReader(new StringReader("wat\nN\n")),
-                new PrintStream(out, true, StandardCharsets.UTF_8),
-                () -> true);
+                new PrintStream(out, true, StandardCharsets.UTF_8));
 
         SessionPicker.PickResult result = picker.pick();
 
@@ -90,22 +79,16 @@ public class SessionPickerTest {
         SessionPicker picker = new SessionPicker(
                 storage,
                 new BufferedReader(new StringReader("Q\n")),
-                new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8),
-                () -> true);
+                new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
 
         assertNull(picker.pick());
     }
 
-    private SessionPicker picker(String input, boolean interactive) {
-        return picker(input, interactive, new ByteArrayOutputStream());
-    }
-
-    private SessionPicker picker(String input, boolean interactive, ByteArrayOutputStream out) {
+    private SessionPicker picker(String input, ByteArrayOutputStream out) {
         return new SessionPicker(
                 storage(),
                 new BufferedReader(new StringReader(input)),
-                new PrintStream(out, true, StandardCharsets.UTF_8),
-                () -> interactive);
+                new PrintStream(out, true, StandardCharsets.UTF_8));
     }
 
     private SessionStorage storage() {

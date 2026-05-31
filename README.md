@@ -66,8 +66,8 @@ models, then saves the result to `~/.mada/providers.json`.
 }
 ```
 
-In non-interactive environments, MadaCode creates the template above and exits;
-fill it in manually, then run MadaCode again.
+When the provider file does not exist yet, MadaCode opens the terminal setup
+panel to collect and save those values.
 
 After configuring the provider, start a session:
 
@@ -92,21 +92,12 @@ Inside a session, use `/help` to list slash commands. Common commands include
 `/model`, `/provider`, `/sessions`, `/resume`, `/compact`, `/skills`,
 `/status`, and `/exit`.
 
-For trusted automation, `--dangerously-bypass-permissions` skips approval
-prompts while keeping core safety checks in place.
-
 ## Configuration
 
 Most state lives under `~/.mada`, including providers, active model state,
 sessions, blobs, agents, skills, MCP config, memory, and permission audit logs.
 Project-local `.mada/agents` and `.mada/skills` directories are also loaded when
 present.
-
-Useful environment variables:
-
-- `MADA_DISABLE_MEMORY=true` disables memory loading.
-- `MADA_NO_PICKER=true` skips the startup selector and starts a new session.
-- `MADA_VERBOSE_TIMINGS=true` shows verbose timing metadata.
 
 MCP servers are configured in `~/.mada/mcp.json`. Text resources are returned
 inline; binary resources are persisted under `~/.mada/blobs` and returned as

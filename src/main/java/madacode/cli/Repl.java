@@ -28,7 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public abstract sealed class Repl permits JLineRepl, BufferedRepl {
+public abstract class Repl {
 
     final QueryEngine queryEngine;
     volatile ConversationSession session;

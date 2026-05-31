@@ -15,7 +15,7 @@ import madacode.core.turn.Turn;
 import madacode.core.turn.TurnResult;
 import madacode.core.turn.TurnRunner;
 
-import madacode.cli.HeadlessPromptChannel;
+import madacode.cli.UnavailablePromptChannel;
 import madacode.cli.UserPromptChannel;
 
 import java.nio.file.Path;
@@ -31,11 +31,11 @@ public final class ToolUseContext {
     private final UserPromptChannel userPrompts;
 
     public ToolUseContext(Path workingDirectory, ConversationSession session) {
-        this(workingDirectory, session, 0, 1, CancellationToken.never(), HeadlessPromptChannel.INSTANCE);
+        this(workingDirectory, session, 0, 1, CancellationToken.never(), UnavailablePromptChannel.INSTANCE);
     }
 
     public ToolUseContext(Path workingDirectory, ConversationSession session, int depth, int maxDepth) {
-        this(workingDirectory, session, depth, maxDepth, CancellationToken.never(), HeadlessPromptChannel.INSTANCE);
+        this(workingDirectory, session, depth, maxDepth, CancellationToken.never(), UnavailablePromptChannel.INSTANCE);
     }
 
     public ToolUseContext(Path workingDirectory,
@@ -43,7 +43,7 @@ public final class ToolUseContext {
                           int depth,
                           int maxDepth,
                           CancellationToken cancellationToken) {
-        this(workingDirectory, session, depth, maxDepth, cancellationToken, HeadlessPromptChannel.INSTANCE);
+        this(workingDirectory, session, depth, maxDepth, cancellationToken, UnavailablePromptChannel.INSTANCE);
     }
 
     public ToolUseContext(Path workingDirectory,
@@ -101,9 +101,9 @@ public final class ToolUseContext {
     }
 
     public ToolUseContext childContext(ConversationSession childSession) {
-        // Sub-agents must not prompt the main user — use headless
+        // Sub-agents must not prompt the main user.
         return new ToolUseContext(
                 workingDirectory, childSession, depth + 1, maxDepth,
-                cancellationToken, HeadlessPromptChannel.INSTANCE);
+                cancellationToken, UnavailablePromptChannel.INSTANCE);
     }
 }

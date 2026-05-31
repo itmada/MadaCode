@@ -162,7 +162,7 @@ class AddProviderToolTest {
     }
 
     @Test
-    void headlessChannelReturnsFailure() {
+    void unavailableChannelReturnsFailure() {
         FakeUserPromptChannel unavailable = new FakeUserPromptChannel().setUnavailable();
         ObjectNode input = buildInput("deepseek", "https://api.deepseek.com",
                 "deepseek-chat", List.of("deepseek-chat"));

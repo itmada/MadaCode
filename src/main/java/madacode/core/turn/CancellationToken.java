@@ -78,8 +78,8 @@ public class CancellationToken {
     private long nextCallbackId = 0;
 
     /**
-     * A token that is never cancelled. Useful for tests and headless paths
-     * where there is no user to press Ctrl+C.
+     * A token that is never cancelled. Useful for tests and call paths that do
+     * not expose a user cancellation gesture.
      */
     public static CancellationToken never() {
         return NEVER;

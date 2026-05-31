@@ -28,7 +28,7 @@ public final class QueryEngineTurnRunner implements TurnRunner {
     private final UserPromptChannel prompts;
 
     public QueryEngineTurnRunner(QueryEngine queryEngine) {
-        this(queryEngine, madacode.cli.HeadlessPromptChannel.INSTANCE);
+        this(queryEngine, madacode.cli.UnavailablePromptChannel.INSTANCE);
     }
 
     public QueryEngineTurnRunner(QueryEngine queryEngine, UserPromptChannel prompts) {

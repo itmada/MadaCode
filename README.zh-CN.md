@@ -63,14 +63,6 @@ provider 名称、base URL、auth token、默认模型和可用模型，并保�
 }
 ```
 
-在非交互环境中，MadaCode 会创建上面的模板文件并退出；手动补全配置后再次运行即可。
-
-配置完成后启动会话：
-
-```sh
-mada
-```
-
 ## 使用
 
 ```sh
@@ -87,20 +79,11 @@ mada --help              # 显示 CLI 帮助
 进入会话后，用 `/help` 查看 slash 命令。常用命令包括 `/model`、`/provider`、
 `/sessions`、`/resume`、`/compact`、`/skills`、`/status` 和 `/exit`。
 
-在可信自动化场景中，`--dangerously-bypass-permissions` 可以跳过审批提示；
-核心安全检查仍然保留。
-
 ## 配置
 
 大部分状态保存在 `~/.mada`，包括 provider、当前模型状态、会话、blob、agent、
 技能、MCP 配置、记忆和权限审计日志。如果项目中存在 `.mada/agents` 和
 `.mada/skills`，也会被加载。
-
-常用环境变量：
-
-- `MADA_DISABLE_MEMORY=true` 禁用记忆加载。
-- `MADA_NO_PICKER=true` 跳过启动选择器并开启新会话。
-- `MADA_VERBOSE_TIMINGS=true` 显示更详细的耗时元数据。
 
 MCP server 配置位于 `~/.mada/mcp.json`。文本资源会直接返回；二进制资源会保存到
 `~/.mada/blobs`，并以本地路径返回。
@@ -120,7 +103,3 @@ MCP server 配置位于 `~/.mada/mcp.json`。文本资源会直接返回；二�
 
 欢迎在 [github.com/itmada/MadaCode](https://github.com/itmada/MadaCode) 提交
 issue 和 pull request。提 PR 前请先跑 `./mvnw test`。
-
-## License
-
-MadaCode 使用 [MIT License](LICENSE) 发布。

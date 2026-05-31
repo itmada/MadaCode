@@ -5,9 +5,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Plain-stream {@link Screen} for tests, dumb terminals, and non-interactive
- * stdout. Only scrollback is written — so transcripts and golden tests stay
- * deterministic.
+ * Plain-stream {@link Screen} for tests and simple stream output. Only
+ * scrollback is written — so transcripts and golden tests stay deterministic.
  */
 public final class TextScreen implements Screen {
 

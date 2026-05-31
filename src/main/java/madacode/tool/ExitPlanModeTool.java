@@ -1,8 +1,8 @@
 package madacode.tool;
 
 import madacode.cli.UserPromptChannel;
-import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
+import madacode.core.session.ConversationSession;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.ToolResult;
 import madacode.core.engine.ToolUseContext;
@@ -55,13 +55,9 @@ public class ExitPlanModeTool implements Tool<ExitPlanModeTool.Input> {
 
         UserPromptChannel channel = context.userPrompts();
 
-        // Auto-approve in headless mode (tests, sub-agents, CI)
         if (!channel.isAvailable()) {
-            session.setPlanMode(false);
-            session.fireMetaEvent(new MetaEvent.PlanModeExited());
-            session.addMessage(Message.system("[plan mode exited — approved (headless)]"));
-            return new ToolResult(name(), true,
-                    "Plan approved (headless mode). Plan mode exited.");
+            return new ToolResult(name(), false,
+                    "No prompt channel available. Plan mode is still active.");
         }
 
         String prompt = String.format(

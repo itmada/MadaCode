@@ -24,8 +24,7 @@ public interface PermissionGate {
 
     /**
      * A permissive gate that allows every tool invocation without prompting.
-     * Useful for testing and for headless scenarios where no user interaction
-     * is possible.
+     * Useful for testing and evaluation runs.
      *
      * <p><strong>Intentionally skips filesystem-scope policy.</strong>  The
      * default gate enforces directory scope and dangerous-target checks

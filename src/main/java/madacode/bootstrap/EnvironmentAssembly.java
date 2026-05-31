@@ -32,8 +32,7 @@ final class EnvironmentAssembly {
 
         Path homeDir = Path.of(System.getProperty("user.home"));
         Path projectDir = Path.of("").toAbsolutePath();
-        boolean memoryEnabled = !args.noMemory()
-                && !"true".equals(System.getenv("MADA_DISABLE_MEMORY"));
+        boolean memoryEnabled = !args.noMemory();
         return new EnvironmentRuntime(
                 args,
                 registry,
@@ -46,7 +45,7 @@ final class EnvironmentAssembly {
 
     private static java.util.List<madacode.provider.Provider> loadProviders(
             ProviderLoader loader, TerminalRuntime terminal) {
-        if (!loader.exists() && terminal.interactive()) {
+        if (!loader.exists()) {
             return new ProviderSetupWizard(loader, terminal).run();
         }
         try {

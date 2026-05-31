@@ -1,6 +1,5 @@
-package madacode;
+package madacode.cli;
 
-import madacode.cli.BufferedRepl;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
 import madacode.core.turn.CancellationToken;
@@ -51,7 +50,7 @@ public class ReplTranscriptPersistenceTest {
         PrintStream output = new PrintStream(outputBuffer, true);
         TurnLog turnLog = new TurnLog(tempDir);
         TurnExecutor turnExecutor = new TurnExecutor(new QueryEngineTurnRunner(engine), turnLog);
-        BufferedRepl repl = new BufferedRepl(engine, turnExecutor, session, reader, output, storage);
+        ScriptedRepl repl = new ScriptedRepl(engine, turnExecutor, session, reader, output, storage);
 
         repl.run();
 

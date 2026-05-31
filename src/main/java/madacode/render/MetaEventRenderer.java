@@ -68,10 +68,6 @@ public final class MetaEventRenderer implements SessionListener {
                 if (sessionContext != null) {
                     sessionContext.setTokens(renderedTokenTotal);
                 }
-                if ("true".equalsIgnoreCase(System.getenv("MADA_VERBOSE_TIMINGS"))) {
-                    screen.scrollback(dim("  " + u.usage().inputTokens() + "→" + u.usage().outputTokens()
-                            + " tokens · " + u.ttftMs() + "ms ttft · " + u.totalMs() + "ms total"));
-                }
             }
             case MetaEvent.SubAgentStarted ignored -> {
                 // Sub-agent visual lifecycle is owned by the agent/skill tool card.

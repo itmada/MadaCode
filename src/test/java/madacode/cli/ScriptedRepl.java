@@ -1,13 +1,14 @@
 package madacode.cli;
 
-import madacode.core.session.ConversationSession;
+import madacode.cli.slash.SlashCommandRegistry;
 import madacode.core.engine.QueryEngine;
+import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.provider.ProviderRegistry;
-import madacode.services.compact.CompactPlanner;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
+import madacode.services.compact.CompactPlanner;
 import madacode.tui.TextScreen;
 
 import java.io.BufferedReader;
@@ -15,33 +16,29 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Objects;
 
-/**
- * Headless / non-TTY line-reader REPL. Used for scripting and CI pipelines
- * where no interactive terminal is available. Permission is always deny.
- */
-public final class BufferedRepl extends Repl {
+final class ScriptedRepl extends Repl {
 
     private final BufferedReader reader;
 
-    public BufferedRepl(QueryEngine queryEngine,
-                        TurnExecutor turnExecutor,
-                        ConversationSession session,
-                        BufferedReader reader,
-                        PrintStream output,
-                        SessionStorage sessionStorage) {
+    ScriptedRepl(QueryEngine queryEngine,
+                 TurnExecutor turnExecutor,
+                 ConversationSession session,
+                 BufferedReader reader,
+                 PrintStream output,
+                 SessionStorage sessionStorage) {
         this(queryEngine, turnExecutor, session, reader, output, sessionStorage,
-                madacode.cli.slash.SlashCommandRegistry.create(null), null, null);
+                SlashCommandRegistry.create(null), null, null);
     }
 
-    public BufferedRepl(QueryEngine queryEngine,
-                        TurnExecutor turnExecutor,
-                        ConversationSession session,
-                        BufferedReader reader,
-                        PrintStream output,
-                        SessionStorage sessionStorage,
-                        madacode.cli.slash.SlashCommandRegistry slashRegistry,
-                        ProviderRegistry providerRegistry,
-                        CompactPlanner compactPlanner) {
+    ScriptedRepl(QueryEngine queryEngine,
+                 TurnExecutor turnExecutor,
+                 ConversationSession session,
+                 BufferedReader reader,
+                 PrintStream output,
+                 SessionStorage sessionStorage,
+                 SlashCommandRegistry slashRegistry,
+                 ProviderRegistry providerRegistry,
+                 CompactPlanner compactPlanner) {
         super(buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
                 slashRegistry, providerRegistry, compactPlanner));
         this.reader = Objects.requireNonNull(reader, "reader");
@@ -52,7 +49,7 @@ public final class BufferedRepl extends Repl {
                                       ConversationSession session,
                                       PrintStream output,
                                       SessionStorage sessionStorage,
-                                      madacode.cli.slash.SlashCommandRegistry slashRegistry,
+                                      SlashCommandRegistry slashRegistry,
                                       ProviderRegistry providerRegistry,
                                       CompactPlanner compactPlanner) {
         TextScreen screen = new TextScreen(Objects.requireNonNull(output, "output"));
@@ -65,7 +62,6 @@ public final class BufferedRepl extends Repl {
         config.sessionStorage = sessionStorage;
         config.slashRegistry = slashRegistry;
         config.turnRenderer = new TurnRenderer(turnView, screen);
-        config.expandableHistory = null;
         config.providerRegistry = providerRegistry;
         config.compactPlanner = compactPlanner;
         return config;
