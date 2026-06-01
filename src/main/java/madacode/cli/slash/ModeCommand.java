@@ -1,6 +1,7 @@
 package madacode.cli.slash;
 
 import madacode.core.session.SessionMode;
+import madacode.core.session.LongRunningStage;
 import madacode.permission.PermissionMode;
 
 import java.util.Arrays;
@@ -59,6 +60,7 @@ final class ModeCommand implements SlashCommand {
 
         if (mode == SessionMode.LONG_RUNNING) {
             ctx.session().setPermissionMode(PermissionMode.BYPASS);
+            ctx.session().setLongRunningStage(LongRunningStage.WAITING_FOR_TASK);
             if (ctx.sessionContext() != null) {
                 ctx.sessionContext().setPermissionMode(PermissionMode.BYPASS);
             }

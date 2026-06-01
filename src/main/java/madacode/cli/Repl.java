@@ -105,6 +105,8 @@ public abstract class Repl {
             case SlashAction.Continue c -> {
                 ModeExecution execution = modeRouter.handle(line, session);
                 runManagedTurn(execution.handle());
+                execution.afterTurn().run();
+                persistSession();
                 yield true;
             }
             case SlashAction.RunLocalTurn r -> {

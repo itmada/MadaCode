@@ -15,9 +15,11 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LongRunningModeHandlerTest {
@@ -96,6 +98,88 @@ class LongRunningModeHandlerTest {
         assertEquals("read @note.txt", session.inputHistory().getFirst());
         assertTrue(seenInput.get().contains("<file path=\"note.txt\">"));
         assertTrue(seenInput.get().contains("todo body"));
+    }
+
+    @Test
+    void waitingForTaskMovesToPlanningBeforeTurn() {
+        AtomicReference<LongRunningStage> stageDuringTurn = new AtomicReference<>();
+        TurnExecutor executor = executor((turn, session, token) -> {
+            stageDuringTurn.set(session.longRunningStage());
+            return new TurnResult("ok", FinishReason.COMPLETED, 1);
+        });
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws-task"));
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_TASK);
+
+        try {
+            ModeExecution execution = new LongRunningModeHandler(executor).handle("build the thing", session);
+            execution.handle().result().join();
+            execution.afterTurn().run();
+        } finally {
+            executor.close();
+        }
+
+        assertEquals(LongRunningStage.PLANNING, stageDuringTurn.get());
+        assertEquals(LongRunningStage.PLANNING, session.longRunningStage());
+    }
+
+    @Test
+    void highConfidenceFinalizePlanMovesToWaitingForApprovalAfterTurn() {
+        TurnExecutor executor = executor((turn, session, token) -> {
+            session.recordLongRunningStageUpdate(new ConversationSession.LongRunningStageUpdate(
+                    LongRunningStage.PLANNING,
+                    ConversationSession.LongRunningStageUpdateIntent.FINALIZE_PLAN,
+                    ConversationSession.LongRunningConfidence.HIGH,
+                    "Plan discussion is complete.",
+                    Instant.parse("2026-05-01T00:00:00Z")));
+            return new TurnResult("ok", FinishReason.COMPLETED, 1);
+        });
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws-plan"));
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.PLANNING);
+
+        try {
+            ModeExecution execution = new LongRunningModeHandler(executor).handle("looks good", session);
+            execution.handle().result().join();
+            execution.afterTurn().run();
+        } finally {
+            executor.close();
+        }
+
+        assertEquals(LongRunningStage.WAITING_FOR_APPROVAL, session.longRunningStage());
+    }
+
+    @Test
+    void highConfidenceApprovalCreatesTaskAndMovesToExecuting() throws Exception {
+        Path workingDirectory = tempDir.resolve("ws-approval");
+        TurnExecutor executor = executor((turn, session, token) -> {
+            session.recordLongRunningStageUpdate(new ConversationSession.LongRunningStageUpdate(
+                    LongRunningStage.WAITING_FOR_APPROVAL,
+                    ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION,
+                    ConversationSession.LongRunningConfidence.HIGH,
+                    "User explicitly approved execution.",
+                    Instant.parse("2026-05-01T00:00:00Z")));
+            return new TurnResult("ok", FinishReason.COMPLETED, 1);
+        });
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+
+        try {
+            ModeExecution execution = new LongRunningModeHandler(executor).handle("start", session);
+            execution.handle().result().join();
+            execution.afterTurn().run();
+        } finally {
+            executor.close();
+        }
+
+        assertEquals(LongRunningStage.EXECUTING, session.longRunningStage());
+        assertNotNull(session.longRunningTaskId());
+        assertTrue(Files.isDirectory(Path.of(session.longRunningTaskDirectory())));
+        assertTrue(Files.isRegularFile(Path.of(session.longRunningTaskDirectory()).resolve("feature_list.json")));
+        assertTrue(Files.isRegularFile(Path.of(session.longRunningTaskDirectory()).resolve("known-issues.json")));
+        assertTrue(Files.readString(Path.of(session.longRunningTaskDirectory()).resolve("progress.txt"))
+                .contains("INITIALIZING -> EXECUTING"));
     }
 
     private TurnExecutor executor(TurnRunner runner) {
