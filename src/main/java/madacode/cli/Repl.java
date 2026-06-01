@@ -105,7 +105,7 @@ public abstract class Repl {
             case SlashAction.Continue c -> {
                 ModeExecution execution = modeRouter.handle(line, session);
                 runManagedTurn(execution.handle());
-                execution.afterTurn().run();
+                runAfterTurnHook(execution.afterTurn());
                 persistSession();
                 yield true;
             }
@@ -150,6 +150,14 @@ public abstract class Repl {
         }
         session.fireTurnEnd();
         persistSession();
+    }
+
+    private void runAfterTurnHook(Runnable afterTurn) {
+        try {
+            afterTurn.run();
+        } catch (RuntimeException exception) {
+            renderTurnCrash(exception);
+        }
     }
 
     /** Surface a supervised turn crash to the user. Best-effort: appending a

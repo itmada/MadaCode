@@ -63,6 +63,8 @@ public class ConversationSession {
     private volatile LongRunningStage longRunningStage;
     private volatile String longRunningTaskId;
     private volatile String longRunningTaskDirectory;
+    private volatile String longRunningTaskTitle;
+    private volatile String longRunningPlanSummary;
     private volatile LongRunningStageUpdate lastLongRunningStageUpdate;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
@@ -352,6 +354,8 @@ public class ConversationSession {
             this.longRunningStage = null;
             this.longRunningTaskId = null;
             this.longRunningTaskDirectory = null;
+            this.longRunningTaskTitle = null;
+            this.longRunningPlanSummary = null;
             this.lastLongRunningStageUpdate = null;
         }
     }
@@ -402,6 +406,24 @@ public class ConversationSession {
         this.longRunningTaskDirectory = longRunningTaskDirectory;
     }
 
+    public String longRunningTaskTitle() {
+        return longRunningTaskTitle;
+    }
+
+    public void setLongRunningTaskTitle(String longRunningTaskTitle) {
+        requireLongRunningMode("longRunningTaskTitle", longRunningTaskTitle);
+        this.longRunningTaskTitle = normalizeOptionalLongRunningText(longRunningTaskTitle);
+    }
+
+    public String longRunningPlanSummary() {
+        return longRunningPlanSummary;
+    }
+
+    public void setLongRunningPlanSummary(String longRunningPlanSummary) {
+        requireLongRunningMode("longRunningPlanSummary", longRunningPlanSummary);
+        this.longRunningPlanSummary = normalizeOptionalLongRunningText(longRunningPlanSummary);
+    }
+
     public Optional<LongRunningStageUpdate> lastLongRunningStageUpdate() {
         return Optional.ofNullable(lastLongRunningStageUpdate);
     }
@@ -428,6 +450,14 @@ public class ConversationSession {
             throw new IllegalStateException(
                     fieldName + " requires workflowMode LONG_RUNNING");
         }
+    }
+
+    private static String normalizeOptionalLongRunningText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.strip();
+        return normalized.isBlank() ? null : normalized;
     }
 
     public TokenUsage tokenUsage() {

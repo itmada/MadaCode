@@ -154,6 +154,8 @@ public class SessionStorageTest {
         session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
         session.setLongRunningTaskId("task-42");
         session.setLongRunningTaskDirectory(tempDir.resolve("workspace/tasks/task-42").toString());
+        session.setLongRunningTaskTitle("Implement long-running workflow");
+        session.setLongRunningPlanSummary("Finalize a durable serial execution plan.");
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
@@ -162,6 +164,8 @@ public class SessionStorageTest {
         assertEquals(LongRunningStage.WAITING_FOR_APPROVAL, restored.longRunningStage());
         assertEquals("task-42", restored.longRunningTaskId());
         assertEquals(tempDir.resolve("workspace/tasks/task-42").toString(), restored.longRunningTaskDirectory());
+        assertEquals("Implement long-running workflow", restored.longRunningTaskTitle());
+        assertEquals("Finalize a durable serial execution plan.", restored.longRunningPlanSummary());
     }
 
     @Test

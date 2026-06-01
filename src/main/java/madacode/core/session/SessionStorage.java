@@ -171,6 +171,12 @@ public final class SessionStorage {
         if (session.longRunningTaskDirectory() != null) {
             root.put("longRunningTaskDirectory", session.longRunningTaskDirectory());
         }
+        if (session.longRunningTaskTitle() != null) {
+            root.put("longRunningTaskTitle", session.longRunningTaskTitle());
+        }
+        if (session.longRunningPlanSummary() != null) {
+            root.put("longRunningPlanSummary", session.longRunningPlanSummary());
+        }
         session.lastLongRunningStageUpdate()
                 .ifPresent(update -> root.set("lastLongRunningStageUpdate", serializeLongRunningStageUpdate(update)));
 
@@ -347,6 +353,8 @@ public final class SessionStorage {
             session.setLongRunningStage(readLongRunningStage(migrated, workflowMode));
             session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
             session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
+            session.setLongRunningTaskTitle(optionalText(migrated, "longRunningTaskTitle"));
+            session.setLongRunningPlanSummary(optionalText(migrated, "longRunningPlanSummary"));
             deserializeLongRunningStageUpdate(migrated.path("lastLongRunningStageUpdate"), session);
         }
         return session;

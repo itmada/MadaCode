@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Stateful handler for long-running workflow turns.
@@ -25,17 +26,27 @@ public final class LongRunningModeHandler implements ModeHandler {
 
     private static final DateTimeFormatter TASK_ID_TIME =
             DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
+    private static final int MAX_TASK_ID_ATTEMPTS = 10;
 
     private final TurnExecutor turnExecutor;
     private final TaskStoreFactory taskStoreFactory;
+    private final TaskIdGenerator taskIdGenerator;
 
     public LongRunningModeHandler(TurnExecutor turnExecutor) {
         this(turnExecutor, LongRunningTaskStore::new);
     }
 
     public LongRunningModeHandler(TurnExecutor turnExecutor, TaskStoreFactory taskStoreFactory) {
+        this(turnExecutor, taskStoreFactory, LongRunningModeHandler::newTaskId);
+    }
+
+    LongRunningModeHandler(
+            TurnExecutor turnExecutor,
+            TaskStoreFactory taskStoreFactory,
+            TaskIdGenerator taskIdGenerator) {
         this.turnExecutor = Objects.requireNonNull(turnExecutor, "turnExecutor");
         this.taskStoreFactory = Objects.requireNonNull(taskStoreFactory, "taskStoreFactory");
+        this.taskIdGenerator = Objects.requireNonNull(taskIdGenerator, "taskIdGenerator");
     }
 
     @Override
@@ -46,6 +57,9 @@ public final class LongRunningModeHandler implements ModeHandler {
         LongRunningStage stage = stage(session);
         if (stage == LongRunningStage.WAITING_FOR_TASK) {
             session.setLongRunningStage(LongRunningStage.PLANNING);
+            if (session.longRunningTaskTitle() == null) {
+                session.setLongRunningTaskTitle(taskTitle(expanded));
+            }
             session.clearLongRunningStageUpdate();
             stage = LongRunningStage.PLANNING;
         }
@@ -96,6 +110,7 @@ public final class LongRunningModeHandler implements ModeHandler {
         switch (update.intent()) {
             case FINALIZE_PLAN -> {
                 if (session.longRunningStage() == LongRunningStage.PLANNING) {
+                    session.setLongRunningPlanSummary(update.summary());
                     session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
                 }
             }
@@ -117,14 +132,8 @@ public final class LongRunningModeHandler implements ModeHandler {
             session.setLongRunningStage(LongRunningStage.EXECUTING);
             return;
         }
-        String taskId = newTaskId();
         LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
-        LongRunningTaskMetadata metadata = store.createTask(new CreateTaskRequest(
-                taskId,
-                taskTitle(expandedInput),
-                "executing",
-                session.sessionId(),
-                LongRunningStage.EXECUTING.name()));
+        LongRunningTaskMetadata metadata = createTaskWithFreshId(store, session);
         Path taskDirectory = session.workingDirectory()
                 .resolve(".mada/long-running")
                 .resolve(metadata.id())
@@ -135,8 +144,47 @@ public final class LongRunningModeHandler implements ModeHandler {
         store.appendProgress(metadata.id(), initialProgressEntry(session, expandedInput));
     }
 
-    private static String newTaskId() {
-        return "task-" + TASK_ID_TIME.format(Instant.now());
+    private LongRunningTaskMetadata createTaskWithFreshId(
+            LongRunningTaskStore store,
+            ConversationSession session) {
+        for (int attempt = 0; attempt < MAX_TASK_ID_ATTEMPTS; attempt++) {
+            String taskId = taskIdGenerator.newTaskId(attempt);
+            try {
+                return store.createTask(new CreateTaskRequest(
+                        taskId,
+                        durableTaskTitle(session),
+                        "executing",
+                        session.sessionId(),
+                        LongRunningStage.EXECUTING.name()));
+            } catch (madacode.longrunning.LongRunningTaskStoreException exception) {
+                if (!exception.getMessage().contains("already exists")) {
+                    throw exception;
+                }
+            }
+        }
+        String fallbackId = "task-" + TASK_ID_TIME.format(Instant.now()) + "-"
+                + UUID.randomUUID().toString().substring(0, 8);
+        return store.createTask(new CreateTaskRequest(
+                fallbackId,
+                durableTaskTitle(session),
+                "executing",
+                session.sessionId(),
+                LongRunningStage.EXECUTING.name()));
+    }
+
+    private static String newTaskId(int attempt) {
+        String base = "task-" + TASK_ID_TIME.format(Instant.now());
+        return attempt == 0 ? base : base + "-" + attempt;
+    }
+
+    private static String durableTaskTitle(ConversationSession session) {
+        if (session.longRunningTaskTitle() != null) {
+            return session.longRunningTaskTitle();
+        }
+        if (session.longRunningPlanSummary() != null) {
+            return taskTitle(session.longRunningPlanSummary());
+        }
+        return "Long-running task";
     }
 
     private static String taskTitle(String input) {
@@ -175,5 +223,10 @@ public final class LongRunningModeHandler implements ModeHandler {
     @FunctionalInterface
     public interface TaskStoreFactory {
         LongRunningTaskStore create(Path projectDirectory);
+    }
+
+    @FunctionalInterface
+    interface TaskIdGenerator {
+        String newTaskId(int attempt);
     }
 }

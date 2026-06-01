@@ -60,6 +60,13 @@ class LongRunStageUpdateToolTest {
     }
 
     @Test
+    void stageUpdateToolIsInternalAndDoesNotRequireUserPermission() {
+        assertTrue(tool.isReadOnly());
+        assertFalse(tool.isConcurrencySafe(new LongRunStageUpdateTool.Input(
+                "FINALIZE_PLAN", "high", "done")));
+    }
+
+    @Test
     void recordsLowConfidenceWithoutTransitionReadiness() {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);

@@ -9,6 +9,8 @@ import madacode.core.turn.TurnHandle;
 import madacode.core.turn.TurnLog;
 import madacode.core.turn.TurnResult;
 import madacode.core.turn.TurnRunner;
+import madacode.longrunning.CreateTaskRequest;
+import madacode.longrunning.LongRunningTaskStore;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -121,6 +123,7 @@ class LongRunningModeHandlerTest {
 
         assertEquals(LongRunningStage.PLANNING, stageDuringTurn.get());
         assertEquals(LongRunningStage.PLANNING, session.longRunningStage());
+        assertEquals("build the thing", session.longRunningTaskTitle());
     }
 
     @Test
@@ -147,6 +150,7 @@ class LongRunningModeHandlerTest {
         }
 
         assertEquals(LongRunningStage.WAITING_FOR_APPROVAL, session.longRunningStage());
+        assertEquals("Plan discussion is complete.", session.longRunningPlanSummary());
     }
 
     @Test
@@ -176,10 +180,81 @@ class LongRunningModeHandlerTest {
         assertEquals(LongRunningStage.EXECUTING, session.longRunningStage());
         assertNotNull(session.longRunningTaskId());
         assertTrue(Files.isDirectory(Path.of(session.longRunningTaskDirectory())));
+        assertEquals("start", session.inputHistory().getFirst());
+        assertEquals("Long-running task",
+                new LongRunningTaskStore(workingDirectory).loadTask(session.longRunningTaskId()).title());
         assertTrue(Files.isRegularFile(Path.of(session.longRunningTaskDirectory()).resolve("feature_list.json")));
         assertTrue(Files.isRegularFile(Path.of(session.longRunningTaskDirectory()).resolve("known-issues.json")));
         assertTrue(Files.readString(Path.of(session.longRunningTaskDirectory()).resolve("progress.txt"))
                 .contains("INITIALIZING -> EXECUTING"));
+    }
+
+    @Test
+    void approvalUsesOriginalTaskTitleInsteadOfApprovalUtterance() {
+        Path workingDirectory = tempDir.resolve("ws-title");
+        TurnExecutor executor = executor((turn, session, token) -> {
+            session.recordLongRunningStageUpdate(new ConversationSession.LongRunningStageUpdate(
+                    LongRunningStage.WAITING_FOR_APPROVAL,
+                    ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION,
+                    ConversationSession.LongRunningConfidence.HIGH,
+                    "Approved final plan.",
+                    Instant.parse("2026-05-01T00:00:00Z")));
+            return new TurnResult("ok", FinishReason.COMPLETED, 1);
+        });
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningTaskTitle("Implement durable long-running workflow");
+
+        try {
+            ModeExecution execution = new LongRunningModeHandler(executor).handle("start", session);
+            execution.handle().result().join();
+            execution.afterTurn().run();
+        } finally {
+            executor.close();
+        }
+
+        assertEquals("Implement durable long-running workflow",
+                new LongRunningTaskStore(workingDirectory).loadTask(session.longRunningTaskId()).title());
+    }
+
+    @Test
+    void taskIdRetriesWhenTimestampDirectoryAlreadyExists() {
+        Path workingDirectory = tempDir.resolve("ws-collision");
+        LongRunningTaskStore preexisting = new LongRunningTaskStore(workingDirectory);
+        String sameSecondId = "task-fixed";
+        preexisting.createTask(new CreateTaskRequest(
+                sameSecondId, "existing", "executing", "other-session", "EXECUTING"));
+
+        TurnExecutor executor = executor((turn, session, token) -> {
+            session.recordLongRunningStageUpdate(new ConversationSession.LongRunningStageUpdate(
+                    LongRunningStage.WAITING_FOR_APPROVAL,
+                    ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION,
+                    ConversationSession.LongRunningConfidence.HIGH,
+                    "Approved final plan.",
+                    Instant.parse("2026-05-01T00:00:00Z")));
+            return new TurnResult("ok", FinishReason.COMPLETED, 1);
+        });
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningTaskTitle("New task");
+
+        try {
+            LongRunningModeHandler handler = new LongRunningModeHandler(
+                    executor,
+                    LongRunningTaskStore::new,
+                    attempt -> attempt == 0 ? sameSecondId : sameSecondId + "-" + attempt);
+            ModeExecution execution = handler.handle("start", session);
+            execution.handle().result().join();
+            execution.afterTurn().run();
+        } finally {
+            executor.close();
+        }
+
+        assertTrue(session.longRunningTaskId().startsWith(sameSecondId));
+        assertTrue(!session.longRunningTaskId().equals(sameSecondId));
+        assertTrue(Files.isDirectory(Path.of(session.longRunningTaskDirectory())));
     }
 
     private TurnExecutor executor(TurnRunner runner) {

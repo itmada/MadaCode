@@ -32,7 +32,7 @@ public final class LongRunStageUpdateTool implements Tool<LongRunStageUpdateTool
 
     @Override
     public boolean isReadOnly() {
-        return false;
+        return true;
     }
 
     @Override
