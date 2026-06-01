@@ -2,14 +2,16 @@
 
 [简体中文](README.md)
 
-MadaCode is a coding agent that runs in your terminal. It can read and edit
-project files, run commands, search code, plan tasks, call tools, and use any
-Anthropic-compatible model to help with development work.
+**MadaCode** is an intelligent AI coding agent runtime designed to seamlessly assist developers with complex code tasks through natural language dialogue directly from the terminal (CLI).
 
-MadaCode provides modular capabilities including resumable sessions with
-automatic compaction, dynamic model and provider switching, MCP integration,
-sub-agents, and skills. It runs as a Java 21 CLI and can be launched from source
-or installed as the local `mada` command.
+As a powerful pair-programming assistant, MadaCode can autonomously read and edit project files, execute terminal commands, search codebases, plan complex tasks, and orchestrate external tools. It integrates natively with Anthropic-compatible large language models, providing an out-of-the-box intelligent development experience.
+
+### Core Features
+
+- 🧠 **Intelligent Session Management**: Supports session persistence, resumable states, and automatic context compaction.
+- 🔌 **Flexible Model Ecosystem**: Dynamically hot-switch between different models and providers directly from the terminal.
+- 🧩 **Modular Extensibility**: Native support for MCP (Model Context Protocol) integration, Sub-Agents, and customizable Skill systems.
+- ⚡ **Native Terminal Experience**: A pure CLI application built on Java 21 with a built-in interactive TUI. Can be quickly launched from source or installed as a global `mada` command.
 
 ## Quick Start
 
