@@ -4,7 +4,6 @@ import madacode.cli.editor.SessionHistory;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
 import madacode.core.engine.QueryEngine;
-import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.services.compact.CompactPlanner;
@@ -95,13 +94,14 @@ public final class JLineRepl extends Repl {
                 ctx.setModel(active.currentModel().name());
                 ctx.setTokenLimit(active.currentModel().contextWindow());
             }
-            ctx.setMode(SessionMode.from(session));
+            ctx.syncFrom(session);
         });
 
         ExpandableHistory expandableHistory = new ExpandableHistory();
 
         SlashContext.ModelChooser modelChooser = inlineModelChooser(screen, terminal);
         SlashContext.ModeChooser modeChooser = inlineModeChooser(screen, terminal);
+        SlashContext.PermissionChooser permissionChooser = inlinePermissionChooser(screen, terminal);
         SlashContext.ThemeChooser themeChooser = inlineThemeChooser(screen, terminal);
         SlashContext.ProviderChooser providerChooser = inlineProviderChooser(screen, terminal);
         SessionChooser sessionChooser = inlineSessionChooser(sessionStorage, screen, terminal);
@@ -110,7 +110,7 @@ public final class JLineRepl extends Repl {
         SlashContext slashCtx = new SlashContext(
                 session, screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
                 compactPlanner, ctx, Optional.ofNullable(sessionChooser),
-                Optional.of(modelChooser), Optional.of(modeChooser),
+                Optional.of(modelChooser), Optional.of(modeChooser), Optional.of(permissionChooser),
                 Optional.of(themeChooser), Optional.of(providerChooser));
         SlashComposer slashComposer = new SlashComposer(
                 slashRegistry, slashCtx, screen, screen, terminal);
@@ -151,6 +151,7 @@ public final class JLineRepl extends Repl {
         config.sessionContext = ctx;
         config.modelChooser = modelChooser;
         config.modeChooser = modeChooser;
+        config.permissionChooser = permissionChooser;
         config.themeChooser = themeChooser;
         config.providerChooser = providerChooser;
         config.notifications = notifications;
@@ -250,7 +251,7 @@ public final class JLineRepl extends Repl {
         sessionContext.batch(() -> {
             sessionContext.setCwd(newSession.workingDirectory());
             sessionContext.setSessionId(newSession.sessionId());
-            sessionContext.setMode(SessionMode.from(newSession));
+            sessionContext.syncFrom(newSession);
         });
         loadHistory();
     }
@@ -334,6 +335,12 @@ public final class JLineRepl extends Repl {
             JLineScreen screen, Terminal terminal) {
         return modes -> chooseFromList(screen, terminal,
                 "Mode", "", modes);
+    }
+
+    private static SlashContext.PermissionChooser inlinePermissionChooser(
+            JLineScreen screen, Terminal terminal) {
+        return permissions -> chooseFromList(screen, terminal,
+                "Permission", "", permissions);
     }
 
     private static SlashContext.ThemeChooser inlineThemeChooser(

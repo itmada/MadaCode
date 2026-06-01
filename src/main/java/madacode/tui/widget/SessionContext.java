@@ -1,6 +1,8 @@
 package madacode.tui.widget;
 
 import madacode.core.session.SessionMode;
+import madacode.core.session.ConversationSession;
+import madacode.permission.PermissionMode;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -16,7 +18,9 @@ public final class SessionContext {
     private String model;
     private int tokens;
     private int tokenLimit;
-    private SessionMode mode = SessionMode.STRICT;
+    private SessionMode workflowMode = SessionMode.COMMON;
+    private PermissionMode permissionMode = PermissionMode.DEFAULT;
+    private boolean planMode;
 
     public SessionContext() {}
 
@@ -25,10 +29,32 @@ public final class SessionContext {
     public synchronized void setModel(String model) { this.model = model; }
     public synchronized String model() { return model; }
     public synchronized void setTokenLimit(int tokenLimit) { this.tokenLimit = Math.max(0, tokenLimit); }
-    public synchronized void setMode(SessionMode mode) { this.mode = mode == null ? SessionMode.STRICT : mode; }
-    public synchronized SessionMode mode() { return mode; }
+    public synchronized void setWorkflowMode(SessionMode workflowMode) {
+        this.workflowMode = workflowMode == null ? SessionMode.COMMON : workflowMode;
+    }
+    public synchronized SessionMode workflowMode() { return workflowMode; }
+    public synchronized void setPermissionMode(PermissionMode permissionMode) {
+        this.permissionMode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
+    }
+    public synchronized PermissionMode permissionMode() { return permissionMode; }
+    public synchronized void setPlanMode(boolean planMode) { this.planMode = planMode; }
+    public synchronized boolean planMode() { return planMode; }
+    public synchronized void setMode(SessionMode mode) { setWorkflowMode(mode); }
+    public synchronized SessionMode mode() { return workflowMode(); }
     public synchronized void setTokens(int used) { setTokens(used, tokenLimit); }
     public synchronized void setTokens(int used, int max) { this.tokenLimit = Math.max(0, max); this.tokens = used; }
+
+    public synchronized void syncFrom(ConversationSession session) {
+        if (session == null) {
+            workflowMode = SessionMode.COMMON;
+            permissionMode = PermissionMode.DEFAULT;
+            planMode = false;
+            return;
+        }
+        workflowMode = session.workflowMode();
+        permissionMode = session.permissionMode();
+        planMode = session.isPlanMode();
+    }
 
     public synchronized void batch(Runnable mutations) {
         mutations.run();

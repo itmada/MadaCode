@@ -17,7 +17,12 @@ final class StatusCommand implements SlashCommand {
         String model = ctx.providerRegistry() == null ? "(unknown)" : ctx.providerRegistry().active().currentModel().name();
         ctx.screen().scrollback(Tk.dim("model") + " " + model);
         String mode = SessionMode.from(ctx.session()).id();
+        String permission = ctx.session().permissionMode().id();
         ctx.screen().scrollback(Tk.dim("mode") + " " + mode);
+        ctx.screen().scrollback(Tk.dim("permission") + " " + permission);
+        if (ctx.session().isPlanMode()) {
+            ctx.screen().scrollback(Tk.dim("plan") + " active");
+        }
         return new SlashAction.Handled();
     }
 }

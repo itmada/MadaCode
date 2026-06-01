@@ -301,6 +301,7 @@ class ReplSupervisionTest {
     void sessionModeSyncDerivesDisplayModeFromSessionAfterPlanEvents() {
         SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
         ConversationSession session = new ConversationSession(tempDir.resolve("ws"));
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setPermissionMode(PermissionMode.ACCEPT_EDITS);
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         QueryEngine engine = new QueryEngine(
@@ -321,11 +322,13 @@ class ReplSupervisionTest {
 
         session.setPlanMode(true);
         session.fireMetaEvent(new MetaEvent.PlanModeEntered());
-        assertEquals(SessionMode.PLAN, repl.sessionContext.mode());
+        assertEquals(SessionMode.LONG_RUNNING, repl.sessionContext.mode());
+        assertTrue(repl.sessionContext.planMode());
 
         session.setPlanMode(false);
         session.fireMetaEvent(new MetaEvent.PlanModeExited());
-        assertEquals(SessionMode.NORMAL, repl.sessionContext.mode());
+        assertEquals(SessionMode.LONG_RUNNING, repl.sessionContext.mode());
+        assertTrue(repl.sessionContext.permissionMode() == PermissionMode.ACCEPT_EDITS);
     }
 
     private static String firstText(Message m) {

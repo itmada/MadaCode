@@ -19,13 +19,14 @@ import java.util.function.UnaryOperator;
  */
 final class SchemaMigrator {
 
-    static final int CURRENT = 5;
+    static final int CURRENT = 6;
 
     private static final Map<Integer, UnaryOperator<ObjectNode>> STEPS = Map.of(
             1, SchemaMigrator::v1ToV2,
             2, SchemaMigrator::v2ToV3,
             3, SchemaMigrator::v3ToV4,
-            4, SchemaMigrator::v4ToV5
+            4, SchemaMigrator::v4ToV5,
+            5, SchemaMigrator::v5ToV6
     );
 
     private SchemaMigrator() {}
@@ -96,6 +97,17 @@ final class SchemaMigrator {
             if ("FAILED".equals(status) || "STOPPED".equals(status)) {
                 task.put("status", "COMPLETED");
             }
+        }
+        return root;
+    }
+
+    // ---- v5 → v6: persist workflow and permission axes explicitly ----
+    private static ObjectNode v5ToV6(ObjectNode root) {
+        if (!root.has("workflowMode")) {
+            root.put("workflowMode", "common");
+        }
+        if (!root.has("permissionMode")) {
+            root.put("permissionMode", "strict");
         }
         return root;
     }

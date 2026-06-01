@@ -1,5 +1,9 @@
 package madacode.permission;
 
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.Optional;
+
 /**
  * Permission policy for a conversation session.
  *
@@ -13,22 +17,36 @@ package madacode.permission;
  */
 public enum PermissionMode {
     /** Every non-readonly tool requires explicit user approval. */
-    DEFAULT(0),
+    DEFAULT("strict", "Prompt before any non-read-only tool", 0),
 
     /** File edit/write tools auto-pass; other writes still prompt.
      *  Default mode for sub-agents — they edit freely but bash/web calls
      *  still surface to the user. */
-    ACCEPT_EDITS(1),
+    ACCEPT_EDITS("normal",
+            "Auto-allow file edits in the workspace; prompt for other writes", 1),
 
     /** Skip all interactive approval. Safety rules (e.g. dangerous bash)
      *  still apply — BYPASS only suppresses prompting, never overrides
      *  deny rules. */
-    BYPASS(2);
+    BYPASS("all-pass",
+            "Suppress interactive approval; structural safety rules still apply", 2);
 
+    private final String id;
+    private final String description;
     private final int permissivenessRank;
 
-    PermissionMode(int permissivenessRank) {
+    PermissionMode(String id, String description, int permissivenessRank) {
+        this.id = id;
+        this.description = description;
         this.permissivenessRank = permissivenessRank;
+    }
+
+    public String id() {
+        return id;
+    }
+
+    public String description() {
+        return description;
     }
 
     /**
@@ -40,5 +58,15 @@ public enum PermissionMode {
      */
     public boolean isAtLeastAsPermissiveAs(PermissionMode other) {
         return this.permissivenessRank >= other.permissivenessRank;
+    }
+
+    public static Optional<PermissionMode> parse(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        String normalized = raw.strip().toLowerCase(Locale.ROOT).replace('_', '-');
+        return Arrays.stream(values())
+                .filter(mode -> mode.id.equals(normalized))
+                .findFirst();
     }
 }

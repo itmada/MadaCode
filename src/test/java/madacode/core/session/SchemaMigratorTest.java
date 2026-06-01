@@ -105,6 +105,20 @@ class SchemaMigratorTest {
         assertTrue(migrated.has("todos"));
     }
 
+    @Test
+    void v5ToV6_addsWorkflowAndPermissionAxes() {
+        ObjectNode root = minimalV1();
+        root.put("schemaVersion", 5);
+        root.putArray("tasks");
+        root.putArray("todos");
+
+        ObjectNode migrated = SchemaMigrator.migrateToLatest(root);
+
+        assertEquals(SchemaMigrator.CURRENT, migrated.get("schemaVersion").asInt());
+        assertEquals("common", migrated.get("workflowMode").asText());
+        assertEquals("strict", migrated.get("permissionMode").asText());
+    }
+
     // ---- helpers ----
 
     private ObjectNode minimalV1() {

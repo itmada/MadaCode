@@ -3,7 +3,6 @@ package madacode.cli;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.core.engine.QueryEngine;
 import madacode.core.session.ConversationSession;
-import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.provider.ProviderRegistry;
@@ -67,7 +66,7 @@ final class ScriptedRepl extends Repl {
         config.providerRegistry = providerRegistry;
         config.compactPlanner = compactPlanner;
         config.sessionContext = new SessionContext();
-        config.sessionContext.setMode(SessionMode.from(session));
+        config.sessionContext.syncFrom(session);
         return config;
     }
 

@@ -6,9 +6,10 @@ import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.model.Message;
+import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorageException;
-import madacode.core.session.WorkflowMode;
+import madacode.permission.PermissionMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -46,22 +47,28 @@ public class SessionStorageTest {
                                 new ContentBlock.ToolUseBlock("toolu_1", "glob", toolInput()))),
                         Message.user(List.of(
                                 new ContentBlock.ToolResultBlock("toolu_1", "PLAN.md", true, -1)))));
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setPlanMode(true);
+        session.setPermissionMode(PermissionMode.BYPASS);
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
 
-        assertEquals(5, mapper.readTree(storage.transcriptPath(session.sessionId()).toFile())
+        var json = mapper.readTree(storage.transcriptPath(session.sessionId()).toFile());
+        assertEquals(6, json
                 .path("schemaVersion")
                 .asInt());
+        assertEquals("long-running", json.path("workflowMode").asText());
+        assertEquals("all-pass", json.path("permissionMode").asText());
         assertEquals(session.sessionId(), restored.sessionId());
         assertEquals(session.createdAt(), restored.createdAt());
         assertEquals(session.workingDirectory(), restored.workingDirectory());
+        assertEquals(session.workflowMode(), restored.workflowMode());
         assertEquals(session.isPlanMode(), restored.isPlanMode());
-        assertEquals(WorkflowMode.COMMON, restored.workflowMode());
         assertNull(restored.longRunningStage());
         assertNull(restored.longRunningTaskId());
         assertNull(restored.longRunningTaskDirectory());
+        assertEquals(session.permissionMode(), restored.permissionMode());
         assertEquals(session.messages().size(), restored.messages().size());
 
         for (int i = 0; i < session.messages().size(); i++) {
@@ -119,7 +126,8 @@ public class SessionStorageTest {
         assertEquals("legacy-session", restored.sessionId());
         assertEquals(1, restored.messages().size());
         assertEquals(false, restored.isPlanMode());
-        assertEquals(WorkflowMode.COMMON, restored.workflowMode());
+        assertEquals(SessionMode.COMMON, restored.workflowMode());
+        assertEquals(PermissionMode.DEFAULT, restored.permissionMode());
         assertNull(restored.longRunningStage());
         assertNull(restored.longRunningTaskId());
     }
@@ -132,7 +140,7 @@ public class SessionStorageTest {
                 Instant.parse("2026-05-21T09:15:00Z"),
                 tempDir.resolve("workspace"),
                 List.of(Message.system("Session initialized.")));
-        session.setWorkflowMode(WorkflowMode.LONG_RUNNING);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
         session.setLongRunningTaskId("task-42");
         session.setLongRunningTaskDirectory(tempDir.resolve("workspace/tasks/task-42").toString());
@@ -140,7 +148,7 @@ public class SessionStorageTest {
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
 
-        assertEquals(WorkflowMode.LONG_RUNNING, restored.workflowMode());
+        assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
         assertEquals(LongRunningStage.WAITING_FOR_APPROVAL, restored.longRunningStage());
         assertEquals("task-42", restored.longRunningTaskId());
         assertEquals(tempDir.resolve("workspace/tasks/task-42").toString(), restored.longRunningTaskDirectory());
@@ -177,7 +185,7 @@ public class SessionStorageTest {
 
         ConversationSession restored = storage.load("workflow-legacy");
 
-        assertEquals(WorkflowMode.COMMON, restored.workflowMode());
+        assertEquals(SessionMode.COMMON, restored.workflowMode());
         assertNull(restored.longRunningStage());
         assertNull(restored.longRunningTaskId());
         assertNull(restored.longRunningTaskDirectory());

@@ -30,6 +30,7 @@ public class SlashCommandHandler {
     private final SessionContext sessionContext;
     private final Optional<SlashContext.ModelChooser> modelChooser;
     private final Optional<SlashContext.ModeChooser> modeChooser;
+    private final Optional<SlashContext.PermissionChooser> permissionChooser;
     private final Optional<SlashContext.ThemeChooser> themeChooser;
     private final Optional<SlashContext.ProviderChooser> providerChooser;
     private final NotificationCenter notifications;
@@ -45,6 +46,7 @@ public class SlashCommandHandler {
         this.sessionContext = builder.sessionContext;
         this.modelChooser = Optional.ofNullable(builder.modelChooser);
         this.modeChooser = Optional.ofNullable(builder.modeChooser);
+        this.permissionChooser = Optional.ofNullable(builder.permissionChooser);
         this.themeChooser = Optional.ofNullable(builder.themeChooser);
         this.providerChooser = Optional.ofNullable(builder.providerChooser);
         this.notifications = builder.notifications;
@@ -65,6 +67,7 @@ public class SlashCommandHandler {
         private SessionContext sessionContext;
         private SlashContext.ModelChooser modelChooser;
         private SlashContext.ModeChooser modeChooser;
+        private SlashContext.PermissionChooser permissionChooser;
         private SlashContext.ThemeChooser themeChooser;
         private SlashContext.ProviderChooser providerChooser;
         private NotificationCenter notifications;
@@ -111,6 +114,11 @@ public class SlashCommandHandler {
 
         public Builder modeChooser(SlashContext.ModeChooser modeChooser) {
             this.modeChooser = modeChooser;
+            return this;
+        }
+
+        public Builder permissionChooser(SlashContext.PermissionChooser permissionChooser) {
+            this.permissionChooser = permissionChooser;
             return this;
         }
 
@@ -161,6 +169,7 @@ public class SlashCommandHandler {
                 sessionChooser,
                 modelChooser,
                 modeChooser,
+                permissionChooser,
                 themeChooser,
                 providerChooser);
         return command.get().execute(ctx, arg);

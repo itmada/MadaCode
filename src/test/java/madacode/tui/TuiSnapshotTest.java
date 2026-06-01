@@ -117,7 +117,7 @@ class TuiSnapshotTest {
                 3,
                 List.of(
                         new CommandPalettePanel.PaletteCandidate("/model", "Choose model"),
-                        new CommandPalettePanel.PaletteCandidate("/mode", "Choose mode")),
+                        new CommandPalettePanel.PaletteCandidate("/mode", "Choose workflow mode")),
                 0,
                 "Tab complete   Enter confirm   Esc cancel");
 

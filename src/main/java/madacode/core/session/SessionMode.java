@@ -1,37 +1,27 @@
 package madacode.core.session;
 
-import madacode.permission.PermissionMode;
-
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
 
 /**
- * User-facing mode presets for the REPL.
+ * User-facing workflow modes for the REPL.
  *
- * <p>The runtime keeps permission policy and plan-mode restrictions as
- * separate axes. This enum names the combinations exposed through /mode
- * without collapsing those lower-level concerns.
+ * <p>Workflow mode is independent from plan-mode tools and the permission
+ * policy. The runtime keeps those axes separate so /mode can express the
+ * user's working style without implicitly re-encoding every permission state.
  */
 public enum SessionMode {
-    STRICT("strict", "Prompt before any non-read-only tool", PermissionMode.DEFAULT, false),
-    NORMAL("normal", "Auto-allow file edits in the workspace; prompt for other writes",
-            PermissionMode.ACCEPT_EDITS, false),
-    PLAN("plan", "Read-only exploration and planning until plan approval",
-            PermissionMode.DEFAULT, true),
-    ALL_PASS("all-pass", "Suppress interactive approval; structural safety rules still apply",
-            PermissionMode.BYPASS, false);
+    COMMON("common", "Standard interactive workflow for everyday tasks"),
+    LONG_RUNNING("long-running",
+            "Serial relay workflow for larger tasks that start with planning and confirmation");
 
     private final String id;
     private final String description;
-    private final PermissionMode permissionMode;
-    private final boolean planMode;
 
-    SessionMode(String id, String description, PermissionMode permissionMode, boolean planMode) {
+    SessionMode(String id, String description) {
         this.id = id;
         this.description = description;
-        this.permissionMode = permissionMode;
-        this.planMode = planMode;
     }
 
     public String id() {
@@ -42,28 +32,12 @@ public enum SessionMode {
         return description;
     }
 
-    public PermissionMode permissionMode() {
-        return permissionMode;
-    }
-
-    public boolean planMode() {
-        return planMode;
-    }
-
     public void applyTo(ConversationSession session) {
-        session.setPermissionMode(permissionMode);
-        session.setPlanMode(planMode);
+        session.setWorkflowMode(this);
     }
 
     public static SessionMode from(ConversationSession session) {
-        if (session.isPlanMode()) {
-            return PLAN;
-        }
-        return switch (session.permissionMode()) {
-            case DEFAULT -> STRICT;
-            case ACCEPT_EDITS -> NORMAL;
-            case BYPASS -> ALL_PASS;
-        };
+        return session == null ? COMMON : session.workflowMode();
     }
 
     public static Optional<SessionMode> parse(String raw) {

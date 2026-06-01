@@ -102,6 +102,7 @@ public class SlashCommandHandlerTest {
         assertTrue(output.contains("/resume"));
         assertTrue(output.contains("/new"));
         assertTrue(output.contains("/delete"));
+        assertTrue(output.contains("/permission"));
     }
 
     @Test
@@ -311,16 +312,15 @@ public class SlashCommandHandlerTest {
 
     @Test
     void modeCommandListsModesAndMarksCurrent() {
-        current.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
 
         var action = handler.handle("/mode", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
         String output = outBytes.toString();
         assertTrue(output.contains("Modes:"));
-        assertTrue(output.contains("* normal"));
-        assertTrue(output.contains("strict"));
-        assertTrue(output.contains("all-pass"));
+        assertTrue(output.contains("* long-running"));
+        assertTrue(output.contains("common"));
     }
 
     @Test
@@ -329,16 +329,16 @@ public class SlashCommandHandlerTest {
         handler = SlashCommandHandler.builder(storage, new TextScreen(out))
                 .providerRegistry(createTestRegistry())
                 .sessionContext(sessionContext)
-                .modeChooser(modes -> Optional.of("normal"))
+                .modeChooser(modes -> Optional.of("common"))
                 .registry(SlashCommandRegistry.create(null))
                 .build();
 
         var action = handler.handle("/mode", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
-        assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
-        assertEquals(SessionMode.NORMAL, sessionContext.mode());
-        assertTrue(stripAnsi(outBytes.toString()).contains("Mode set to: normal"));
+        assertEquals(PermissionMode.DEFAULT, current.permissionMode());
+        assertEquals(SessionMode.COMMON, sessionContext.mode());
+        assertTrue(stripAnsi(outBytes.toString()).contains("Mode set to: common"));
     }
 
     @Test
@@ -359,7 +359,7 @@ public class SlashCommandHandlerTest {
     }
 
     @Test
-    void modeCommandSwitchesSessionAndSessionContext() {
+    void modeCommandLongRunningSetsBypassAndExplainsWorkflow() {
         SessionContext sessionContext = new SessionContext();
         handler = SlashCommandHandler.builder(storage, new TextScreen(out))
                 .providerRegistry(createTestRegistry())
@@ -367,41 +367,122 @@ public class SlashCommandHandlerTest {
                 .registry(SlashCommandRegistry.create(null))
                 .build();
 
-        var action = handler.handle("/mode all-pass", current);
+        var action = handler.handle("/mode long-running", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
         assertEquals(PermissionMode.BYPASS, current.permissionMode());
         assertEquals(false, current.isPlanMode());
-        assertEquals(SessionMode.ALL_PASS, sessionContext.mode());
+        assertEquals(SessionMode.LONG_RUNNING, sessionContext.mode());
         String output = outBytes.toString();
         String plain = stripAnsi(output);
-        assertTrue(plain.contains("Mode set to: all-pass"));
-        assertTrue(plain.contains(System.lineSeparator() + System.lineSeparator()
-                + "Warning: all-pass suppresses interactive approval"));
+        assertTrue(plain.contains("Entered long-running mode."));
+        assertTrue(plain.contains("will not execute immediately"));
+        assertTrue(plain.contains("Current permission is all-pass"));
         assertTrue(output.contains("\u001B["), "expected styled output: " + output);
     }
 
     @Test
-    void modeCommandPlanUsesDefaultPermissionAndPlanAxis() {
-        current.setPermissionMode(PermissionMode.BYPASS);
+    void modeCommandCommonDoesNotResetPermission() {
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
+        current.setPermissionMode(PermissionMode.ACCEPT_EDITS);
 
-        var action = handler.handle("/mode plan", current);
+        var action = handler.handle("/mode common", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
-        assertEquals(PermissionMode.DEFAULT, current.permissionMode());
-        assertTrue(current.isPlanMode());
+        assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
+        assertEquals(SessionMode.COMMON, current.workflowMode());
+        assertTrue(stripAnsi(outBytes.toString()).contains("Mode set to: common"));
     }
 
     @Test
     void modeCommandUnknownModeDoesNotChangeSession() {
+        current.setWorkflowMode(SessionMode.COMMON);
         current.setPermissionMode(PermissionMode.ACCEPT_EDITS);
 
         var action = handler.handle("/mode nope", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
         assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
+        assertEquals(SessionMode.COMMON, current.workflowMode());
         assertEquals(false, current.isPlanMode());
         assertTrue(outBytes.toString().contains("Unknown mode: nope"));
+    }
+
+    @Test
+    void permissionCommandListsPermissionsAndMarksCurrent() {
+        current.setPermissionMode(PermissionMode.BYPASS);
+
+        var action = handler.handle("/permission", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.contains("Permissions:"));
+        assertTrue(output.contains("* all-pass"));
+        assertTrue(output.contains("strict"));
+        assertTrue(output.contains("normal"));
+    }
+
+    @Test
+    void permissionCommandUsesChooserWhenAvailable() {
+        SessionContext sessionContext = new SessionContext();
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .sessionContext(sessionContext)
+                .permissionChooser(modes -> Optional.of("normal"))
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/permission", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
+        assertEquals(PermissionMode.ACCEPT_EDITS, sessionContext.permissionMode());
+        assertTrue(stripAnsi(outBytes.toString()).contains("Permission set to: normal"));
+    }
+
+    @Test
+    void permissionCommandExplicitModesSetExpectedPermissionMode() {
+        var strictAction = handler.handle("/permission strict", current);
+        assertInstanceOf(SlashAction.Handled.class, strictAction);
+        assertEquals(PermissionMode.DEFAULT, current.permissionMode());
+
+        var normalAction = handler.handle("/permission normal", current);
+        assertInstanceOf(SlashAction.Handled.class, normalAction);
+        assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
+
+        var allPassAction = handler.handle("/permission all-pass", current);
+        assertInstanceOf(SlashAction.Handled.class, allPassAction);
+        assertEquals(PermissionMode.BYPASS, current.permissionMode());
+        assertTrue(stripAnsi(outBytes.toString()).contains("Permission set to: all-pass"));
+        assertTrue(stripAnsi(outBytes.toString()).contains("Warning: all-pass suppresses interactive approval"));
+    }
+
+    @Test
+    void permissionCommandCancelOutputIsDimmedAndSeparatedFromNextPrompt() {
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(createTestRegistry())
+                .permissionChooser(modes -> Optional.empty())
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/permission", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        String output = outBytes.toString();
+        assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
+        assertTrue(stripAnsi(output).contains("Permission selection cancelled."));
+        assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void permissionCommandUnknownModeDoesNotChangeSession() {
+        current.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+
+        var action = handler.handle("/permission nope", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
+        assertTrue(outBytes.toString().contains("Unknown permission mode: nope"));
     }
 
     @Test
@@ -500,6 +581,8 @@ public class SlashCommandHandlerTest {
 
     @Test
     void statusCommandShowsSessionSummary() {
+        current.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+
         var action = handler.handle("/status", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
@@ -507,7 +590,8 @@ public class SlashCommandHandlerTest {
         assertTrue(output.contains("session"));
         assertTrue(output.contains("current"));
         assertTrue(output.contains("messages"));
-        assertTrue(output.contains("mode strict"));
+        assertTrue(output.contains("mode common"));
+        assertTrue(output.contains("permission normal"));
         assertTrue(!output.contains("configured at startup"));
         assertTrue(!output.contains("active gate"));
     }

@@ -57,9 +57,9 @@ public class ConversationSession {
     private final PlanStore planStore;
     private final AtomicReference<List<String>> inputHistoryRef =
             new AtomicReference<>(List.of());
+    private volatile SessionMode workflowMode = SessionMode.COMMON;
     private volatile boolean planMode;
     private volatile PermissionMode permissionMode = PermissionMode.DEFAULT;
-    private volatile WorkflowMode workflowMode = WorkflowMode.COMMON;
     private volatile LongRunningStage longRunningStage;
     private volatile String longRunningTaskId;
     private volatile String longRunningTaskDirectory;
@@ -338,6 +338,22 @@ public class ConversationSession {
         this.planMode = planMode;
     }
 
+    // ---- Workflow mode --------------------------------------------------
+
+    public SessionMode workflowMode() {
+        return workflowMode;
+    }
+
+    public void setWorkflowMode(SessionMode workflowMode) {
+        SessionMode resolved = workflowMode == null ? SessionMode.COMMON : workflowMode;
+        this.workflowMode = resolved;
+        if (resolved == SessionMode.COMMON) {
+            this.longRunningStage = null;
+            this.longRunningTaskId = null;
+            this.longRunningTaskDirectory = null;
+        }
+    }
+
     // ---- Permission mode ----------------------------------------------
 
     public PermissionMode permissionMode() {
@@ -346,22 +362,6 @@ public class ConversationSession {
 
     public void setPermissionMode(PermissionMode permissionMode) {
         this.permissionMode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
-    }
-
-    // ---- Workflow mode ------------------------------------------------
-
-    public WorkflowMode workflowMode() {
-        return workflowMode;
-    }
-
-    public void setWorkflowMode(WorkflowMode workflowMode) {
-        WorkflowMode resolved = workflowMode == null ? WorkflowMode.COMMON : workflowMode;
-        this.workflowMode = resolved;
-        if (resolved == WorkflowMode.COMMON) {
-            this.longRunningStage = null;
-            this.longRunningTaskId = null;
-            this.longRunningTaskDirectory = null;
-        }
     }
 
     public LongRunningStage longRunningStage() {
@@ -392,7 +392,7 @@ public class ConversationSession {
     }
 
     private void requireLongRunningMode(String fieldName, Object value) {
-        if (value != null && workflowMode != WorkflowMode.LONG_RUNNING) {
+        if (value != null && workflowMode != SessionMode.LONG_RUNNING) {
             throw new IllegalStateException(
                     fieldName + " requires workflowMode LONG_RUNNING");
         }

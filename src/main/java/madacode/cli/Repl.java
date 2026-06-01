@@ -73,6 +73,7 @@ public abstract class Repl {
                 .sessionContext(sessionContext)
                 .modelChooser(config.modelChooser)
                 .modeChooser(config.modeChooser)
+                .permissionChooser(config.permissionChooser)
                 .themeChooser(config.themeChooser)
                 .providerChooser(config.providerChooser)
                 .notifications(notifications)
@@ -238,7 +239,7 @@ public abstract class Repl {
 
         private void sync() {
             if (sessionContext != null && session != null) {
-                sessionContext.setMode(SessionMode.from(session));
+                sessionContext.syncFrom(session);
             }
         }
     }
@@ -289,6 +290,7 @@ public abstract class Repl {
         SessionContext sessionContext;
         SlashContext.ModelChooser modelChooser;
         SlashContext.ModeChooser modeChooser;
+        SlashContext.PermissionChooser permissionChooser;
         SlashContext.ThemeChooser themeChooser;
         SlashContext.ProviderChooser providerChooser;
         NotificationCenter notifications;

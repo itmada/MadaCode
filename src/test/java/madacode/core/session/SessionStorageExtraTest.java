@@ -2,6 +2,7 @@ package madacode.core.session;
 
 import madacode.core.model.*;
 import madacode.core.turn.*;
+import madacode.permission.PermissionMode;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,12 +45,16 @@ public class SessionStorageExtraTest {
     void loadIfExistsReturnsPresent() {
         SessionStorage storage = new SessionStorage(tempDir);
         ConversationSession session = newSession("load-1", storage);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setPermissionMode(PermissionMode.BYPASS);
         storage.save(session);
 
         Optional<ConversationSession> result = storage.loadIfExists(session.sessionId());
 
         assertTrue(result.isPresent());
         assertEquals(session.sessionId(), result.get().sessionId());
+        assertEquals(SessionMode.LONG_RUNNING, result.get().workflowMode());
+        assertEquals(PermissionMode.BYPASS, result.get().permissionMode());
     }
 
     @Test

@@ -1,6 +1,7 @@
 package madacode.cli.slash;
 
 import madacode.core.session.SessionMode;
+import madacode.permission.PermissionMode;
 
 import java.util.Arrays;
 import java.util.Locale;
@@ -9,8 +10,8 @@ import java.util.Optional;
 final class ModeCommand implements SlashCommand {
 
     @Override public String name() { return "mode"; }
-    @Override public String description() { return "Show or switch the active mode"; }
-    @Override public String usage() { return "/mode [strict|normal|plan|all-pass]"; }
+    @Override public String description() { return "Show or switch the active workflow mode"; }
+    @Override public String usage() { return "/mode [common|long-running]"; }
 
     @Override
     public Optional<ArgumentProvider> argumentProvider(SlashContext ctx) {
@@ -53,14 +54,23 @@ final class ModeCommand implements SlashCommand {
         SessionMode mode = parsed.get();
         mode.applyTo(ctx.session());
         if (ctx.sessionContext() != null) {
-            ctx.sessionContext().setMode(mode);
+            ctx.sessionContext().setWorkflowMode(mode);
+        }
+
+        if (mode == SessionMode.LONG_RUNNING) {
+            ctx.session().setPermissionMode(PermissionMode.BYPASS);
+            if (ctx.sessionContext() != null) {
+                ctx.sessionContext().setPermissionMode(PermissionMode.BYPASS);
+            }
+            SlashFeedback.muted(ctx.screen(), "Entered long-running mode.");
+            SlashFeedback.muted(ctx.screen(),
+                    "This mode is for larger serial relay tasks. It starts with planning and confirmation, and will not execute immediately.");
+            SlashFeedback.muted(ctx.screen(),
+                    "Current permission is all-pass. Use /permission to change it.");
+            return new SlashAction.Handled();
         }
 
         SlashFeedback.muted(ctx.screen(), "Mode set to: " + mode.id());
-        if (mode == SessionMode.ALL_PASS) {
-            SlashFeedback.muted(ctx.screen(), "Warning: all-pass suppresses interactive approval. "
-                    + "Structural safety rules still apply.");
-        }
         return new SlashAction.Handled();
     }
 

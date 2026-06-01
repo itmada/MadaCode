@@ -4,7 +4,6 @@ import madacode.permission.PermissionMode;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -12,35 +11,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SessionModeTest {
 
     @Test
-    void applyToSetsBothRuntimeAxes() {
+    void applyToSetsWorkflowAxisOnly() {
         ConversationSession session = new ConversationSession();
+        session.setPermissionMode(PermissionMode.ACCEPT_EDITS);
+        session.setPlanMode(true);
 
-        SessionMode.NORMAL.applyTo(session);
+        SessionMode.LONG_RUNNING.applyTo(session);
+        assertEquals(SessionMode.LONG_RUNNING, session.workflowMode());
         assertEquals(PermissionMode.ACCEPT_EDITS, session.permissionMode());
-        assertFalse(session.isPlanMode());
-
-        SessionMode.PLAN.applyTo(session);
-        assertEquals(PermissionMode.DEFAULT, session.permissionMode());
         assertTrue(session.isPlanMode());
-
-        SessionMode.ALL_PASS.applyTo(session);
-        assertEquals(PermissionMode.BYPASS, session.permissionMode());
-        assertFalse(session.isPlanMode());
     }
 
     @Test
-    void fromPrefersPlanAxisWhenActive() {
+    void fromReturnsWorkflowModeEvenWhenPlanModeActive() {
         ConversationSession session = new ConversationSession();
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setPermissionMode(PermissionMode.BYPASS);
         session.setPlanMode(true);
 
-        assertEquals(SessionMode.PLAN, SessionMode.from(session));
+        assertEquals(SessionMode.LONG_RUNNING, SessionMode.from(session));
     }
 
     @Test
     void parseAcceptsPublicNames() {
-        assertEquals(SessionMode.STRICT, SessionMode.parse("strict").orElseThrow());
-        assertEquals(SessionMode.ALL_PASS, SessionMode.parse("all_pass").orElseThrow());
+        assertEquals(SessionMode.COMMON, SessionMode.parse("common").orElseThrow());
+        assertEquals(SessionMode.LONG_RUNNING, SessionMode.parse("long_running").orElseThrow());
         assertTrue(SessionMode.parse("missing").isEmpty());
     }
 
@@ -48,7 +43,7 @@ class SessionModeTest {
     void newSessionDefaultsToCommonWorkflowState() {
         ConversationSession session = new ConversationSession();
 
-        assertEquals(WorkflowMode.COMMON, session.workflowMode());
+        assertEquals(SessionMode.COMMON, session.workflowMode());
         assertNull(session.longRunningStage());
         assertNull(session.longRunningTaskId());
         assertNull(session.longRunningTaskDirectory());

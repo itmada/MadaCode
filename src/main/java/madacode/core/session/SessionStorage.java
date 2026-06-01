@@ -159,8 +159,9 @@ public final class SessionStorage {
         root.put("sessionId", session.sessionId());
         root.put("createdAt", session.createdAt().toString());
         root.put("workingDirectory", session.workingDirectory().toString());
+        root.put("workflowMode", session.workflowMode().id());
         root.put("planMode", session.isPlanMode());
-        root.put("workflowMode", session.workflowMode().persistedValue());
+        root.put("permissionMode", session.permissionMode().id());
         if (session.longRunningStage() != null) {
             root.put("longRunningStage", session.longRunningStage().name());
         }
@@ -325,10 +326,12 @@ public final class SessionStorage {
 
         ConversationSession session = new ConversationSession(
                 sessionId, createdAt, workingDirectory, messages, tasks, todos, history);
-        session.setPlanMode(migrated.path("planMode").asBoolean(false));
-        WorkflowMode workflowMode = readWorkflowMode(migrated);
+        SessionMode workflowMode = readWorkflowMode(migrated);
         session.setWorkflowMode(workflowMode);
-        if (workflowMode == WorkflowMode.LONG_RUNNING) {
+        session.setPlanMode(migrated.path("planMode").asBoolean(false));
+        session.setPermissionMode(madacode.permission.PermissionMode.parse(
+                migrated.path("permissionMode").asText(null)).orElse(madacode.permission.PermissionMode.DEFAULT));
+        if (workflowMode == SessionMode.LONG_RUNNING) {
             session.setLongRunningStage(readLongRunningStage(migrated, workflowMode));
             session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
             session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
@@ -336,24 +339,21 @@ public final class SessionStorage {
         return session;
     }
 
-    private WorkflowMode readWorkflowMode(JsonNode node) {
+    private SessionMode readWorkflowMode(JsonNode node) {
         String raw = optionalText(node, "workflowMode");
         if (raw == null) {
-            return WorkflowMode.COMMON;
+            return SessionMode.COMMON;
         }
-        try {
-            return WorkflowMode.fromPersistedValue(raw);
-        } catch (IllegalArgumentException exception) {
-            throw new SessionStorageException("Unsupported workflowMode: " + raw, exception);
-        }
+        return SessionMode.parse(raw)
+                .orElseThrow(() -> new SessionStorageException("Unsupported workflowMode: " + raw));
     }
 
-    private LongRunningStage readLongRunningStage(JsonNode node, WorkflowMode workflowMode) {
+    private LongRunningStage readLongRunningStage(JsonNode node, SessionMode workflowMode) {
         String raw = optionalText(node, "longRunningStage");
         if (raw == null) {
             return null;
         }
-        if (workflowMode != WorkflowMode.LONG_RUNNING) {
+        if (workflowMode != SessionMode.LONG_RUNNING) {
             return null;
         }
         try {
