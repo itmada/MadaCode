@@ -59,6 +59,10 @@ public class ConversationSession {
             new AtomicReference<>(List.of());
     private volatile boolean planMode;
     private volatile PermissionMode permissionMode = PermissionMode.DEFAULT;
+    private volatile WorkflowMode workflowMode = WorkflowMode.COMMON;
+    private volatile LongRunningStage longRunningStage;
+    private volatile String longRunningTaskId;
+    private volatile String longRunningTaskDirectory;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
     private final List<SessionListener> listeners = new CopyOnWriteArrayList<>();
@@ -342,6 +346,56 @@ public class ConversationSession {
 
     public void setPermissionMode(PermissionMode permissionMode) {
         this.permissionMode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
+    }
+
+    // ---- Workflow mode ------------------------------------------------
+
+    public WorkflowMode workflowMode() {
+        return workflowMode;
+    }
+
+    public void setWorkflowMode(WorkflowMode workflowMode) {
+        WorkflowMode resolved = workflowMode == null ? WorkflowMode.COMMON : workflowMode;
+        this.workflowMode = resolved;
+        if (resolved == WorkflowMode.COMMON) {
+            this.longRunningStage = null;
+            this.longRunningTaskId = null;
+            this.longRunningTaskDirectory = null;
+        }
+    }
+
+    public LongRunningStage longRunningStage() {
+        return longRunningStage;
+    }
+
+    public void setLongRunningStage(LongRunningStage longRunningStage) {
+        requireLongRunningMode("longRunningStage", longRunningStage);
+        this.longRunningStage = longRunningStage;
+    }
+
+    public String longRunningTaskId() {
+        return longRunningTaskId;
+    }
+
+    public void setLongRunningTaskId(String longRunningTaskId) {
+        requireLongRunningMode("longRunningTaskId", longRunningTaskId);
+        this.longRunningTaskId = longRunningTaskId;
+    }
+
+    public String longRunningTaskDirectory() {
+        return longRunningTaskDirectory;
+    }
+
+    public void setLongRunningTaskDirectory(String longRunningTaskDirectory) {
+        requireLongRunningMode("longRunningTaskDirectory", longRunningTaskDirectory);
+        this.longRunningTaskDirectory = longRunningTaskDirectory;
+    }
+
+    private void requireLongRunningMode(String fieldName, Object value) {
+        if (value != null && workflowMode != WorkflowMode.LONG_RUNNING) {
+            throw new IllegalStateException(
+                    fieldName + " requires workflowMode LONG_RUNNING");
+        }
     }
 
     public TokenUsage tokenUsage() {

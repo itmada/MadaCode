@@ -160,6 +160,16 @@ public final class SessionStorage {
         root.put("createdAt", session.createdAt().toString());
         root.put("workingDirectory", session.workingDirectory().toString());
         root.put("planMode", session.isPlanMode());
+        root.put("workflowMode", session.workflowMode().persistedValue());
+        if (session.longRunningStage() != null) {
+            root.put("longRunningStage", session.longRunningStage().name());
+        }
+        if (session.longRunningTaskId() != null) {
+            root.put("longRunningTaskId", session.longRunningTaskId());
+        }
+        if (session.longRunningTaskDirectory() != null) {
+            root.put("longRunningTaskDirectory", session.longRunningTaskDirectory());
+        }
 
         ArrayNode messages = mapper.createArrayNode();
         for (Message message : session.messages()) {
@@ -316,7 +326,41 @@ public final class SessionStorage {
         ConversationSession session = new ConversationSession(
                 sessionId, createdAt, workingDirectory, messages, tasks, todos, history);
         session.setPlanMode(migrated.path("planMode").asBoolean(false));
+        WorkflowMode workflowMode = readWorkflowMode(migrated);
+        session.setWorkflowMode(workflowMode);
+        if (workflowMode == WorkflowMode.LONG_RUNNING) {
+            session.setLongRunningStage(readLongRunningStage(migrated, workflowMode));
+            session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
+            session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
+        }
         return session;
+    }
+
+    private WorkflowMode readWorkflowMode(JsonNode node) {
+        String raw = optionalText(node, "workflowMode");
+        if (raw == null) {
+            return WorkflowMode.COMMON;
+        }
+        try {
+            return WorkflowMode.fromPersistedValue(raw);
+        } catch (IllegalArgumentException exception) {
+            throw new SessionStorageException("Unsupported workflowMode: " + raw, exception);
+        }
+    }
+
+    private LongRunningStage readLongRunningStage(JsonNode node, WorkflowMode workflowMode) {
+        String raw = optionalText(node, "longRunningStage");
+        if (raw == null) {
+            return null;
+        }
+        if (workflowMode != WorkflowMode.LONG_RUNNING) {
+            return null;
+        }
+        try {
+            return LongRunningStage.valueOf(raw);
+        } catch (IllegalArgumentException exception) {
+            throw new SessionStorageException("Unsupported longRunningStage: " + raw, exception);
+        }
     }
 
     private PlanItem deserializeTask(JsonNode node) {
@@ -481,6 +525,17 @@ public final class SessionStorage {
         JsonNode value = node.get(fieldName);
         if (value == null || !value.isTextual()) {
             throw new SessionStorageException("Missing text field: " + fieldName);
+        }
+        return value.asText();
+    }
+
+    private String optionalText(JsonNode node, String fieldName) {
+        JsonNode value = node.get(fieldName);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (!value.isTextual()) {
+            throw new SessionStorageException("Field must be text: " + fieldName);
         }
         return value.asText();
     }

@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SessionModeTest {
@@ -40,5 +42,27 @@ class SessionModeTest {
         assertEquals(SessionMode.STRICT, SessionMode.parse("strict").orElseThrow());
         assertEquals(SessionMode.ALL_PASS, SessionMode.parse("all_pass").orElseThrow());
         assertTrue(SessionMode.parse("missing").isEmpty());
+    }
+
+    @Test
+    void newSessionDefaultsToCommonWorkflowState() {
+        ConversationSession session = new ConversationSession();
+
+        assertEquals(WorkflowMode.COMMON, session.workflowMode());
+        assertNull(session.longRunningStage());
+        assertNull(session.longRunningTaskId());
+        assertNull(session.longRunningTaskDirectory());
+    }
+
+    @Test
+    void commonWorkflowRejectsLongRunningStateFields() {
+        ConversationSession session = new ConversationSession();
+
+        assertThrows(IllegalStateException.class,
+                () -> session.setLongRunningStage(LongRunningStage.PLANNING));
+        assertThrows(IllegalStateException.class,
+                () -> session.setLongRunningTaskId("task-1"));
+        assertThrows(IllegalStateException.class,
+                () -> session.setLongRunningTaskDirectory("/tmp/task-1"));
     }
 }

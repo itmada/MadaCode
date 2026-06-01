@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.LongRunningStage;
 import madacode.core.model.Message;
 import madacode.core.session.SessionStorage;
+import madacode.core.session.SessionStorageException;
+import madacode.core.session.WorkflowMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -16,6 +19,8 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -53,6 +58,10 @@ public class SessionStorageTest {
         assertEquals(session.createdAt(), restored.createdAt());
         assertEquals(session.workingDirectory(), restored.workingDirectory());
         assertEquals(session.isPlanMode(), restored.isPlanMode());
+        assertEquals(WorkflowMode.COMMON, restored.workflowMode());
+        assertNull(restored.longRunningStage());
+        assertNull(restored.longRunningTaskId());
+        assertNull(restored.longRunningTaskDirectory());
         assertEquals(session.messages().size(), restored.messages().size());
 
         for (int i = 0; i < session.messages().size(); i++) {
@@ -110,6 +119,142 @@ public class SessionStorageTest {
         assertEquals("legacy-session", restored.sessionId());
         assertEquals(1, restored.messages().size());
         assertEquals(false, restored.isPlanMode());
+        assertEquals(WorkflowMode.COMMON, restored.workflowMode());
+        assertNull(restored.longRunningStage());
+        assertNull(restored.longRunningTaskId());
+    }
+
+    @Test
+    void saveAndLoadRoundTripsLongRunningWorkflowState() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir);
+        ConversationSession session = new ConversationSession(
+                "long-running-session",
+                Instant.parse("2026-05-21T09:15:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized.")));
+        session.setWorkflowMode(WorkflowMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningTaskId("task-42");
+        session.setLongRunningTaskDirectory(tempDir.resolve("workspace/tasks/task-42").toString());
+
+        storage.save(session);
+        ConversationSession restored = storage.load(session.sessionId());
+
+        assertEquals(WorkflowMode.LONG_RUNNING, restored.workflowMode());
+        assertEquals(LongRunningStage.WAITING_FOR_APPROVAL, restored.longRunningStage());
+        assertEquals("task-42", restored.longRunningTaskId());
+        assertEquals(tempDir.resolve("workspace/tasks/task-42").toString(), restored.longRunningTaskDirectory());
+    }
+
+    @Test
+    void loadDefaultsToCommonWhenWorkflowFieldsAreMissing() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir);
+        String transcript = """
+                {
+                  "schemaVersion": 5,
+                  "sessionId": "workflow-legacy",
+                  "createdAt": "2026-05-22T08:30:00Z",
+                  "workingDirectory": "%s",
+                  "planMode": true,
+                  "messages": [
+                    {
+                      "role": "SYSTEM",
+                      "contentBlocks": [
+                        {
+                          "type": "text",
+                          "text": "Session initialized."
+                        }
+                      ]
+                    }
+                  ],
+                  "tasks": [],
+                  "todos": [],
+                  "history": []
+                }
+                """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
+        Files.createDirectories(storage.transcriptPath("workflow-legacy").getParent());
+        Files.writeString(storage.transcriptPath("workflow-legacy"), transcript);
+
+        ConversationSession restored = storage.load("workflow-legacy");
+
+        assertEquals(WorkflowMode.COMMON, restored.workflowMode());
+        assertNull(restored.longRunningStage());
+        assertNull(restored.longRunningTaskId());
+        assertNull(restored.longRunningTaskDirectory());
+        assertTrue(restored.isPlanMode());
+    }
+
+    @Test
+    void loadRejectsInvalidWorkflowModeEnum() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir);
+        String transcript = """
+                {
+                  "schemaVersion": 5,
+                  "sessionId": "bad-workflow-mode",
+                  "createdAt": "2026-05-22T08:30:00Z",
+                  "workingDirectory": "%s",
+                  "workflowMode": "workflow-x",
+                  "messages": [
+                    {
+                      "role": "SYSTEM",
+                      "contentBlocks": [
+                        {
+                          "type": "text",
+                          "text": "Session initialized."
+                        }
+                      ]
+                    }
+                  ],
+                  "tasks": [],
+                  "todos": [],
+                  "history": []
+                }
+                """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
+        Files.createDirectories(storage.transcriptPath("bad-workflow-mode").getParent());
+        Files.writeString(storage.transcriptPath("bad-workflow-mode"), transcript);
+
+        SessionStorageException exception = assertThrows(
+                SessionStorageException.class,
+                () -> storage.load("bad-workflow-mode"));
+
+        assertTrue(exception.getMessage().contains("Unsupported workflowMode"));
+    }
+
+    @Test
+    void loadRejectsInvalidLongRunningStageEnum() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir);
+        String transcript = """
+                {
+                  "schemaVersion": 5,
+                  "sessionId": "bad-long-running-stage",
+                  "createdAt": "2026-05-22T08:30:00Z",
+                  "workingDirectory": "%s",
+                  "workflowMode": "long-running",
+                  "longRunningStage": "PAUSED",
+                  "messages": [
+                    {
+                      "role": "SYSTEM",
+                      "contentBlocks": [
+                        {
+                          "type": "text",
+                          "text": "Session initialized."
+                        }
+                      ]
+                    }
+                  ],
+                  "tasks": [],
+                  "todos": [],
+                  "history": []
+                }
+                """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
+        Files.createDirectories(storage.transcriptPath("bad-long-running-stage").getParent());
+        Files.writeString(storage.transcriptPath("bad-long-running-stage"), transcript);
+
+        SessionStorageException exception = assertThrows(
+                SessionStorageException.class,
+                () -> storage.load("bad-long-running-stage"));
+
+        assertTrue(exception.getMessage().contains("Unsupported longRunningStage"));
     }
 
     @Test
