@@ -171,6 +171,8 @@ public final class SessionStorage {
         if (session.longRunningTaskDirectory() != null) {
             root.put("longRunningTaskDirectory", session.longRunningTaskDirectory());
         }
+        session.lastLongRunningStageUpdate()
+                .ifPresent(update -> root.set("lastLongRunningStageUpdate", serializeLongRunningStageUpdate(update)));
 
         ArrayNode messages = mapper.createArrayNode();
         for (Message message : session.messages()) {
@@ -200,6 +202,16 @@ public final class SessionStorage {
         root.set("history", historyNode);
 
         return root;
+    }
+
+    private JsonNode serializeLongRunningStageUpdate(ConversationSession.LongRunningStageUpdate update) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("stage", update.stage().name());
+        node.put("intent", update.intent().name());
+        node.put("confidence", update.confidence().wireValue());
+        node.put("summary", update.summary());
+        node.put("recordedAt", update.recordedAt().toString());
+        return node;
     }
 
     private ObjectNode serializeTask(PlanItem item) {
@@ -335,6 +347,7 @@ public final class SessionStorage {
             session.setLongRunningStage(readLongRunningStage(migrated, workflowMode));
             session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
             session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
+            deserializeLongRunningStageUpdate(migrated.path("lastLongRunningStageUpdate"), session);
         }
         return session;
     }
@@ -360,6 +373,26 @@ public final class SessionStorage {
             return LongRunningStage.valueOf(raw);
         } catch (IllegalArgumentException exception) {
             throw new SessionStorageException("Unsupported longRunningStage: " + raw, exception);
+        }
+    }
+
+    private void deserializeLongRunningStageUpdate(JsonNode updateNode, ConversationSession session) {
+        if (updateNode == null || !updateNode.isObject()) {
+            return;
+        }
+        LongRunningStage updateStage = LongRunningStage.fromWire(
+                updateNode.path("stage").asText(null)).orElse(session.longRunningStage());
+        var intent = ConversationSession.LongRunningStageUpdateIntent.fromWire(
+                updateNode.path("intent").asText(null)).orElse(null);
+        var confidence = ConversationSession.LongRunningConfidence.fromWire(
+                updateNode.path("confidence").asText(null)).orElse(null);
+        String summary = updateNode.path("summary").asText("");
+        Instant recordedAt = updateNode.hasNonNull("recordedAt")
+                ? Instant.parse(updateNode.path("recordedAt").asText())
+                : Instant.now();
+        if (updateStage != null && intent != null && confidence != null) {
+            session.recordLongRunningStageUpdate(new ConversationSession.LongRunningStageUpdate(
+                    updateStage, intent, confidence, summary, recordedAt));
         }
     }
 

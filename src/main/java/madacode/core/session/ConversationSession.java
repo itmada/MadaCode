@@ -63,6 +63,7 @@ public class ConversationSession {
     private volatile LongRunningStage longRunningStage;
     private volatile String longRunningTaskId;
     private volatile String longRunningTaskDirectory;
+    private volatile LongRunningStageUpdate lastLongRunningStageUpdate;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
     private final List<SessionListener> listeners = new CopyOnWriteArrayList<>();
@@ -351,6 +352,7 @@ public class ConversationSession {
             this.longRunningStage = null;
             this.longRunningTaskId = null;
             this.longRunningTaskDirectory = null;
+            this.lastLongRunningStageUpdate = null;
         }
     }
 
@@ -364,12 +366,21 @@ public class ConversationSession {
         this.permissionMode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
     }
 
+    // ---- Long-running mode -------------------------------------------
+
+    public boolean isLongRunningModeActive() {
+        return workflowMode == SessionMode.LONG_RUNNING && longRunningStage != null;
+    }
+
     public LongRunningStage longRunningStage() {
         return longRunningStage;
     }
 
     public void setLongRunningStage(LongRunningStage longRunningStage) {
         requireLongRunningMode("longRunningStage", longRunningStage);
+        if (this.longRunningStage != longRunningStage) {
+            this.lastLongRunningStageUpdate = null;
+        }
         this.longRunningStage = longRunningStage;
     }
 
@@ -389,6 +400,27 @@ public class ConversationSession {
     public void setLongRunningTaskDirectory(String longRunningTaskDirectory) {
         requireLongRunningMode("longRunningTaskDirectory", longRunningTaskDirectory);
         this.longRunningTaskDirectory = longRunningTaskDirectory;
+    }
+
+    public Optional<LongRunningStageUpdate> lastLongRunningStageUpdate() {
+        return Optional.ofNullable(lastLongRunningStageUpdate);
+    }
+
+    public void recordLongRunningStageUpdate(LongRunningStageUpdate update) {
+        Objects.requireNonNull(update, "update");
+        if (workflowMode != SessionMode.LONG_RUNNING || longRunningStage == null) {
+            throw new IllegalStateException("Cannot record long-running stage update without an active stage");
+        }
+        if (longRunningStage != update.stage()) {
+            throw new IllegalArgumentException(
+                    "Long-running stage update stage mismatch: session=" + longRunningStage
+                            + ", update=" + update.stage());
+        }
+        this.lastLongRunningStageUpdate = update;
+    }
+
+    public void clearLongRunningStageUpdate() {
+        this.lastLongRunningStageUpdate = null;
     }
 
     private void requireLongRunningMode(String fieldName, Object value) {
@@ -528,4 +560,68 @@ public class ConversationSession {
         next.add(element);
         return List.copyOf(next);
     }
+
+    public enum LongRunningStageUpdateIntent {
+        FINALIZE_PLAN,
+        APPROVE_EXECUTION,
+        CANCEL,
+        COMPLETE;
+
+        public static Optional<LongRunningStageUpdateIntent> fromWire(String value) {
+            if (value == null || value.isBlank()) {
+                return Optional.empty();
+            }
+            try {
+                return Optional.of(LongRunningStageUpdateIntent.valueOf(value.strip().toUpperCase()));
+            } catch (IllegalArgumentException ignored) {
+                return Optional.empty();
+            }
+        }
+    }
+
+    public enum LongRunningConfidence {
+        HIGH("high"),
+        MEDIUM("medium"),
+        LOW("low");
+
+        private final String wireValue;
+
+        LongRunningConfidence(String wireValue) {
+            this.wireValue = wireValue;
+        }
+
+        public String wireValue() {
+            return wireValue;
+        }
+
+        public static Optional<LongRunningConfidence> fromWire(String value) {
+            if (value == null || value.isBlank()) {
+                return Optional.empty();
+            }
+            String normalized = value.strip().toLowerCase();
+            for (LongRunningConfidence confidence : values()) {
+                if (confidence.wireValue.equals(normalized)) {
+                    return Optional.of(confidence);
+                }
+            }
+            return Optional.empty();
+        }
+    }
+
+    public record LongRunningStageUpdate(
+            LongRunningStage stage,
+            LongRunningStageUpdateIntent intent,
+            LongRunningConfidence confidence,
+            String summary,
+            Instant recordedAt) {
+
+        public LongRunningStageUpdate {
+            Objects.requireNonNull(stage, "stage");
+            Objects.requireNonNull(intent, "intent");
+            Objects.requireNonNull(confidence, "confidence");
+            Objects.requireNonNull(recordedAt, "recordedAt");
+            summary = summary == null ? "" : summary.strip();
+        }
+    }
+
 }

@@ -60,7 +60,7 @@ public class SystemPromptBuilder {
         appendSection(sb, "Identity", identitySection());
         appendSection(sb, "System", systemSection());
         appendSection(sb, "Working In Codebases", codebaseSection());
-        appendSection(sb, "Tools", toolsSection(safeTools));
+        appendSection(sb, "Tools", toolsSection(safeTools, session));
         appendSection(sb, "Executing Actions", actionsSection());
         appendSection(sb, "Communication", communicationSection());
         appendSection(sb, "Final Responses", finalResponseSection());
@@ -93,6 +93,7 @@ public class SystemPromptBuilder {
         }
 
         if (session != null) {
+            appendLongRunningSection(sb, session);
             // Only inject active tasks — completed are historical noise.
             // The model uses plan_list/plan_get to query details when needed.
             var active = session.plan().items().stream()
@@ -166,8 +167,13 @@ public class SystemPromptBuilder {
     }
 
     private static String toolsSection(Collection<Tool<?>> tools) {
-        String names = tools.stream().map(Tool::name).collect(Collectors.joining(", "));
-        java.util.Set<String> toolNames = tools.stream().map(Tool::name)
+        return toolsSection(tools, null);
+    }
+
+    private static String toolsSection(Collection<Tool<?>> tools, ConversationSession session) {
+        Collection<Tool<?>> visibleTools = visibleToolsForPrompt(tools, session);
+        String names = visibleTools.stream().map(Tool::name).collect(Collectors.joining(", "));
+        java.util.Set<String> toolNames = visibleTools.stream().map(Tool::name)
                 .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
         java.util.List<String> items = new java.util.ArrayList<>();
         items.add("Available tools: " + names);
@@ -198,6 +204,17 @@ public class SystemPromptBuilder {
         }
         items.add("When multiple tool calls are independent, they may be issued together. Keep dependent actions sequential.");
         return bullets(items);
+    }
+
+    private static Collection<Tool<?>> visibleToolsForPrompt(Collection<Tool<?>> tools,
+                                                             ConversationSession session) {
+        boolean longRunningActive = session != null && session.longRunningStage() != null;
+        if (longRunningActive) {
+            return tools;
+        }
+        return tools.stream()
+                .filter(tool -> !"longrun_stage_update".equals(tool.name()))
+                .toList();
     }
 
     private static String actionsSection() {
@@ -231,6 +248,33 @@ public class SystemPromptBuilder {
                 "Use file references with paths when they help the user navigate. Include line numbers when referring to specific code.",
                 "Do not claim work is complete unless the requested work is actually handled."
         );
+    }
+
+    private static void appendLongRunningSection(StringBuilder sb, ConversationSession session) {
+        var stage = session.longRunningStage();
+        if (stage == null) {
+            return;
+        }
+        String body = switch (stage) {
+            case PLANNING -> bullets(
+                    "Long-running stage: PLANNING.",
+                    "Only discuss and refine the task plan in this stage. Do not make code changes yet.",
+                    "When the user clearly indicates plan discussion is complete, call longrun_stage_update with intent=FINALIZE_PLAN and confidence=high.",
+                    "If the user's intent is uncertain, continue discussion or ask a clarifying question instead of calling the tool.");
+            case WAITING_FOR_APPROVAL -> bullets(
+                    "Long-running stage: WAITING_FOR_APPROVAL.",
+                    "Present the final task plan and ask whether execution should begin.",
+                    "When the user clearly authorizes implementation to start, call longrun_stage_update with intent=APPROVE_EXECUTION and confidence=high.",
+                    "If approval is ambiguous, ask for explicit confirmation instead of calling the tool.");
+            case EXECUTING -> bullets(
+                    "Long-running stage: EXECUTING.",
+                    "Do not call longrun_stage_update in this stage.",
+                    "Continue the normal execution loop and let the harness manage long-running progress.");
+            case WAITING_FOR_TASK, INITIALIZING, COMPLETED, CANCELLED -> bullets(
+                    "Long-running stage: " + stage.name() + ".",
+                    "Do not call longrun_stage_update in this stage unless the harness instructions explicitly request it.");
+        };
+        appendSection(sb, "Long-Running Workflow", body);
     }
 
     private static String bullets(String... items) {

@@ -19,11 +19,13 @@ class ToolRegistryTest {
         Tool<?> askUserQuestion = new StubTool("ask_user_question");
         Tool<?> skill = new StubTool("skill");
         Tool<?> webFetch = new StubTool("web_fetch");
+        Tool<?> longrunStageUpdate = new StubTool("longrun_stage_update");
 
         registry.register(planCreate);
         registry.register(askUserQuestion);
         registry.register(skill);
         registry.register(webFetch);
+        registry.register(longrunStageUpdate);
 
         assertSameName(registry, "plan_create", "plan_create");
         assertSameName(registry, "PlanCreate", "plan_create");
@@ -39,6 +41,10 @@ class ToolRegistryTest {
         assertSameName(registry, "web_fetch", "web_fetch");
         assertSameName(registry, "webfetch", "web_fetch");
         assertSameName(registry, "WebFetch", "web_fetch");
+
+        assertSameName(registry, "longrun_stage_update", "longrun_stage_update");
+        assertSameName(registry, "longrunStageUpdate", "longrun_stage_update");
+        assertSameName(registry, "longrun-stage-update", "longrun_stage_update");
     }
 
     @Test

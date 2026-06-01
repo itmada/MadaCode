@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.ConversationSession.LongRunningStageUpdate;
+import madacode.core.session.ConversationSession.LongRunningStageUpdateIntent;
 import madacode.core.session.LongRunningStage;
 import madacode.core.model.Message;
 import madacode.core.session.SessionMode;
@@ -50,6 +52,13 @@ public class SessionStorageTest {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setPlanMode(true);
         session.setPermissionMode(PermissionMode.BYPASS);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.recordLongRunningStageUpdate(new LongRunningStageUpdate(
+                LongRunningStage.WAITING_FOR_APPROVAL,
+                LongRunningStageUpdateIntent.APPROVE_EXECUTION,
+                ConversationSession.LongRunningConfidence.HIGH,
+                "User explicitly approved starting implementation.",
+                Instant.parse("2026-04-22T08:45:00Z")));
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
@@ -65,10 +74,11 @@ public class SessionStorageTest {
         assertEquals(session.workingDirectory(), restored.workingDirectory());
         assertEquals(session.workflowMode(), restored.workflowMode());
         assertEquals(session.isPlanMode(), restored.isPlanMode());
-        assertNull(restored.longRunningStage());
         assertNull(restored.longRunningTaskId());
         assertNull(restored.longRunningTaskDirectory());
         assertEquals(session.permissionMode(), restored.permissionMode());
+        assertEquals(session.longRunningStage(), restored.longRunningStage());
+        assertEquals(session.lastLongRunningStageUpdate(), restored.lastLongRunningStageUpdate());
         assertEquals(session.messages().size(), restored.messages().size());
 
         for (int i = 0; i < session.messages().size(); i++) {
