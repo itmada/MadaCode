@@ -1,8 +1,10 @@
 package madacode.cli;
 
+import madacode.cli.mode.ModeRouter;
 import madacode.core.turn.CancellationToken;
 import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.LongRunningStage;
 import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
@@ -329,6 +331,78 @@ class ReplSupervisionTest {
         session.fireMetaEvent(new MetaEvent.PlanModeExited());
         assertEquals(SessionMode.LONG_RUNNING, repl.sessionContext.mode());
         assertTrue(repl.sessionContext.permissionMode() == PermissionMode.ACCEPT_EDITS);
+    }
+
+    @Test
+    void commonModePlainInputStillAddsInputRunsTurnAndPersists() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-common"));
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws-common"));
+        AtomicReference<String> seenPrompt = new AtomicReference<>();
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> {
+                    seenPrompt.set(firstText(msgs.getLast()));
+                    sink.onTextDelta("ok");
+                    return new ApiClient.ApiResponse("ok", List.of());
+                },
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-common")));
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("hello mode router\nexit\n")),
+                new PrintStream(buf, true),
+                storage);
+
+        repl.run();
+
+        assertEquals(List.of("hello mode router"), session.inputHistory());
+        assertEquals("hello mode router", seenPrompt.get());
+        ConversationSession restored = storage.load(session.sessionId());
+        assertEquals(List.of("hello mode router"), restored.inputHistory());
+        assertTrue(restored.messages().stream()
+                .anyMatch(m -> m.role() == MessageRole.USER
+                        && firstText(m).equals("hello mode router")));
+    }
+
+    @Test
+    void longRunningModeRoutesPlainInputThroughManagedTurnAndPersists() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-long"));
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws-long"));
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        AtomicReference<String> seenPrompt = new AtomicReference<>();
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> {
+                    seenPrompt.set(firstText(msgs.getLast()));
+                    sink.onTextDelta("executing");
+                    return new ApiClient.ApiResponse("executing", List.of());
+                },
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-long")));
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("continue work\nexit\n")),
+                new PrintStream(buf, true),
+                storage,
+                madacode.cli.slash.SlashCommandRegistry.create(null),
+                null,
+                null,
+                new ModeRouter(
+                        new madacode.cli.mode.CommonModeHandler(executor),
+                        new madacode.cli.mode.LongRunningModeHandler(executor)));
+
+        repl.run();
+
+        assertEquals("continue work", seenPrompt.get());
+        assertEquals(List.of("continue work"), session.inputHistory());
+        ConversationSession restored = storage.load(session.sessionId());
+        assertEquals(List.of("continue work"), restored.inputHistory());
+        assertTrue(restored.messages().stream()
+                .anyMatch(m -> m.role() == MessageRole.USER
+                        && firstText(m).equals("continue work")));
     }
 
     private static String firstText(Message m) {

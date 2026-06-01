@@ -1,5 +1,9 @@
 package madacode.cli;
 
+import madacode.cli.mode.CommonModeHandler;
+import madacode.cli.mode.LongRunningModeHandler;
+import madacode.cli.mode.ModeExecution;
+import madacode.cli.mode.ModeRouter;
 import madacode.cli.session.SessionChooser;
 import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
@@ -47,6 +51,7 @@ public abstract class Repl {
     final NotificationCenter notifications;
     InterruptController interruptController;
     final TurnExecutor turnExecutor;
+    final ModeRouter modeRouter;
     private final List<AutoCloseable> shutdownTargets;
 
     Repl(Config config) {
@@ -60,6 +65,11 @@ public abstract class Repl {
         this.sessionContext = config.sessionContext;
         this.providerRegistry = config.providerRegistry;
         this.notifications = config.notifications;
+        this.modeRouter = config.modeRouter != null
+                ? config.modeRouter
+                : new ModeRouter(
+                        new CommonModeHandler(turnExecutor),
+                        new LongRunningModeHandler(turnExecutor));
         this.shutdownTargets = config.shutdownTargets != null
                 ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
@@ -93,9 +103,8 @@ public abstract class Repl {
         SlashAction action = slashHandler.handle(line, session);
         return switch (action) {
             case SlashAction.Continue c -> {
-                session.addInput(line);
-                String expanded = AtFileCompleter.expandMentions(line, session);
-                runManagedTurn(turnExecutor.submit(session, expanded));
+                ModeExecution execution = modeRouter.handle(line, session);
+                runManagedTurn(execution.handle());
                 yield true;
             }
             case SlashAction.RunLocalTurn r -> {
@@ -295,5 +304,6 @@ public abstract class Repl {
         SlashContext.ProviderChooser providerChooser;
         NotificationCenter notifications;
         List<AutoCloseable> shutdownTargets;
+        ModeRouter modeRouter;
     }
 }

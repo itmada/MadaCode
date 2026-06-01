@@ -1,10 +1,11 @@
 package madacode.cli;
 
+import madacode.cli.mode.ModeRouter;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.core.engine.QueryEngine;
 import madacode.core.session.ConversationSession;
-import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
+import madacode.core.session.SessionStorage;
 import madacode.provider.ProviderRegistry;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
@@ -40,8 +41,22 @@ final class ScriptedRepl extends Repl {
                  SlashCommandRegistry slashRegistry,
                  ProviderRegistry providerRegistry,
                  CompactPlanner compactPlanner) {
+        this(queryEngine, turnExecutor, session, reader, output, sessionStorage,
+                slashRegistry, providerRegistry, compactPlanner, null);
+    }
+
+    ScriptedRepl(QueryEngine queryEngine,
+                 TurnExecutor turnExecutor,
+                 ConversationSession session,
+                 BufferedReader reader,
+                 PrintStream output,
+                 SessionStorage sessionStorage,
+                 SlashCommandRegistry slashRegistry,
+                 ProviderRegistry providerRegistry,
+                 CompactPlanner compactPlanner,
+                 ModeRouter modeRouter) {
         super(buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
-                slashRegistry, providerRegistry, compactPlanner));
+                slashRegistry, providerRegistry, compactPlanner, modeRouter));
         this.reader = Objects.requireNonNull(reader, "reader");
     }
 
@@ -52,7 +67,8 @@ final class ScriptedRepl extends Repl {
                                       SessionStorage sessionStorage,
                                       SlashCommandRegistry slashRegistry,
                                       ProviderRegistry providerRegistry,
-                                      CompactPlanner compactPlanner) {
+                                      CompactPlanner compactPlanner,
+                                      ModeRouter modeRouter) {
         TextScreen screen = new TextScreen(Objects.requireNonNull(output, "output"));
         TurnView turnView = new TurnView(screen);
         Config config = new Config();
@@ -67,6 +83,7 @@ final class ScriptedRepl extends Repl {
         config.compactPlanner = compactPlanner;
         config.sessionContext = new SessionContext();
         config.sessionContext.syncFrom(session);
+        config.modeRouter = modeRouter;
         return config;
     }
 
