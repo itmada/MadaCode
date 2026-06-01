@@ -15,7 +15,7 @@ public final class BashDisplayAdapter implements ToolDisplayAdapter {
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
         String command = ToolDisplaySupport.text(input, "command");
-        return ToolDisplay.running("Bash" + ToolDisplaySupport.parens(command), "Running...");
+        return ToolDisplay.running("Bash" + ToolDisplaySupport.parens(command), "running");
     }
 
     @Override
@@ -25,7 +25,7 @@ public final class BashDisplayAdapter implements ToolDisplayAdapter {
                 .filter(l -> l.kind() == ToolProgressLine.Kind.OUTPUT)
                 .toList();
         if (outputs.isEmpty()) {
-            return ToolDisplay.running("Bash" + ToolDisplaySupport.parens(command), "Running...");
+            return ToolDisplay.running("Bash" + ToolDisplaySupport.parens(command), "running");
         }
         int total = outputs.size();
         int start = Math.max(0, total - 10);
@@ -39,7 +39,7 @@ public final class BashDisplayAdapter implements ToolDisplayAdapter {
         }
         return new ToolDisplay(
                 "Bash" + ToolDisplaySupport.parens(command),
-                "Running...",
+                "running",
                 details,
                 details,
                 DisplayStatus.RUNNING);

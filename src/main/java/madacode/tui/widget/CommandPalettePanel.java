@@ -67,25 +67,17 @@ public final class CommandPalettePanel {
         int w = Math.max(1, width);
         List<AttributedString> lines = new ArrayList<>();
 
-        // Header
-        lines.add(headerLine(view.title(), w));
+        lines.add(dividerLine(view.title(), w));
 
-        // Input line with cursor
         lines.add(inputLine(view.input(), view.cursor(), w));
 
-        // Separator
-        lines.add(separatorLine(w));
-
-        // Candidate list
         for (int i = 0; i < view.candidates().size(); i++) {
             PaletteCandidate c = view.candidates().get(i);
             boolean sel = i == view.selected();
             lines.add(candidateLine(c.primary(), c.secondary(), sel, w));
         }
 
-        // Footer
         if (!view.footer().isBlank()) {
-            lines.add(separatorLine(w));
             lines.add(footerLine(view.footer(), w));
         }
 
@@ -94,64 +86,64 @@ public final class CommandPalettePanel {
 
     // ---- per-line builders ---------------------------------------------
 
-    private static AttributedString headerLine(String title, int width) {
+    private static AttributedString dividerLine(String title, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
         style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("╭");
-        } else {
-            b.append("╭─ ");
-            b.style(AttributedStyle.BOLD);
-            b.append(fit(title, Math.max(0, width - 5)));
-            style(b, Token.MUTED);
-            int used = 4 + TerminalText.displayWidth(fit(title, Math.max(0, width - 5)));
-            int remaining = width - used;
-            if (remaining > 0) {
-                b.append(" ");
-                b.append("─".repeat(remaining));
-            }
+        if (width <= 0) {
+            return AttributedString.EMPTY;
         }
+        if (width == 1) {
+            b.append("─");
+            return b.toAttributedString();
+        }
+
+        String prefix = "── ";
+        b.append(prefix);
+        String visibleTitle = fit(title, Math.max(0, width - TerminalText.displayWidth(prefix) - 1));
+        b.style(AttributedStyle.BOLD);
+        b.append(visibleTitle);
+        style(b, Token.MUTED);
+        int used = TerminalText.displayWidth(prefix) + TerminalText.displayWidth(visibleTitle);
+        if (used < width) {
+            b.append(" ");
+            used++;
+        }
+        if (used < width) {
+            b.append("─".repeat(width - used));
+        }
+
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
     }
 
     private static AttributedString inputLine(String input, int cursor, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("│");
-        } else if (width < 5) {
-            b.append("│");
-        } else {
-            b.append("│  ");
-            b.style(AttributedStyle.DEFAULT);
-
-            int budget = width - 4; // after "│  "
-            String visible = fitEnd(input, budget);
-
-            // Build visible portion showing cursor as inverse block
-            for (int i = 0; i < visible.length(); i++) {
-                if (i == cursor) {
-                    style(b, Token.STATUS_MODE_PLAN);
-                }
-                b.append(visible.charAt(i));
-            }
-            // Cursor at end of visible string
-            if (cursor >= visible.length() && cursor <= input.length()) {
-                style(b, Token.STATUS_MODE_PLAN);
-                if (cursor == input.length()) {
-                    b.append(' '); // cursor block at end
-                }
-            }
-            b.style(AttributedStyle.DEFAULT);
+        if (width <= 0) {
+            return AttributedString.EMPTY;
         }
-        return fitLine(b, width);
-    }
+        if (width == 1) {
+            style(b, Token.STATUS_MODE_PLAN);
+            b.append(cursor == input.length() ? " " : fitEnd(input, 1));
+            b.style(AttributedStyle.DEFAULT);
+            return fitLine(b, width);
+        }
 
-    private static AttributedString separatorLine(int width) {
-        AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        b.append(width <= 2 ? "│" : "│");
+        Viewport viewport = viewport(input, cursor, width);
+        String visible = viewport.text();
+        b.style(AttributedStyle.DEFAULT);
+        int clampedCursor = viewport.cursorOffset();
+        for (int i = 0; i < visible.length(); i++) {
+            if (i == clampedCursor) {
+                style(b, Token.STATUS_MODE_PLAN);
+            } else {
+                b.style(AttributedStyle.DEFAULT);
+            }
+            b.append(visible.charAt(i));
+        }
+        if (clampedCursor >= visible.length()) {
+            style(b, Token.STATUS_MODE_PLAN);
+            b.append(' ');
+        }
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
     }
@@ -159,33 +151,13 @@ public final class CommandPalettePanel {
     private static AttributedString candidateLine(String primary, String secondary,
                                                    boolean selected, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("│");
-        } else {
-            b.append("│ ");
-            if (width >= 5) {
-                b.append(" ");
-                if (selected) {
-                    style(b, Token.STATUS_MODE_PLAN);
-                    b.append("> ");
-                } else {
-                    b.append("  ");
-                }
-                int budget = width - 5;
-                style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
-                b.append(fitEnd(primary, budget));
-
-                if (!secondary.isBlank()) {
-                    int used = TerminalText.displayWidth(primary);
-                    int secBudget = budget - used - 2;
-                    if (secBudget > 4) {
-                        b.append("  ");
-                        style(b, Token.MUTED);
-                        b.append(fitEnd(secondary, secBudget));
-                    }
-                }
-            }
+        String prefix = selected ? "› " : "  ";
+        style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
+        b.append(prefix);
+        int budget = Math.max(0, width - TerminalText.displayWidth(prefix));
+        b.append(fitEnd(primary, budget));
+        if (width == 1) {
+            return new AttributedString(selected ? "›" : " ");
         }
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
@@ -194,12 +166,7 @@ public final class CommandPalettePanel {
     private static AttributedString footerLine(String footer, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
         style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("╰");
-        } else {
-            b.append("╰─ ");
-            b.append(fit(footer, Math.max(0, width - 4)));
-        }
+        b.append(fit(footer, width));
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
     }
@@ -214,6 +181,110 @@ public final class CommandPalettePanel {
         return TerminalText.fitEnd(value, Math.max(0, columns));
     }
 
+    static Viewport viewport(String input, int cursor, int width) {
+        int safeWidth = Math.max(1, width);
+        String value = Objects.requireNonNullElse(input, "");
+        int clampedCursor = Math.max(0, Math.min(cursor, value.length()));
+        boolean cursorAtEnd = clampedCursor == value.length();
+        int textBudget = cursorAtEnd ? Math.max(0, safeWidth - 1) : safeWidth;
+        if (safeWidth == 1) {
+            String single = cursorAtEnd ? "" : fitEnd(value.substring(clampedCursor), 1);
+            return new Viewport(single, Math.min(clampedCursor, single.length()));
+        }
+        if (TerminalText.displayWidth(value) <= textBudget) {
+            return new Viewport(value, clampedCursor);
+        }
+
+        List<Cluster> clusters = clusters(value);
+        int cursorCluster = clusterIndexForOffset(clusters, clampedCursor);
+        int start = 0;
+        int end = clusters.size();
+
+        while (windowWidth(clusters, start, end) > textBudget) {
+            int leftSpace = cursorCluster - start;
+            int rightSpace = end - cursorCluster;
+            if (rightSpace > leftSpace && end - 1 > cursorCluster) {
+                end--;
+            } else if (start < cursorCluster) {
+                start++;
+            } else if (end - 1 > cursorCluster) {
+                end--;
+            } else {
+                break;
+            }
+        }
+
+        StringBuilder text = new StringBuilder();
+        for (int i = start; i < end; i++) {
+            text.append(clusters.get(i).text());
+        }
+        int windowStartOffset = clusters.isEmpty() || start >= clusters.size() ? value.length() : clusters.get(start).start();
+        int cursorOffset = Math.max(0, clampedCursor - windowStartOffset);
+        if (cursorOffset > text.length()) {
+            cursorOffset = text.length();
+        }
+        if (cursorOffset == text.length()
+                && TerminalText.displayWidth(text.toString()) > textBudget) {
+            String trimmed = takeFromEnd(text.toString(), textBudget);
+            return new Viewport(trimmed, trimmed.length());
+        }
+        return new Viewport(text.toString(), cursorOffset);
+    }
+
+    private static List<Cluster> clusters(String value) {
+        List<Cluster> clusters = new ArrayList<>();
+        for (int i = 0; i < value.length(); ) {
+            int end = TerminalText.clusterEnd(value, i);
+            String text = value.substring(i, end);
+            clusters.add(new Cluster(i, end, text, Math.max(0, TerminalText.displayWidth(text))));
+            i = end;
+        }
+        return clusters;
+    }
+
+    private static int clusterIndexForOffset(List<Cluster> clusters, int offset) {
+        for (int i = 0; i < clusters.size(); i++) {
+            Cluster cluster = clusters.get(i);
+            if (offset <= cluster.start()) {
+                return i;
+            }
+            if (offset < cluster.end()) {
+                return i;
+            }
+        }
+        return clusters.size();
+    }
+
+    private static int windowWidth(List<Cluster> clusters, int start, int end) {
+        int width = 0;
+        for (int i = start; i < end; i++) {
+            width += clusters.get(i).width();
+        }
+        return width;
+    }
+
+    private static String takeFromEnd(String value, int columns) {
+        if (columns <= 0 || value.isEmpty()) {
+            return "";
+        }
+        List<Cluster> clusters = clusters(value);
+        int used = 0;
+        int start = clusters.size();
+        while (start > 0) {
+            int next = clusters.get(start - 1).width();
+            if (used + next > columns) {
+                break;
+            }
+            used += next;
+            start--;
+        }
+        StringBuilder result = new StringBuilder();
+        for (int i = start; i < clusters.size(); i++) {
+            result.append(clusters.get(i).text());
+        }
+        return result.toString();
+    }
+
     private static AttributedString fitLine(AttributedStringBuilder b, int width) {
         String plain = b.toAttributedString().toString();
         int displayWidth = TerminalText.displayWidth(plain);
@@ -226,4 +297,8 @@ public final class CommandPalettePanel {
     private static void style(AttributedStringBuilder b, Token token) {
         b.style(Themes.active().styleOf(token));
     }
+
+    record Viewport(String text, int cursorOffset) {}
+
+    private record Cluster(int start, int end, String text, int width) {}
 }

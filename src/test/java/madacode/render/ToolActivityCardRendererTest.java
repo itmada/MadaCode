@@ -15,13 +15,13 @@ class ToolActivityCardRendererTest {
 
     @Test
     void bashRunningCard() {
-        ToolDisplay display = ToolDisplay.running("Bash(npm test)", "Running...");
+        ToolDisplay display = ToolDisplay.running("Bash(npm test)", "running");
         List<String> lines = ToolActivityCardRenderer.card(display);
 
         assertFalse(lines.isEmpty());
         String output = join(lines);
-        assertTrue(strip(output).contains("Bash(npm test)"), "should contain tool name: " + output);
-        assertTrue(strip(output).contains("Running"), "should contain summary: " + output);
+        assertTrue(strip(output).contains("Bash    npm test"), "should contain tool name: " + output);
+        assertTrue(strip(output).contains("running"), "should contain summary: " + output);
     }
 
     @Test
@@ -32,7 +32,7 @@ class ToolActivityCardRendererTest {
         List<String> lines = ToolActivityCardRenderer.card(display);
         String output = join(lines);
 
-        assertTrue(strip(output).contains("Bash(npm test)"));
+        assertTrue(strip(output).contains("Bash    npm test"));
         assertTrue(strip(output).contains("Completed") && strip(output).contains("3.8s"),
                 "should show elapsed: " + output);
         assertTrue(strip(output).contains("42 tests passed"),
@@ -48,7 +48,7 @@ class ToolActivityCardRendererTest {
         List<String> lines = ToolActivityCardRenderer.card(display);
         String output = join(lines);
 
-        assertTrue(strip(output).contains("Bash(rm -rf /)"));
+        assertTrue(strip(output).contains("Bash    rm -rf /"));
         assertTrue(strip(output).contains("Failed"), "should show Failed: " + output);
         assertTrue(strip(output).contains("Permission denied"),
                 "should show error detail: " + output);
@@ -65,7 +65,7 @@ class ToolActivityCardRendererTest {
         List<String> lines = ToolActivityCardRenderer.card(display);
         String output = join(lines);
 
-        assertTrue(strip(output).contains("Bash(rm -rf /)"),
+        assertTrue(strip(output).contains("Bash    rm -rf /"),
                 "should contain tool name");
         assertTrue(strip(output).contains("Permission denied"),
                 "should contain denied summary: " + output);
@@ -79,7 +79,7 @@ class ToolActivityCardRendererTest {
         List<String> lines = ToolActivityCardRenderer.card(display);
         String output = join(lines);
 
-        assertTrue(strip(output).contains("Write(src/main/java/App.java)"),
+        assertTrue(strip(output).contains("Write   src/main/java/App.java"),
                 "should contain file path: " + output);
         assertTrue(strip(output).contains("Wrote 124 lines"),
                 "should contain line count: " + output);
@@ -93,7 +93,7 @@ class ToolActivityCardRendererTest {
         List<String> lines = ToolActivityCardRenderer.card(display);
         String output = join(lines);
 
-        assertTrue(strip(output).contains("Fetch(https://example.com)"),
+        assertTrue(strip(output).contains("Fetch   https://example.com"),
                 "should contain URL: " + output);
         assertTrue(strip(output).contains("200") && strip(output).contains("18 KB"),
                 "should contain HTTP status and size: " + output);
@@ -129,18 +129,18 @@ class ToolActivityCardRendererTest {
 
     @Test
     void runningSummaryShowsElapsedSeconds() {
-        ToolDisplay display = ToolDisplay.running("Bash(test)", "Running...");
+        ToolDisplay display = ToolDisplay.running("Bash(test)", "running");
         String summary = ToolActivityCardRenderer.runningSummary(display, 5);
-        assertTrue(summary.contains("Running") && summary.contains("5s"),
+        assertTrue(summary.contains("running") && summary.contains("5s"),
                 "running summary should show elapsed: " + summary);
     }
 
     @Test
     void statusGlyphReturnsCorrectSymbols() {
-        assertEquals("✣", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.RUNNING)));
-        assertEquals("✣", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.SUCCESS)));
-        assertEquals("✣", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.FAILED)));
-        assertEquals("✣", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.DENIED)));
+        assertEquals("●", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.RUNNING)));
+        assertEquals("●", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.SUCCESS)));
+        assertEquals("●", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.FAILED)));
+        assertEquals("●", strip(ToolActivityCardRenderer.statusGlyph(DisplayStatus.DENIED)));
     }
 
     // ---- stage / expandable tests -------------------------------------
@@ -232,11 +232,11 @@ class ToolActivityCardRendererTest {
     @Test
     void statusBulletHasExpectedPlainGlyphs() {
         // Verify styled bullets contain the expected glyphs (strip ANSI).
-        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.RUNNING)).contains("✣"));
-        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.SUCCESS)).contains("✣"));
-        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.FAILED)).contains("✣"));
-        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.DENIED)).contains("✣"));
-        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.INFO)).contains("✣"));
+        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.RUNNING)).contains("●"));
+        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.SUCCESS)).contains("●"));
+        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.FAILED)).contains("●"));
+        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.DENIED)).contains("●"));
+        assertTrue(strip(ToolActivityCardRenderer.statusBullet(DisplayStatus.INFO)).contains("●"));
     }
 
     private static String join(List<String> lines) {

@@ -26,7 +26,7 @@ class ToolCardWriterTest {
         assertFalse(screen.scrollbackLines.getLast().isEmpty(),
                 "tool card should not rely on trailing blank spacing");
         String output = strip(join(screen.scrollbackLines));
-        assertTrue(output.contains("Bash(npm test)"), "should contain title: " + output);
+        assertTrue(output.contains("Bash    npm test"), "should contain split title: " + output);
         assertTrue(output.contains("Completed"), "should contain summary: " + output);
         assertTrue(output.contains("42 tests passed"), "should contain detail: " + output);
     }
@@ -122,7 +122,7 @@ class ToolCardWriterTest {
     void deniedStatusHasCorrectBullet() {
         String bullet = ToolActivityCardRenderer.statusBullet(DisplayStatus.DENIED);
         String plain = strip(bullet);
-        assertTrue(plain.contains("✣"), "denied bullet should be ✣: " + plain);
+        assertTrue(plain.contains("●"), "denied bullet should be ●: " + plain);
     }
 
     // ---- helpers -------------------------------------------------------

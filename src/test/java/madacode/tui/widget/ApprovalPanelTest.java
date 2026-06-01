@@ -35,54 +35,69 @@ class ApprovalPanelTest {
     void rendersThreeOptions() {
         ApprovalPanel.ApprovalRequestView view = new ApprovalPanel.ApprovalRequestView(
                 "permission required", "bash wants to run", "echo hi",
-                defaultActions(), 0, "↑/↓ select   Enter confirm   Esc deny");
+                defaultActions(), 0, "←/→ select   Enter confirm   Esc deny");
 
         List<AttributedString> lines = ApprovalPanel.render(view, 80);
         assertAllLinesFit(lines, 80);
         String rendered = join(lines);
 
-        assertTrue(rendered.contains("Deny"), "should contain Deny option");
-        assertTrue(rendered.contains("Allow once"), "should contain Allow once option");
-        assertTrue(rendered.contains("Allow for session"), "should contain Allow for session option");
+        assertTrue(rendered.contains("deny"), "should contain deny option");
+        assertTrue(rendered.contains("allow once"), "should contain allow once option");
+        assertTrue(rendered.contains("allow session"), "should contain allow session option");
     }
 
     @Test
     void defaultSelectedDenyHasCursorIndicator() {
         ApprovalPanel.ApprovalRequestView view = new ApprovalPanel.ApprovalRequestView(
                 "permission required", "bash wants to run", "echo hi",
-                defaultActions(), 0, "↑/↓ select   Enter confirm   Esc deny");
+                defaultActions(), 0, "←/→ select   Enter confirm   Esc deny");
 
         List<AttributedString> lines = ApprovalPanel.render(view, 80);
         String rendered = join(lines);
 
-        assertTrue(rendered.contains("> Deny"), "Deny should have > cursor: " + rendered);
-        assertFalse(rendered.contains("> Allow once"), "Allow once should not have > when unselected");
+        assertTrue(rendered.contains("› allow once"), "Allow once should have cursor: " + rendered);
+        assertFalse(rendered.contains("› allow session"), "Allow session should not have cursor when unselected");
+        assertFalse(rendered.contains("› deny"), "deny should not have cursor when unselected");
     }
 
     @Test
     void selectedIndexChangesCursorPosition() {
         ApprovalPanel.ApprovalRequestView view = new ApprovalPanel.ApprovalRequestView(
                 "permission required", "bash wants to run", "echo hi",
-                defaultActions(), 1, "↑/↓ select   Enter confirm   Esc deny");
+                defaultActions(), 1, "←/→ select   Enter confirm   Esc deny");
 
         List<AttributedString> lines = ApprovalPanel.render(view, 80);
         String rendered = join(lines);
 
-        assertTrue(rendered.contains("> Allow once"), "Allow once should have > when selectedIndex=1: " + rendered);
-        assertFalse(rendered.contains("> Deny"), "Deny should not have > when not selected");
+        assertTrue(rendered.contains("› allow session"),
+                "Allow session should have cursor when selectedIndex=1: " + rendered);
+        assertFalse(rendered.contains("› allow once"), "allow once should not have cursor when not selected");
     }
 
     @Test
     void footerContainsNavigationHints() {
         ApprovalPanel.ApprovalRequestView view = new ApprovalPanel.ApprovalRequestView(
                 "permission required", "bash wants to run", "echo hi",
-                defaultActions(), 0, "↑/↓ select   Enter confirm   Esc deny");
+                defaultActions(), 0, "←/→ select   Enter confirm   Esc deny");
 
         List<AttributedString> lines = ApprovalPanel.render(view, 80);
         String rendered = join(lines);
 
         assertTrue(rendered.contains("Enter confirm"), "footer should contain Enter hint");
         assertTrue(rendered.contains("Esc deny"), "footer should contain Esc hint");
+    }
+
+    @Test
+    void doesNotRenderClosingFooterBorder() {
+        ApprovalPanel.ApprovalRequestView view = new ApprovalPanel.ApprovalRequestView(
+                "Permission", "Bash", "rm -rf build",
+                defaultActions(), 0, "←/→ select   Enter confirm   Esc deny");
+
+        List<AttributedString> lines = ApprovalPanel.render(view, 80);
+
+        assertFalse(lines.isEmpty());
+        assertFalse(lines.getLast().toString().startsWith("╰"),
+                "panel should not render a closing bottom border");
     }
 
     @Test
@@ -218,9 +233,9 @@ class ApprovalPanelTest {
 
     private static List<ApprovalPanel.Action> defaultActions() {
         return List.of(
-                new ApprovalPanel.Action(ApprovalPanel.Decision.DENY, "Deny", true),
-                new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_ONCE, "Allow once", false),
-                new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_SESSION, "Allow for session", false));
+                new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_ONCE, "allow once", false),
+                new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_SESSION, "allow session", false),
+                new ApprovalPanel.Action(ApprovalPanel.Decision.DENY, "deny", true));
     }
 
     private static String join(List<AttributedString> lines) {

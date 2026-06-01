@@ -31,8 +31,8 @@ class MetaEventRendererTest {
                     event + " should own a leading blank line: " + output);
             assertTrue(!output.endsWith("\n\n"),
                     event + " should not rely on trailing blank spacing: " + output);
-            assertTrue(output.contains("✣"), event + " should use stage bullet: " + output);
-            assertTrue(output.contains("⎿"), event + " should use stage summary: " + output);
+            assertTrue(output.contains("●"), event + " should use stage bullet: " + output);
+            assertTrue(output.contains("─"), event + " should use stage summary: " + output);
         }
     }
 

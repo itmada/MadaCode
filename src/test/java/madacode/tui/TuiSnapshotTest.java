@@ -4,6 +4,7 @@ import madacode.render.tool.ToolActivityCardRenderer;
 import madacode.render.tool.ToolDisplay;
 import madacode.tui.widget.ApprovalPanel;
 import madacode.tui.widget.ChoicePanel;
+import madacode.tui.widget.CommandPalettePanel;
 
 import org.jline.utils.AttributedString;
 import org.junit.jupiter.api.Test;
@@ -26,10 +27,10 @@ class TuiSnapshotTest {
                 "permission required", "bash wants to run",
                 "{\"command\":\"rm -rf /tmp/demo\"}",
                 List.of(
-                        new ApprovalPanel.Action(ApprovalPanel.Decision.DENY, "Deny", true),
-                        new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_ONCE, "Allow once", false),
-                        new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_SESSION, "Allow for session", false)),
-                0, "↑/↓ select   Enter confirm   Esc deny");
+                        new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_ONCE, "allow once", false),
+                        new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_SESSION, "allow session", false),
+                        new ApprovalPanel.Action(ApprovalPanel.Decision.DENY, "deny", true)),
+                0, "←/→ select   Enter confirm   Esc deny");
 
         List<AttributedString> lines = ApprovalPanel.render(view, 80);
         assertAllLinesFit(lines, 80);
@@ -37,10 +38,11 @@ class TuiSnapshotTest {
 
         assertTrue(output.contains("permission required"));
         assertTrue(output.contains("bash wants to run"));
-        assertTrue(output.contains("> Deny"));
-        assertTrue(output.contains("Allow once"));
-        assertTrue(output.contains("Allow for session"));
+        assertTrue(output.contains("› allow once"));
+        assertTrue(output.contains("allow session"));
+        assertTrue(output.contains("deny"));
         assertTrue(output.contains("Enter confirm"));
+        assertFalse(output.contains("╰─"), "approval panel should stay open at the bottom");
         // No old patterns
         assertFalse(output.contains("[y]"), "should not contain old [y] pattern");
         assertFalse(output.contains("[n]"), "should not contain old [n] pattern");
@@ -52,8 +54,8 @@ class TuiSnapshotTest {
         var view = new ApprovalPanel.ApprovalRequestView(
                 "permission required", "bash wants to run", "echo hi",
                 List.of(
-                        new ApprovalPanel.Action(ApprovalPanel.Decision.DENY, "Deny", true),
-                        new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_ONCE, "Allow once", false)),
+                        new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_ONCE, "allow once", false),
+                        new ApprovalPanel.Action(ApprovalPanel.Decision.DENY, "deny", true)),
                 0, "footer");
 
         for (int w : new int[] {10, 20, 30, 40}) {
@@ -80,12 +82,17 @@ class TuiSnapshotTest {
 
         assertEquals("", lines.getFirst().toString(),
                 "choice panel should own a top margin before the card");
-        assertTrue(output.contains("Model"));
+        assertTrue(output.contains("── Model"));
         assertTrue(output.contains("Choose model"));
         assertTrue(output.contains("claude-sonnet-4-6"));
         assertTrue(output.contains("claude-opus-4-7"));
+        assertTrue(output.contains("› claude-sonnet-4-6"));
+        assertTrue(output.contains("  claude-opus-4-7"));
         assertTrue(output.contains("Enter confirm"));
         assertTrue(output.contains("Esc cancel"));
+        assertFalse(output.contains("╭"));
+        assertFalse(output.contains("│"));
+        assertFalse(output.contains("╰"));
     }
 
     @Test
@@ -102,14 +109,42 @@ class TuiSnapshotTest {
         }
     }
 
+    @Test
+    void commandPaletteUsesDividerAndGutterLayout() {
+        var view = new CommandPalettePanel.View(
+                "Commands",
+                "/mo",
+                3,
+                List.of(
+                        new CommandPalettePanel.PaletteCandidate("/model", "Choose model"),
+                        new CommandPalettePanel.PaletteCandidate("/mode", "Choose mode")),
+                0,
+                "Tab complete   Enter confirm   Esc cancel");
+
+        List<AttributedString> lines = CommandPalettePanel.render(view, 80);
+        assertAllLinesFit(lines, 80);
+        String output = plain(lines);
+
+        assertTrue(output.contains("── Commands"));
+        assertTrue(output.contains("/mo"));
+        assertTrue(output.contains("› /model"));
+        assertTrue(output.contains("  /mode"));
+        assertTrue(output.contains("Esc cancel"));
+        assertFalse(output.contains("╭"));
+        assertFalse(output.contains("│"));
+        assertFalse(output.contains("╰"));
+        assertFalse(output.contains("────\n────"));
+        assertFalse(output.contains("Choose model"));
+    }
+
     // ---- tool activity cards -------------------------------------------
 
     @Test
     void toolRunningRow() {
-        ToolDisplay display = ToolDisplay.running("Bash(npm test)", "Running...");
+        ToolDisplay display = ToolDisplay.running("Bash(npm test)", "running");
         String summary = ToolActivityCardRenderer.runningSummary(display, 3);
 
-        assertTrue(summary.contains("Running"), "should contain running status");
+        assertTrue(summary.contains("running"), "should contain running status");
         assertTrue(summary.contains("3s"), "should contain elapsed seconds");
     }
 
@@ -124,7 +159,7 @@ class TuiSnapshotTest {
         String output = String.join("\n", lines);
         String stripped = stripAnsi(output);
 
-        assertTrue(stripped.contains("Bash(./mvnw test)"));
+        assertTrue(stripped.contains("Bash    ./mvnw test"));
         assertTrue(stripped.contains("BUILD SUCCESS"));
         assertFalse(stripped.contains("[y]"), "should not contain old patterns");
     }
@@ -140,7 +175,7 @@ class TuiSnapshotTest {
         String stripped = stripAnsi(output);
 
         assertTrue(stripped.contains("Permission denied"));
-        assertTrue(stripped.contains("Bash(rm -rf /)"));
+        assertTrue(stripped.contains("Bash    rm -rf /"));
         assertFalse(output.contains("{\"command\""),
                 "should not dump raw JSON in denied card");
         assertFalse(output.contains("insert file"),

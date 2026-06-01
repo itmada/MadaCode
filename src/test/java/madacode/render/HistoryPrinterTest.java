@@ -87,10 +87,10 @@ class HistoryPrinterTest {
                 Message.user(List.of(new ContentBlock.ToolResultBlock(
                         "tool-1", "Tool call skipped: max tool calls reached.", false, 0))));
 
-        assertTrue(out.contains("Bash(echo hi)"), "should keep adapter title; got: " + out);
+        assertTrue(out.contains("Bash    echo hi"), "should keep adapter title; got: " + out);
         assertTrue(out.contains("Skipped"), "should render compact skipped summary; got: " + out);
         assertTrue(out.contains("Tool call skipped: max tool calls reached."), "should include skip reason; got: " + out);
-        assertFalse(out.contains("Failed"), "skipped tool should not render as failed; got: " + out);
+        assertFalse(out.contains("failed"), "skipped tool should not render as failed; got: " + out);
     }
 
     @Test
@@ -101,10 +101,10 @@ class HistoryPrinterTest {
                 Message.user(List.of(new ContentBlock.ToolResultBlock(
                         "tool-1", "Cancelled before execution: permission denied", false, 0))));
 
-        assertTrue(out.contains("Bash(echo hi)"), "should keep adapter title; got: " + out);
+        assertTrue(out.contains("Bash    echo hi"), "should keep adapter title; got: " + out);
         assertTrue(out.contains("Cancelled"), "should render compact cancellation summary; got: " + out);
         assertTrue(out.contains("Cancelled before execution: permission denied"), "should include cancel reason; got: " + out);
-        assertFalse(out.contains("Failed"), "cancelled tool should not render as failed; got: " + out);
+        assertFalse(out.contains("failed"), "cancelled tool should not render as failed; got: " + out);
     }
 
     @Test
@@ -117,7 +117,7 @@ class HistoryPrinterTest {
 
         assertTrue(out.contains("Cancelled"), "should render compact cancellation summary; got: " + out);
         assertTrue(out.contains("Cancelled: user interrupted"), "should include tail cancel reason; got: " + out);
-        assertFalse(out.contains("Failed"), "cancelled tool should not render as failed; got: " + out);
+        assertFalse(out.contains("failed"), "cancelled tool should not render as failed; got: " + out);
         assertFalse(out.contains("partial output"), "compact cancellation should omit prior output; got: " + out);
     }
 
@@ -129,7 +129,7 @@ class HistoryPrinterTest {
                 Message.user(List.of(new ContentBlock.ToolResultBlock(
                         "tool-1", "first line\nCancelled: not the terminal reason\nreal failure", false, 0))));
 
-        assertTrue(out.contains("Failed"), "ordinary failure should stay failed; got: " + out);
+        assertTrue(out.contains("failed"), "ordinary failure should stay failed; got: " + out);
         assertFalse(out.contains("Skipped"), "ordinary failure should not become skipped; got: " + out);
     }
 

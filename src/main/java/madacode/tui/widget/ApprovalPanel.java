@@ -15,7 +15,7 @@ import java.util.Objects;
 import static madacode.tui.theme.Tk.*;
 
 /**
- * Pure renderer for a permission-approval panel with vertical selection list.
+ * Pure renderer for a permission-approval panel with horizontal actions.
  *
  * <p>Produces {@link AttributedString} lines for use with {@link madacode.tui.Screen#setLiveModal}.
  * Does not read keyboard input and has no dependency on the CLI or permission layers.
@@ -26,8 +26,31 @@ import static madacode.tui.theme.Tk.*;
 public final class ApprovalPanel {
 
     private static final int MAX_DETAIL_COLUMNS = 84;
+    private static final String SELECTION_PREFIX = "› ";
+    private static final String UNSELECTED_PREFIX = "  ";
+    private static final String MODAL_TITLE = "Permission";
+    private static final String INLINE_TITLE = "Permission required";
+    private static final String MODAL_FOOTER = "←/→ select   Enter confirm   Esc deny";
+    private static final List<Action> DEFAULT_ACTIONS = List.of(
+            new Action(Decision.ALLOW_ONCE, "allow once", false, "a"),
+            new Action(Decision.ALLOW_SESSION, "allow session", false, "s"),
+            new Action(Decision.DENY, "deny", true, "d"));
 
     private ApprovalPanel() {}
+
+    public static List<Action> defaultActions() {
+        return DEFAULT_ACTIONS;
+    }
+
+    public static ApprovalRequestView modalView(String subject, String detail, int selectedIndex) {
+        return new ApprovalRequestView(
+                MODAL_TITLE,
+                subject,
+                detail,
+                DEFAULT_ACTIONS,
+                selectedIndex,
+                MODAL_FOOTER);
+    }
 
     public static List<AttributedString> render(ApprovalRequestView view, int width) {
         Objects.requireNonNull(view, "view");
@@ -45,12 +68,12 @@ public final class ApprovalPanel {
             lines.add(bodyLine(previewLine, Token.MUTED, safeWidth));
         }
         lines.add(emptyLine(safeWidth));
-        for (int i = 0; i < view.actions().size(); i++) {
-            Action action = view.actions().get(i);
-            boolean selected = i == view.selectedIndex();
-            lines.add(actionLine(action, selected, safeWidth));
+        if (!view.actions().isEmpty()) {
+            lines.add(horizontalActionsLine(view.actions(), view.selectedIndex(), safeWidth));
         }
-        lines.add(footerLine(view.footer(), safeWidth));
+        if (!view.footer().isBlank()) {
+            lines.add(bodyLine(view.footer(), Token.MUTED, safeWidth));
+        }
 
         return lines;
     }
@@ -71,7 +94,7 @@ public final class ApprovalPanel {
             int remaining = width - used;
             if (remaining > 0) {
                 b.append(" ");
-                b.append("─".repeat(remaining));
+                b.append("─".repeat(Math.max(0, remaining - 1)));
             }
         }
         b.style(AttributedStyle.DEFAULT);
@@ -85,12 +108,10 @@ public final class ApprovalPanel {
             b.append("│");
         } else {
             b.append("│ ");
-            if (width >= 5) {
-                b.append(" ");
+            if (width >= 4) {
                 style(b, textToken);
-                String truncated = TerminalText.truncateMiddle(
-                        text.replace('\n', ' ').replace('\r', ' ').strip(), MAX_DETAIL_COLUMNS);
-                int contentWidth = Math.max(0, width - 4);
+                String truncated = sanitize(text);
+                int contentWidth = Math.max(0, width - 2);
                 b.append(fit(truncated, contentWidth));
             }
         }
@@ -106,40 +127,28 @@ public final class ApprovalPanel {
         return fitLine(b, width);
     }
 
-    private static AttributedString actionLine(Action action, boolean selected, int width) {
+    private static AttributedString horizontalActionsLine(
+            List<Action> actions, int selectedIndex, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
         style(b, Token.MUTED);
         if (width <= 2) {
             b.append("│");
         } else {
             b.append("│ ");
-            if (width >= 5) {
-                b.append(" ");
-                if (selected) {
-                    style(b, Token.STATUS_MODE_PLAN);
-                    b.append("> ");
-                } else {
-                    b.append("  ");
+            if (width >= 4) {
+                for (int i = 0; i < actions.size(); i++) {
+                    Action action = actions.get(i);
+                    boolean selected = i == selectedIndex;
+                    style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
+                    b.append(selected ? SELECTION_PREFIX : UNSELECTED_PREFIX);
+                    style(b, action.destructive() ? Token.TAG_WARN : selected ? Token.STATUS_MODE_PLAN : Token.STATUS_VAL);
+                    b.append(action.label());
+                    if (i < actions.size() - 1) {
+                        style(b, Token.MUTED);
+                        b.append("    ");
+                    }
                 }
-                style(b, action.destructive() ? Token.TAG_WARN : Token.STATUS_VAL);
-                int labelWidth = Math.max(0, width - 5);
-                String hotkey = action.hotkey().isBlank() ? "" : "[" + action.hotkey() + "] ";
-                b.append(fit(hotkey + action.label(), labelWidth));
             }
-        }
-        b.style(AttributedStyle.DEFAULT);
-        return fitLine(b, width);
-    }
-
-    private static AttributedString footerLine(String footer, int width) {
-        AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("╰");
-        } else {
-            b.append("╰─ ");
-            int footerWidth = Math.max(0, width - 3);
-            b.append(fit(footer, footerWidth));
         }
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
@@ -153,6 +162,11 @@ public final class ApprovalPanel {
 
     private static String fit(String value, int columns) {
         return TerminalText.fitEnd(value, Math.max(0, columns));
+    }
+
+    private static String sanitize(String value) {
+        return TerminalText.truncateMiddle(
+                value.replace('\n', ' ').replace('\r', ' ').strip(), MAX_DETAIL_COLUMNS);
     }
 
     /**
@@ -177,47 +191,47 @@ public final class ApprovalPanel {
 
     // ---- Inline rendering for ToolCardRenderable --------------------------
 
-    private static final List<Action> INLINE_ACTIONS = List.of(
-            new Action(Decision.ALLOW_ONCE, "Allow once", false, "a"),
-            new Action(Decision.ALLOW_SESSION, "Allow for session", false, "s"),
-            new Action(Decision.DENY, "Deny", true, "d"));
-
-    private static final String INLINE_FOOTER = "↑↓ select   Enter confirm   Esc deny";
-
     /**
      * Produces ANSI-styled lines for inline permission approval, suitable for
      * embedding inside a {@link ToolCardRenderable} render output.
      */
     public static List<String> renderInlineApproval(int width, int selectedIdx) {
         int safeWidth = Math.max(1, width);
-        int idx = Math.max(0, Math.min(selectedIdx, INLINE_ACTIONS.size() - 1));
+        int idx = Math.max(0, Math.min(selectedIdx, DEFAULT_ACTIONS.size() - 1));
         List<String> lines = new ArrayList<>();
 
-        // Header
-        StringBuilder hdr = new StringBuilder();
-        hdr.append("╭─ Permission required");
-        int hdrContentLen = hdr.length();
-        if (safeWidth > hdrContentLen + 3) {
-            hdr.append(" ").append("─".repeat(safeWidth - hdrContentLen - 2));
-        }
-        lines.add(dim(TerminalText.fitEnd(hdr.toString(), safeWidth)));
-
-        // Action lines
-        for (int i = 0; i < INLINE_ACTIONS.size(); i++) {
-            Action action = INLINE_ACTIONS.get(i);
-            boolean selected = i == idx;
-            String prefix = selected ? "> " : "  ";
-            String hotkey = "[" + action.hotkey() + "] ";
-            String label = dim("│") + " " + prefix + hotkey + action.label();
-            lines.add(TerminalText.fitEnd(label, safeWidth));
-        }
-
-        // Footer
-        StringBuilder ftr = new StringBuilder();
-        ftr.append("╰─ ").append(INLINE_FOOTER);
-        lines.add(dim(TerminalText.fitEnd(ftr.toString(), safeWidth)));
+        lines.add(dim(TerminalText.fitEnd(headerPlain(INLINE_TITLE, safeWidth), safeWidth)));
+        lines.add(dim(TerminalText.fitEnd("│", safeWidth)));
+        lines.add(TerminalText.fitEnd(horizontalInlineActions(idx), safeWidth));
 
         return lines;
+    }
+
+    private static String headerPlain(String title, int width) {
+        if (width <= 2) {
+            return "╭";
+        }
+        StringBuilder hdr = new StringBuilder("╭─ ").append(title);
+        int remaining = width - TerminalText.displayWidth(hdr.toString());
+        if (remaining > 0) {
+            hdr.append(" ");
+            hdr.append("─".repeat(Math.max(0, remaining - 1)));
+        }
+        return hdr.toString();
+    }
+
+    private static String horizontalInlineActions(int selectedIdx) {
+        StringBuilder line = new StringBuilder("│ ");
+        for (int i = 0; i < DEFAULT_ACTIONS.size(); i++) {
+            Action action = DEFAULT_ACTIONS.get(i);
+            boolean selected = i == selectedIdx;
+            line.append(selected ? SELECTION_PREFIX : UNSELECTED_PREFIX);
+            line.append(action.label());
+            if (i < DEFAULT_ACTIONS.size() - 1) {
+                line.append("    ");
+            }
+        }
+        return line.toString();
     }
 
     // ---- model types ---------------------------------------------------

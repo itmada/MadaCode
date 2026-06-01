@@ -115,7 +115,7 @@ class ToolDisplayRegistryTest {
                 15636);
         assertEquals(DisplayStatus.FAILED, failed.status());
         assertEquals("Agent(explorer)", failed.title());
-        assertEquals("Failed · 15.6s", failed.summary());
+        assertEquals("failed · 15.6s", failed.summary());
         assertTrue(failed.detailLines().isEmpty(),
                 "sub-agent failure details belong in tool_result for the parent agent, not in the lifecycle card");
 
@@ -151,7 +151,7 @@ class ToolDisplayRegistryTest {
                 """, 88);
         assertEquals(DisplayStatus.FAILED, failed.status());
         assertEquals("Skill(code-review)", failed.title());
-        assertEquals("Failed · 88ms", failed.summary());
+        assertEquals("failed · 88ms", failed.summary());
         assertTrue(failed.detailLines().isEmpty(),
                 "skill failure details belong in tool_result for the parent agent, not in the lifecycle card");
     }
@@ -173,7 +173,7 @@ class ToolDisplayRegistryTest {
 
         ToolDisplay empty = registry.renderRunning("bash", input, List.of());
         assertEquals("Bash(ls -R /)", empty.title());
-        assertEquals("Running...", empty.summary());
+        assertEquals("running", empty.summary());
         assertTrue(empty.detailLines().isEmpty(),
                 "no output → no detail lines, defer to ToolCardRenderable default tail");
 
@@ -223,7 +223,7 @@ class ToolDisplayRegistryTest {
         input.put("path", "src/main");
 
         ToolDisplay empty = registry.renderRunning("grep", input, List.of());
-        assertEquals("Searching...", empty.summary(),
+        assertEquals("searching", empty.summary(),
                 "no METRIC yet → fall back to renderStart-style placeholder");
 
         ToolDisplay withMetrics = registry.renderRunning("grep", input, List.of(
@@ -243,7 +243,7 @@ class ToolDisplayRegistryTest {
         input.put("url", "https://example.com");
 
         ToolDisplay empty = registry.renderRunning("web_fetch", input, List.of());
-        assertEquals("Fetching...", empty.summary());
+        assertEquals("fetching", empty.summary());
 
         ToolDisplay phaseFetching = registry.renderRunning("web_fetch", input, List.of(
                 ToolProgressLine.metric("Fetching https://example.com")));

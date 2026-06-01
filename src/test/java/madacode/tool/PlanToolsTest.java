@@ -195,6 +195,8 @@ class PlanToolsTest {
 
         ToolResult result = ToolTestSupport.invoke(get, getInput, context);
         assertTrue(result.success());
+        assertTrue(result.output().startsWith("id: 1\n"));
+        assertTrue(result.output().contains("id: 1"));
         assertTrue(result.output().contains("Findable"));
     }
 
@@ -241,8 +243,8 @@ class PlanToolsTest {
 
         ToolResult result = ToolTestSupport.invoke(list, input, context);
         assertTrue(result.success());
-        assertTrue(result.output().contains("First task"));
-        assertTrue(result.output().contains("Second task"));
+        assertTrue(result.output().contains("╭ 01 ○ [PENDING] 1  First task"));
+        assertTrue(result.output().contains("╰ 02 ○ [PENDING] 2  Second task"));
     }
 
     @Test
@@ -258,8 +260,44 @@ class PlanToolsTest {
 
         ToolResult result = ToolTestSupport.invoke(list, input, context);
         assertTrue(result.success());
-        assertTrue(result.output().contains("Done task"));
+        assertTrue(result.output().contains("╭ 01 ✓ [COMPLETED] 2  Done task"));
         assertFalse(result.output().contains("Pending task"));
+    }
+
+    @Test
+    void taskListShowsBlockedDependencies() {
+        session.plan().add(PlanItem.create("1", "Dependency", "", List.of()));
+        session.plan().add(PlanItem.create("2", "Blocked task", "", List.of("1")));
+
+        PlanListTool list = new PlanListTool();
+        ToolResult result = ToolTestSupport.invoke(list, mapper.createObjectNode(), context);
+
+        assertTrue(result.success());
+        assertTrue(result.output().contains("╰ 02 ○ [PENDING] 2  Blocked task (blocked)"));
+        assertTrue(result.output().contains("blocked by: 1"));
+        assertTrue(result.output().contains("still blocked by: 1"));
+    }
+
+    @Test
+    void taskListUsesDisplayOrderNotRealIdForNumbering() {
+        session.plan().add(PlanItem.create("abc", "Non numeric", "", List.of()));
+
+        PlanListTool list = new PlanListTool();
+        ToolResult result = ToolTestSupport.invoke(list, mapper.createObjectNode(), context);
+
+        assertTrue(result.success());
+        assertTrue(result.output().contains("╭ 01 ○ [PENDING] abc  Non numeric"));
+    }
+
+    @Test
+    void taskListSingleItemUsesExplicitSingleRowRail() {
+        session.plan().add(PlanItem.create("1", "Solo", "", List.of()));
+
+        PlanListTool list = new PlanListTool();
+        ToolResult result = ToolTestSupport.invoke(list, mapper.createObjectNode(), context);
+
+        assertTrue(result.success());
+        assertTrue(result.output().startsWith("╭ 01 ○ [PENDING] 1  Solo"));
     }
 
     // ---- TaskUpdate ----
@@ -341,9 +379,7 @@ class PlanToolsTest {
 
         ToolResult result = ToolTestSupport.invoke(tool, input, context);
         assertTrue(result.success(), result.output());
-        assertTrue(result.output().contains("0 pending"));
-        assertTrue(result.output().contains("1 in_progress"));
-        assertTrue(result.output().contains("1 completed"));
+        assertEquals("0 pending, 1 in_progress, 1 completed", result.output());
         assertEquals(2, session.plan().todos().size());
     }
 
@@ -357,6 +393,7 @@ class PlanToolsTest {
 
         ToolResult result = ToolTestSupport.invoke(tool, input, context);
         assertTrue(result.success());
+        assertEquals("0 pending, 0 in_progress, 0 completed", result.output());
         assertTrue(session.plan().todos().isEmpty());
     }
 

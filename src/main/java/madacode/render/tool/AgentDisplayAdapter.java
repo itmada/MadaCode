@@ -21,7 +21,7 @@ public final class AgentDisplayAdapter implements ToolDisplayAdapter {
                 ToolDisplaySupport.firstNonBlank(
                         ToolDisplaySupport.text(input, "task"),
                         ToolDisplaySupport.text(input, "prompt")));
-        summary = ToolDisplaySupport.firstNonBlank(summary, "Running...");
+        summary = ToolDisplaySupport.firstNonBlank(summary, "running");
         return ToolDisplay.running(title(input), ToolDisplaySupport.truncateMiddle(summary, 80));
     }
 
@@ -32,7 +32,7 @@ public final class AgentDisplayAdapter implements ToolDisplayAdapter {
                 ToolDisplaySupport.firstNonBlank(
                         ToolDisplaySupport.text(input, "task"),
                         ToolDisplaySupport.text(input, "prompt")));
-        summary = ToolDisplaySupport.firstNonBlank(summary, "Running...");
+        summary = ToolDisplaySupport.firstNonBlank(summary, "running");
 
         List<String> activities = progress.lines().stream()
                 .filter(line -> line.kind() == ToolProgressLine.Kind.ACTIVITY)

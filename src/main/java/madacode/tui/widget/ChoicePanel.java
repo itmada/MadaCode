@@ -27,17 +27,11 @@ public final class ChoicePanel {
         List<AttributedString> lines = new ArrayList<>();
         lines.add(AttributedString.EMPTY);
 
-        // header
         if (!view.title().isBlank()) {
-            lines.add(headerLine(view.title(), w));
+            lines.add(dividerLine(view.title(), w));
         }
-        // subtitle
         if (!view.subtitle().isBlank()) {
             lines.add(subtitleLine(view.subtitle(), w));
-        }
-        // spacing
-        if (!view.title().isBlank() || !view.subtitle().isBlank()) {
-            lines.add(separatorLine(w));
         }
 
         if (view.horizontal()) {
@@ -51,7 +45,6 @@ public final class ChoicePanel {
         }
 
         if (!view.footer().isBlank()) {
-            lines.add(separatorLine(w));
             lines.add(footerLine(view.footer(), w));
         }
 
@@ -60,23 +53,34 @@ public final class ChoicePanel {
 
     // ---- per-line builders ---------------------------------------------
 
-    private static AttributedString headerLine(String title, int width) {
+    private static AttributedString dividerLine(String title, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
         style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("╭");
-        } else {
-            b.append("╭─ ");
-            b.style(AttributedStyle.BOLD);
-            b.append(title);
-            style(b, Token.MUTED);
-            int used = 4 + TerminalText.displayWidth(fit(title, Math.max(0, width - 5)));
-            int remaining = width - used;
-            if (remaining > 0) {
-                b.append(" ");
-                b.append("─".repeat(remaining));
-            }
+        if (width <= 0) {
+            return AttributedString.EMPTY;
         }
+        if (width == 1) {
+            b.append("─");
+            return b.toAttributedString();
+        }
+
+        String prefix = "── ";
+        b.append(prefix);
+        int titleBudget = Math.max(0, width - TerminalText.displayWidth(prefix) - 1);
+        String visibleTitle = fit(title, titleBudget);
+        b.style(AttributedStyle.BOLD);
+        b.append(visibleTitle);
+        style(b, Token.MUTED);
+
+        int used = TerminalText.displayWidth(prefix) + TerminalText.displayWidth(visibleTitle);
+        if (used < width) {
+            b.append(" ");
+            used++;
+        }
+        if (used < width) {
+            b.append("─".repeat(width - used));
+        }
+
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
     }
@@ -84,60 +88,21 @@ public final class ChoicePanel {
     private static AttributedString subtitleLine(String subtitle, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
         style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("│");
-        } else {
-            b.append("│  ");
-            b.style(AttributedStyle.DEFAULT);
-            int budget = width - 4;
-            b.append(fit(subtitle, Math.max(0, budget)));
-        }
-        b.style(AttributedStyle.DEFAULT);
-        return fitLine(b, width);
-    }
-
-    private static AttributedString separatorLine(int width) {
-        AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("│");
-        } else {
-            b.append("│");
-        }
+        b.append(fit(subtitle, width));
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
     }
 
     private static AttributedString optionLine(ChoiceOption option, boolean selected, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
-        if (width <= 2) {
-            style(b, Token.MUTED);
-            b.append("│");
-        } else {
-            style(b, Token.MUTED);
-            b.append("│ ");
-            if (width >= 5) {
-                b.append(" ");
-                if (selected) {
-                    style(b, Token.STATUS_MODE_PLAN);
-                    b.append("> ");
-                } else {
-                    b.append("  ");
-                }
-                int budget = Math.max(1, width - 5);
-                String hotkey = option.hotkey().isBlank() ? "" : "[" + option.hotkey() + "] ";
-                String primary = fit(hotkey + option.primary(), budget);
-                style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
-                b.append(primary);
-                if (!option.secondary().isBlank() && budget > TerminalText.displayWidth(primary) + 3) {
-                    b.append("  ");
-                    int secBudget = budget - TerminalText.displayWidth(primary) - 2;
-                    if (secBudget > 4) {
-                        style(b, Token.MUTED);
-                        b.append(fit(option.secondary(), secBudget));
-                    }
-                }
-            }
+        String prefix = selected ? "› " : "  ";
+        style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
+        b.append(prefix);
+        int budget = Math.max(0, width - TerminalText.displayWidth(prefix));
+        String hotkey = option.hotkey().isBlank() ? "" : "[" + option.hotkey() + "] ";
+        b.append(fit(hotkey + option.primary(), budget));
+        if (width == 1) {
+            return new AttributedString(selected ? "›" : " ");
         }
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
@@ -146,12 +111,7 @@ public final class ChoicePanel {
     private static AttributedString footerLine(String footer, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
         style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("╰");
-        } else {
-            b.append("╰─ ");
-            b.append(fit(footer, Math.max(0, width - 4)));
-        }
+        b.append(fit(footer, width));
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
     }
@@ -159,30 +119,17 @@ public final class ChoicePanel {
     private static AttributedString horizontalOptionsLine(
             List<ChoiceOption> options, int selected, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 4) {
-            b.append("│");
-        } else {
-            b.append("│  ");
-            for (int i = 0; i < options.size(); i++) {
-                ChoiceOption opt = options.get(i);
-                boolean sel = i == selected;
-                String hotkey = opt.hotkey().isBlank() ? "" : "[" + opt.hotkey() + "] ";
-                String label = hotkey + opt.primary();
-                if (sel) {
-                    style(b, Token.STATUS_MODE_PLAN);
-                    b.append("▸ ");
-                } else {
-                    style(b, Token.MUTED);
-                    b.append("  ");
-                }
-                style(b, sel ? Token.STATUS_MODE_PLAN : Token.MUTED);
-                b.append(label);
-                if (i < options.size() - 1) {
-                    style(b, Token.MUTED);
-                    b.append("   ");
-                }
+        for (int i = 0; i < options.size(); i++) {
+            ChoiceOption opt = options.get(i);
+            boolean sel = i == selected;
+            String hotkey = opt.hotkey().isBlank() ? "" : "[" + opt.hotkey() + "] ";
+            if (i > 0) {
+                style(b, Token.MUTED);
+                b.append("   ");
             }
+            style(b, sel ? Token.STATUS_MODE_PLAN : Token.MUTED);
+            b.append(sel ? "› " : "  ");
+            b.append(hotkey + opt.primary());
         }
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);

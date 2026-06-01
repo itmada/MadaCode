@@ -16,13 +16,13 @@ class StageWriterTest {
                     status, "Title", List.of("summary"), List.of(), false));
 
             String plain = strip(String.join("\n", lines));
-            assertTrue(plain.startsWith("✣ Title"), status + " title: " + plain);
-            assertTrue(plain.contains("⎿ summary"), status + " summary: " + plain);
+            assertTrue(plain.startsWith("● Title"), status + " title: " + plain);
+            assertTrue(plain.contains("╰─ summary"), status + " summary: " + plain);
         }
     }
 
     @Test
-    void summaryLinesUseAlignedContinuationIndent() {
+    void summaryLinesUseTimelineBranches() {
         List<String> lines = StageWriter.render(new StageWriter.Stage(
                 StageWriter.Status.SUCCESS,
                 "Task",
@@ -30,9 +30,22 @@ class StageWriterTest {
                 List.of(),
                 false));
 
-        assertEquals("✣ Task", strip(lines.get(0)));
-        assertEquals("  ⎿ first", strip(lines.get(1)));
-        assertEquals("     second", strip(lines.get(2)));
+        assertEquals("● Task", strip(lines.get(0)));
+        assertEquals("  ├─ first", strip(lines.get(1)));
+        assertEquals("  ╰─ second", strip(lines.get(2)));
+    }
+
+    @Test
+    void splitsParenTitleIntoTimelineHeader() {
+        List<String> lines = StageWriter.render(new StageWriter.Stage(
+                StageWriter.Status.RUNNING,
+                "Bash(./mvnw test)",
+                List.of("running · 3s"),
+                List.of(),
+                false));
+
+        assertEquals("● Bash    ./mvnw test", strip(lines.get(0)));
+        assertEquals("  ╰─ running · 3s", strip(lines.get(1)));
     }
 
     @Test
@@ -45,7 +58,7 @@ class StageWriterTest {
                 true));
 
         String plain = strip(String.join("\n", lines));
-        assertTrue(plain.contains("(ctrl+o to expand · 2 lines hidden)"), plain);
+        assertTrue(plain.contains("ctrl+o to expand · 2 lines hidden"), plain);
     }
 
     @Test
@@ -69,8 +82,8 @@ class StageWriterTest {
                 List.of("hidden-1", "hidden-2"),
                 true));
 
-        assertEquals("  ⎿ hidden-1", strip(lines.get(0)));
-        assertEquals("     hidden-2", strip(lines.get(1)));
+        assertEquals("  ├─ hidden-1", strip(lines.get(0)));
+        assertEquals("  ╰─ hidden-2", strip(lines.get(1)));
     }
 
     @Test
@@ -82,7 +95,7 @@ class StageWriterTest {
                 List.of(),
                 false))));
 
-        assertEquals("✣ Error\n  ⎿ broken", plain);
+        assertEquals("● Error\n  ╰─ broken", plain);
     }
 
     private static String strip(String s) {

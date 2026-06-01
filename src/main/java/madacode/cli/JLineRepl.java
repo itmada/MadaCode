@@ -327,25 +327,25 @@ public final class JLineRepl extends Repl {
     private static SlashContext.ModelChooser inlineModelChooser(
             JLineScreen screen, Terminal terminal) {
         return models -> chooseFromList(screen, terminal,
-                "Model", "Choose model for subsequent turns", models);
+                "Model", "", models);
     }
 
     private static SlashContext.ModeChooser inlineModeChooser(
             JLineScreen screen, Terminal terminal) {
         return modes -> chooseFromList(screen, terminal,
-                "Mode", "Choose active mode", modes);
+                "Mode", "", modes);
     }
 
     private static SlashContext.ThemeChooser inlineThemeChooser(
             JLineScreen screen, Terminal terminal) {
         return themes -> chooseFromList(screen, terminal,
-                "Theme", "Choose terminal theme", themes);
+                "Theme", "", themes);
     }
 
     private static SlashContext.ProviderChooser inlineProviderChooser(
             JLineScreen screen, Terminal terminal) {
         return providers -> chooseFromList(screen, terminal,
-                "Provider", "Choose active provider", providers);
+                "Provider", "", providers);
     }
 
     private static SessionChooser inlineSessionChooser(

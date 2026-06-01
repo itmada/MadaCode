@@ -14,7 +14,7 @@ public final class GrepDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
-        return ToolDisplay.running(title(input), "Searching...");
+        return ToolDisplay.running(title(input), "searching");
     }
 
     @Override
@@ -22,7 +22,7 @@ public final class GrepDisplayAdapter implements ToolDisplayAdapter {
         Optional<ToolProgressLine> latest = progress.lines().stream()
                 .filter(l -> l.kind() == ToolProgressLine.Kind.METRIC)
                 .reduce((a, b) -> b);
-        String summary = latest.map(ToolProgressLine::text).orElse("Searching...");
+        String summary = latest.map(ToolProgressLine::text).orElse("searching");
         return ToolDisplay.running(title(input), summary);
     }
 

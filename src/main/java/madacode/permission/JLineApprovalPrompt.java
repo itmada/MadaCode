@@ -7,17 +7,16 @@ import madacode.tool.Tool;
 import madacode.tui.Screen;
 import madacode.tui.Suspendable;
 import madacode.tui.TerminalKeys;
-import madacode.tui.inline.InlineChoicePrompt;
 import madacode.tui.widget.ApprovalPanel;
-import madacode.tui.widget.ChoicePrompt;
 
 import org.jline.terminal.Terminal;
+import org.jline.terminal.Attributes;
+import org.jline.utils.AttributedString;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -27,12 +26,7 @@ import java.util.function.Consumer;
  */
 public final class JLineApprovalPrompt implements UserApprovalPrompt {
 
-    private static final List<ApprovalPanel.Action> ACTIONS = List.of(
-            new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_ONCE, "Allow once", false, "a"),
-            new ApprovalPanel.Action(ApprovalPanel.Decision.ALLOW_SESSION, "Allow for session", false, "s"),
-            new ApprovalPanel.Action(ApprovalPanel.Decision.DENY, "Deny", true, "d"));
-
-    private static final String FOOTER = "←/→ select   Enter confirm   Esc deny";
+    private static final List<ApprovalPanel.Action> ACTIONS = ApprovalPanel.defaultActions();
 
     private final Terminal terminal;
     private final Screen screen;
@@ -89,9 +83,10 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
         int NUM_OPTIONS = ACTIONS.size();
         int selectedIdx = 0;
 
-        if (readerLock != null) readerLock.pause();
-        screen.setCursorVisible(false);
+        ResourceScope scope = new ResourceScope(screen, terminal, readerLock, false, false);
         try {
+            scope.pauseReader();
+            scope.hideCursor();
             while (true) {
                 TerminalKeys.KeyPress key;
                 try {
@@ -118,25 +113,17 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
                         return ApprovalResponse.DENY;
                     }
                     default -> {
-                        int ch = Character.toLowerCase(key.ch());
-                        if (ch == 'a') {
-                            tr.resolvePermission(toolUseId);
-                            return ApprovalResponse.ALLOW_ONCE;
-                        }
-                        if (ch == 's') {
-                            tr.resolvePermission(toolUseId);
-                            return ApprovalResponse.ALLOW_SESSION;
-                        }
-                        if (ch == 'd') {
-                            tr.resolvePermission(toolUseId, true);
-                            return ApprovalResponse.DENY;
+                        ApprovalResponse hotkeyResponse = responseForHotkey(key);
+                        if (hotkeyResponse != null) {
+                            boolean denied = hotkeyResponse == ApprovalResponse.DENY;
+                            tr.resolvePermission(toolUseId, denied);
+                            return hotkeyResponse;
                         }
                     }
                 }
             }
         } finally {
-            screen.setCursorVisible(true);
-            if (readerLock != null) readerLock.resume();
+            scope.close();
         }
     }
 
@@ -150,43 +137,77 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
     // ---- legacy modal path ------------------------------------------------
 
     private ApprovalResponse requestApprovalModal(Tool<?> tool, String input) {
-        List<ChoicePrompt.Option<ApprovalPanel.Decision>> options = new ArrayList<>();
-        for (ApprovalPanel.Action action : ACTIONS) {
-            options.add(new ChoicePrompt.Option<>(
-                    action.decision(),
-                    action.label(),
-                    action.destructive() ? "(destructive)" : "",
-                    "",
-                    action.hotkey()));
-        }
-
-        ChoicePrompt.Model<ApprovalPanel.Decision> model = new ChoicePrompt.Model<>(
-                "Permission required",
-                "",
-                options,
-                FOOTER,
-                0,
-                true);
-
-        Consumer<String> permissionInterrupt =
-                reason -> fireInterrupt(CancellationToken.REASON_PERMISSION_DENIED);
-        if (readerLock != null) readerLock.pause();
+        ResourceScope scope = new ResourceScope(screen, terminal, readerLock, true, true);
         try {
-            Optional<ApprovalPanel.Decision> choice =
-                    new InlineChoicePrompt<ApprovalPanel.Decision>(
-                            screen, terminal, readerLock, permissionInterrupt).choose(model);
-            ApprovalPanel.Decision decision = choice.orElse(ApprovalPanel.Decision.DENY);
-            return responseFor(decision);
+            scope.pauseReader();
+            scope.enterRawMode();
+            scope.hideCursor();
+            int selectedIdx = 0;
+            while (true) {
+                scope.showModal(toAnsiLines(ApprovalPanel.render(
+                        buildApprovalView(tool, input, selectedIdx), screen.width())));
+                TerminalKeys.KeyPress key = TerminalKeys.readKey(terminal.reader());
+                switch (key.key()) {
+                    case ENTER -> {
+                        return responseFor(ACTIONS.get(selectedIdx).decision());
+                    }
+                    case LEFT, UP -> {
+                        selectedIdx = Math.floorMod(selectedIdx - 1, ACTIONS.size());
+                    }
+                    case RIGHT, DOWN -> {
+                        selectedIdx = Math.floorMod(selectedIdx + 1, ACTIONS.size());
+                    }
+                    case ESCAPE, CTRL_C, EOF -> {
+                        fireInterrupt(CancellationToken.REASON_PERMISSION_DENIED);
+                        return ApprovalResponse.DENY;
+                    }
+                    default -> {
+                        ApprovalResponse hotkeyResponse = responseForHotkey(key);
+                        if (hotkeyResponse != null) {
+                            return hotkeyResponse;
+                        }
+                    }
+                }
+            }
         } catch (IOException e) {
             fireInterrupt(CancellationToken.REASON_PERMISSION_DENIED);
             return ApprovalResponse.DENY;
         } finally {
-            if (readerLock != null) readerLock.resume();
+            scope.close();
         }
+    }
+
+    private ApprovalPanel.ApprovalRequestView buildApprovalView(
+            Tool<?> tool, String input, int selectedIdx) {
+        String subject = tool == null ? "" : Objects.requireNonNullElse(tool.name(), "");
+        String detail = Objects.requireNonNullElse(input, "");
+        return ApprovalPanel.modalView(subject, detail, selectedIdx);
+    }
+
+    private static List<String> toAnsiLines(List<AttributedString> lines) {
+        List<String> rendered = new ArrayList<>(lines.size());
+        for (AttributedString line : lines) {
+            rendered.add(line.toAnsi());
+        }
+        return rendered;
     }
 
     private void fireInterrupt(String reason) {
         if (onInterrupt != null) onInterrupt.accept(reason);
+    }
+
+    private static ApprovalResponse responseForHotkey(TerminalKeys.KeyPress key) {
+        if (!key.isPrintable()) {
+            return null;
+        }
+        int ch = Character.toLowerCase(key.ch());
+        for (ApprovalPanel.Action action : ACTIONS) {
+            if (!action.hotkey().isBlank()
+                    && action.hotkey().equalsIgnoreCase(Character.toString((char) ch))) {
+                return responseFor(action.decision());
+            }
+        }
+        return null;
     }
 
     private static ApprovalResponse responseFor(ApprovalPanel.Decision decision) {
@@ -195,5 +216,79 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
             case ALLOW_ONCE -> ApprovalResponse.ALLOW_ONCE;
             case ALLOW_SESSION -> ApprovalResponse.ALLOW_SESSION;
         };
+    }
+
+    private static final class ResourceScope {
+        private final Screen screen;
+        private final Terminal terminal;
+        private final Suspendable readerLock;
+        private final boolean manageRawMode;
+        private final boolean manageModal;
+        private boolean readerPaused;
+        private boolean cursorHidden;
+        private boolean modalShown;
+        private Attributes previousAttributes;
+
+        private ResourceScope(
+                Screen screen,
+                Terminal terminal,
+                Suspendable readerLock,
+                boolean manageRawMode,
+                boolean manageModal) {
+            this.screen = screen;
+            this.terminal = terminal;
+            this.readerLock = readerLock;
+            this.manageRawMode = manageRawMode;
+            this.manageModal = manageModal;
+        }
+
+        private void pauseReader() {
+            if (readerLock != null && !readerPaused) {
+                readerLock.pause();
+                readerPaused = true;
+            }
+        }
+
+        private void enterRawMode() {
+            if (manageRawMode && previousAttributes == null) {
+                previousAttributes = terminal.enterRawMode();
+            }
+        }
+
+        private void hideCursor() {
+            if (!cursorHidden) {
+                screen.setCursorVisible(false);
+                cursorHidden = true;
+            }
+        }
+
+        private void showModal(List<String> lines) {
+            screen.setLiveModal(lines);
+            modalShown = true;
+        }
+
+        private void close() {
+            try {
+                if (manageModal && modalShown) {
+                    screen.clearLiveModal();
+                }
+            } finally {
+                try {
+                    if (cursorHidden) {
+                        screen.setCursorVisible(true);
+                    }
+                } finally {
+                    try {
+                        if (manageRawMode && previousAttributes != null) {
+                            terminal.setAttributes(previousAttributes);
+                        }
+                    } finally {
+                        if (readerPaused) {
+                            readerLock.resume();
+                        }
+                    }
+                }
+            }
+        }
     }
 }

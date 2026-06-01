@@ -3,7 +3,6 @@ package madacode.tool;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.ToolResult;
 import madacode.core.engine.ToolUseContext;
-import madacode.plan.PlanItem;
 import madacode.plan.PlanStatus;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -64,24 +63,6 @@ public class PlanListTool implements Tool<PlanListTool.Input> {
                 })
                 .toList();
 
-        if (filtered.isEmpty()) {
-            return new ToolResult(name(), true, "(no plan items)");
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (PlanItem t : filtered) {
-            var stillBlocked = session.plan().validateCanStart(t);
-            sb.append("[").append(t.status()).append("] ");
-            sb.append(t.id()).append("  ").append(t.title());
-            if (!t.blockedBy().isEmpty()) {
-                sb.append(" (blocked by: ").append(String.join(", ", t.blockedBy()));
-                if (!stillBlocked.isEmpty()) {
-                    sb.append(", still blocked by: ").append(String.join(", ", stillBlocked));
-                }
-                sb.append(")");
-            }
-            sb.append("\n");
-        }
-        return new ToolResult(name(), true, sb.toString().stripTrailing());
+        return new ToolResult(name(), true, PlanListFormatter.format(filtered, session));
     }
 }

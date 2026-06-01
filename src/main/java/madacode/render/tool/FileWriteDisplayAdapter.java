@@ -11,7 +11,7 @@ public final class FileWriteDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
-        return ToolDisplay.running(title(input), "Writing...");
+        return ToolDisplay.running(title(input), "writing");
     }
 
     @Override

@@ -104,7 +104,26 @@ class StartupSessionLauncherTest {
                 storage.listSessions(),
                 "current-session");
 
-        assertEquals("Current", model.options().getFirst().primary());
+        assertTrue(model.options().getFirst().primary().startsWith("Current  "));
+        assertTrue(model.options().getFirst().primary().contains("current question"));
+    }
+
+    @Test
+    void startupResumeLabelsKeepTitleBeforeMetadata() {
+        SessionStorage storage = storage();
+        storage.save(session("session-123456789", "very important conversation title"));
+
+        AtomicReference<ChoicePrompt.Model<StartupSessionLauncher.Choice>> seen = new AtomicReference<>();
+        ChoicePrompter<StartupSessionLauncher.Choice> prompter = model -> {
+            seen.set(model);
+            return Optional.of(new StartupSessionLauncher.Choice.Exit());
+        };
+
+        new StartupSessionLauncher(storage, prompter).choose();
+
+        String primary = seen.get().options().getFirst().primary();
+        assertTrue(primary.startsWith("Continue  very important conversation title"));
+        assertTrue(primary.contains("session-"));
     }
 
     // ---- helpers -------------------------------------------------------

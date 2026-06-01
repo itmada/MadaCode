@@ -52,9 +52,9 @@ final class ToolDisplaySupport {
     static String completedSummary(boolean success, long durationMs) {
         String timing = duration(durationMs);
         if (timing.isBlank()) {
-            return success ? "Completed" : "Failed";
+            return success ? "passed" : "failed";
         }
-        return (success ? "Completed" : "Failed") + " · " + timing;
+        return (success ? "passed" : "failed") + " · " + timing;
     }
 
     static int countNonBlankLines(String output) {

@@ -4,6 +4,7 @@ import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
 import madacode.core.session.SessionStorage;
 import madacode.cli.session.SessionPicker;
+import madacode.tui.TerminalText;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -53,7 +54,8 @@ public class SessionPickerTest {
         SessionPicker.PickResult.Resume resume =
                 assertInstanceOf(SessionPicker.PickResult.Resume.class, result);
         assertTrue(List.of("newer", "older").contains(resume.sessionId()));
-        assertTrue(output(out).contains("Recent sessions:"));
+        assertTrue(output(out).contains("── Session"));
+        assertTrue(output(out).contains("› "));
     }
 
     @Test
@@ -82,6 +84,29 @@ public class SessionPickerTest {
                 new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
 
         assertNull(picker.pick());
+    }
+
+    @Test
+    void narrowWidthTruncatesToConfiguredBudgetWithoutHardcodedMagicWidth() {
+        SessionStorage storage = storage();
+        storage.save(session(
+                "session-very-long-id",
+                Instant.parse("2026-01-01T00:00:00Z"),
+                "very long conversation title that should be truncated"));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        SessionPicker picker = new SessionPicker(
+                storage,
+                new BufferedReader(new StringReader("Q\n")),
+                new PrintStream(out, true, StandardCharsets.UTF_8),
+                24);
+
+        picker.pick();
+
+        String[] lines = output(out).split("\\R");
+        for (String line : lines) {
+            assertTrue(TerminalText.displayWidth(line) <= 24, "line too wide: " + line);
+        }
+        assertTrue(output(out).contains("very long"));
     }
 
     private SessionPicker picker(String input, ByteArrayOutputStream out) {

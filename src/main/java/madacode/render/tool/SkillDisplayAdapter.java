@@ -24,7 +24,7 @@ public final class SkillDisplayAdapter implements ToolDisplayAdapter {
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
         String task = ToolDisplaySupport.text(input, "task");
-        String summary = ToolDisplaySupport.firstNonBlank(task, "Running...");
+        String summary = ToolDisplaySupport.firstNonBlank(task, "running");
         return ToolDisplay.running(title(input), ToolDisplaySupport.truncateMiddle(summary, 80));
     }
 

@@ -83,21 +83,21 @@ public final class ToolActivityCardRenderer {
     /** Plain glyph character by status. */
     public static String statusGlyph(DisplayStatus status) {
         return switch (status) {
-            case RUNNING -> "✣";
-            case SUCCESS -> "✣";
-            case FAILED, DENIED -> "✣";
-            case INFO -> "✣";
+            case RUNNING -> "●";
+            case SUCCESS -> "●";
+            case FAILED, DENIED -> "●";
+            case INFO -> "●";
         };
     }
 
     /** Styled bullet (with theme colour) for the card header / live row. */
     public static String statusBullet(DisplayStatus status) {
         return switch (status) {
-            case RUNNING -> running("✣");
-            case SUCCESS -> success("✣");
-            case FAILED  -> failure("✣");
-            case DENIED  -> failure("✣");
-            case INFO    -> dim("✣");
+            case RUNNING -> running("●");
+            case SUCCESS -> success("●");
+            case FAILED  -> failure("●");
+            case DENIED  -> failure("●");
+            case INFO    -> dim("●");
         };
     }
 

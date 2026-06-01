@@ -30,27 +30,24 @@ public final class StartupSessionLauncher {
         for (SessionSummary summary : recent) {
             options.add(new ChoicePrompt.Option<>(
                     new Choice.Resume(summary.sessionId()),
-                    "Continue",
-                    title(summary),
-                    SessionSelectModels.meta(summary)));
+                    SessionChoiceFormatter.choiceLabel("Continue", storage, summary),
+                    "",
+                    SessionChoiceFormatter.metadata(summary)));
         }
         options.add(new ChoicePrompt.Option<>(
                 new Choice.NewSession(),
                 "New session",
-                "Start fresh in this workspace",
+                "",
                 ""));
         options.add(new ChoicePrompt.Option<>(
                 new Choice.Exit(),
                 "Exit",
-                "Leave without opening a session",
+                "",
                 ""));
 
-        String subtitle = recent.isEmpty()
-                ? "Start a workspace session"
-                : "Pick up where you left off";
         ChoicePrompt.Model<Choice> model = new ChoicePrompt.Model<>(
                 "Mada",
-                subtitle,
+                "",
                 options,
                 "↑/↓ select   Enter confirm   Esc exit",
                 0);
@@ -61,11 +58,6 @@ public final class StartupSessionLauncher {
             return new Choice.NewSession();
         }
     }
-
-    private String title(SessionSummary summary) {
-        return SessionSelectModels.title(storage, summary);
-    }
-
     public sealed interface Choice {
         record Resume(String sessionId) implements Choice {}
         record NewSession() implements Choice {}

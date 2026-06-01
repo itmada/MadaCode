@@ -13,7 +13,7 @@ public final class GlobDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
-        return ToolDisplay.running(title(input), "Listing...");
+        return ToolDisplay.running(title(input), "listing");
     }
 
     @Override

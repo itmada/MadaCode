@@ -39,7 +39,7 @@ class ToolCardRenderableTest {
         card.finalizeTool(true, 150);
         assertTrue(card.isFinalized());
         var lines = card.render(80);
-        assertTrue(lines.stream().anyMatch(l -> stripAnsi(l).contains("Completed")));
+        assertTrue(lines.stream().anyMatch(l -> stripAnsi(l).contains("passed")));
     }
 
     @Test
@@ -88,8 +88,8 @@ class ToolCardRenderableTest {
         ToolCardRenderable card = new ToolCardRenderable("id1", "bash", input, registry);
         card.finalizeTool(true, 123);
         var lines = card.render(80);
-        assertTrue(lines.get(0).contains("✣"),
-                "success card should show ✣ glyph: " + lines.get(0));
+        assertTrue(lines.get(0).contains("●"),
+                "success card should show ● glyph: " + lines.get(0));
     }
 
     @Test
@@ -97,8 +97,8 @@ class ToolCardRenderableTest {
         ToolCardRenderable card = new ToolCardRenderable("id1", "bash", input, registry);
         card.finalizeTool(false, 50);
         var lines = card.render(80);
-        assertTrue(lines.get(0).contains("✣"),
-                "failed card should show ✣ glyph: " + lines.get(0));
+        assertTrue(lines.get(0).contains("●"),
+                "failed card should show ● glyph: " + lines.get(0));
     }
 
     @Test
@@ -127,7 +127,7 @@ class ToolCardRenderableTest {
         card.appendProgress(ToolProgressLine.activity("▸ Reading README.md"));
         card.appendProgress(ToolProgressLine.activity("▸ Searching for \"README\""));
         var running = card.render(120);
-        assertEquals(1, countMatches(running, "Agent\\(explorer\\)"));
+        assertEquals(1, countMatches(running, "Agent\\s+explorer"));
         assertTrue(containsPlain(running, "find README location"),
                 "running summary should use description: " + running);
         assertTrue(containsPlain(running, "2 tool uses"), running.toString());
@@ -137,9 +137,9 @@ class ToolCardRenderableTest {
         card.finalizeTool(false, 15636);
 
         var failed = card.render(120);
-        assertEquals(1, countMatches(failed, "Agent\\(explorer\\)"));
+        assertEquals(1, countMatches(failed, "Agent\\s+explorer"));
         assertEquals(2, failed.size(), "failed lifecycle card should stay compact: " + failed);
-        assertTrue(containsPlain(failed, "Failed"),
+        assertTrue(containsPlain(failed, "failed"),
                 "final lifecycle card should surface adapter summary: " + failed);
         assertFalse(containsPlain(failed, "Sub-agent did not complete (MAX_ITERATIONS)"),
                 "sub-agent failure details should stay in tool_result for the parent agent: " + failed);

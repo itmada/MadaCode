@@ -13,7 +13,7 @@ public final class FileReadDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
-        return ToolDisplay.running(title(input), "Reading...");
+        return ToolDisplay.running(title(input), "reading");
     }
 
     @Override

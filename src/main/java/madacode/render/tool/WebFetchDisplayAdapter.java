@@ -19,7 +19,7 @@ public final class WebFetchDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
-        return ToolDisplay.running(title(input), "Fetching...");
+        return ToolDisplay.running(title(input), "fetching");
     }
 
     @Override
@@ -27,7 +27,7 @@ public final class WebFetchDisplayAdapter implements ToolDisplayAdapter {
         Optional<ToolProgressLine> latest = progress.lines().stream()
                 .filter(l -> l.kind() == ToolProgressLine.Kind.METRIC)
                 .reduce((a, b) -> b);
-        String summary = latest.map(ToolProgressLine::text).orElse("Fetching...");
+        String summary = latest.map(ToolProgressLine::text).orElse("fetching");
         return ToolDisplay.running(title(input), summary);
     }
 

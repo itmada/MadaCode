@@ -11,7 +11,7 @@ public final class FileEditDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
-        return ToolDisplay.running(title(input), "Editing...");
+        return ToolDisplay.running(title(input), "editing");
     }
 
     @Override

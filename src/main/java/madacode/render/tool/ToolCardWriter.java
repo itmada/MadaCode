@@ -4,7 +4,6 @@ import madacode.render.ExpandableHistory;
 import madacode.render.BlockSpacing;
 import madacode.render.StageWriter;
 import madacode.tui.Screen;
-import madacode.tui.theme.Tk;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,9 +20,14 @@ public final class ToolCardWriter {
 
     private ToolCardWriter() {}
 
-    /** Render the start card (header + summary) when the tool call first appears. */
+    /** Render the start card header when the tool call first appears. */
     public static void writeStart(Screen screen, ToolDisplay display) {
-        StageWriter.Stage stage = ToolActivityCardRenderer.stage(display, false);
+        StageWriter.Stage stage = new StageWriter.Stage(
+                ToolActivityCardRenderer.stage(display, false).status(),
+                display.title(),
+                List.of(),
+                List.of(),
+                false);
         BlockSpacing.scrollbackBlock(screen, StageWriter.render(stage));
     }
 
@@ -31,7 +35,7 @@ public final class ToolCardWriter {
      * Append result lines below a previously rendered start card.
      *
      * <p>Skips the header line (already in scrollback from {@link #writeStart}),
-     * then appends detail lines and a status/duration footer.
+     * then appends result timeline lines.
      */
     public static void writeResult(Screen screen, ToolDisplay display,
                                     long durationMs,
@@ -45,12 +49,6 @@ public final class ToolCardWriter {
         if (fullCard.size() > 1) {
             lines.addAll(fullCard.subList(1, fullCard.size()));
         }
-        String status = switch (display.status()) {
-            case SUCCESS -> Tk.success("✣");
-            case FAILED, DENIED -> Tk.failure("✣");
-            default -> "✣";
-        };
-        lines.add("  " + status + " done in " + durationMs + "ms");
 
         screen.scrollback(lines);
         if (expandable) {

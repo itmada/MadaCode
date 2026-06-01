@@ -19,7 +19,7 @@ public class DefaultToolDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderStart(ObjectNode input) {
-        return ToolDisplay.running(formatName(toolName), "Running...");
+        return ToolDisplay.running(formatName(toolName), "running");
     }
 
     @Override
