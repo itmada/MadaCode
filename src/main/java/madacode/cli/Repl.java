@@ -1,6 +1,7 @@
 package madacode.cli;
 
 import madacode.cli.mode.CommonModeHandler;
+import madacode.cli.mode.LongRunningAutoContinueRunner;
 import madacode.cli.mode.LongRunningModeHandler;
 import madacode.cli.mode.ModeExecution;
 import madacode.cli.mode.ModeRouter;
@@ -12,7 +13,6 @@ import madacode.core.model.MetaEvent;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
 import madacode.core.session.SessionListener;
-import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorageException;
 import madacode.core.turn.TurnExecutor;
@@ -52,6 +52,7 @@ public abstract class Repl {
     InterruptController interruptController;
     final TurnExecutor turnExecutor;
     final ModeRouter modeRouter;
+    final LongRunningAutoContinueRunner autoContinueRunner;
     private final List<AutoCloseable> shutdownTargets;
 
     Repl(Config config) {
@@ -70,6 +71,7 @@ public abstract class Repl {
                 : new ModeRouter(
                         new CommonModeHandler(turnExecutor),
                         new LongRunningModeHandler(turnExecutor));
+        this.autoContinueRunner = new LongRunningAutoContinueRunner(this.modeRouter);
         this.shutdownTargets = config.shutdownTargets != null
                 ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
@@ -113,6 +115,10 @@ public abstract class Repl {
                 runManagedTurn(turnExecutor.submitLocal(session, r.label(), r.task()));
                 yield true;
             }
+            case SlashAction.AutoContinue a -> {
+                runAutoContinue(a.maxTurns());
+                yield true;
+            }
             case SlashAction.Handled h -> {
                 if (h.persistSession()) {
                     persistSession();
@@ -134,6 +140,15 @@ public abstract class Repl {
                 yield false;
             }
         };
+    }
+
+    private void runAutoContinue(int maxTurns) {
+        LongRunningAutoContinueRunner.Result result = autoContinueRunner.run(session, maxTurns, execution -> {
+            runManagedTurn(execution.handle());
+            runAfterTurnHook(execution.afterTurn());
+            persistSession();
+        });
+        screen.scrollback(result.message());
     }
 
     public TurnRenderer turnRenderer() { return turnRenderer; }

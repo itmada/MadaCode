@@ -115,6 +115,9 @@ public final class LongRunningTurnTracker implements SessionListener {
         }
         // If progress was made, no warning needed
         if (hasProgress()) {
+            appendTurnEvent(taskId, true,
+                    "EXECUTING turn completed with longrun_task_update progress.",
+                    Map.of("recordedActions", String.join(",", recordedActions)));
             return;
         }
         // Append a harness warning to progress.txt
@@ -123,8 +126,29 @@ public final class LongRunningTurnTracker implements SessionListener {
                     + "successful longrun_task_update action. No progress was recorded for this turn."
                     + System.lineSeparator();
             store.appendProgress(taskId, warning);
+            appendTurnEvent(taskId, false, warning.strip(), Map.of("recordedActions", ""));
         } catch (RuntimeException ignored) {
             // Best-effort: don't crash the turn if the store write fails
+        }
+    }
+
+    private void appendTurnEvent(
+            String taskId,
+            boolean success,
+            String message,
+            Map<String, String> details) {
+        try {
+            store.appendEvent(taskId, LongRunningTaskEvent.of(
+                    "turn_completed",
+                    taskId,
+                    session.sessionId(),
+                    session.longRunningStage() == null ? null : session.longRunningStage().name(),
+                    null,
+                    success,
+                    message,
+                    details));
+        } catch (RuntimeException ignored) {
+            // Best-effort diagnostics only.
         }
     }
 }

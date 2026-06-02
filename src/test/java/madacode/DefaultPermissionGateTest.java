@@ -212,6 +212,26 @@ public class DefaultPermissionGateTest {
     }
 
     @Test
+    void bypassModeDeniesGenericWritesToLongRunningEventLog() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.BYPASS);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", tempDir
+                .resolve(".mada/long-running/task-001/logs/events.jsonl")
+                .toString());
+        input.put("content", "{}\n");
+
+        PermissionDecision decision = gate.check(new FileWriteTool(), input, new ToolUseContext(tempDir, session));
+
+        assertFalse(decision.isAllowed());
+        assertTrue(decision.reason().contains("longrun_task_update"));
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
     void bashCannotMutateLongRunningTaskStateThroughGenericCommand() {
         RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
         DefaultPermissionGate gate = gate(prompt);

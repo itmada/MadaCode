@@ -101,7 +101,7 @@ public final class ToolExecutor {
         // Long-running tool policy: hard execution guard that matches the
         // visibility rules in SystemPromptBuilder. Even if a tool call slips
         // through prompt filtering, it is rejected here.
-        String denialReason = LongRunningToolPolicy.executionDenialReason(tool.name(), session);
+        String denialReason = LongRunningToolPolicy.executionDenialReason(tool, session);
         if (denialReason != null) {
             ToolResult result = new ToolResult(tool.name(), false, denialReason);
             emitCompleted(session, toolCall.id(), tool.name(), toolCall.input(), result, 0);

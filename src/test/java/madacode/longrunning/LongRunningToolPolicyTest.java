@@ -95,6 +95,48 @@ class LongRunningToolPolicyTest {
         assertTrue(LongRunningToolPolicy.isToolVisible("file_read", lrSession));
     }
 
+    @Test
+    void planningDeniesNormalWriteTools() {
+        ConversationSession session = new ConversationSession();
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.PLANNING);
+
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("bash", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("write", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("edit", false), session));
+        assertTrue(LongRunningToolPolicy.isToolVisible(new StubTool("file_read", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_create", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_get", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_list", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_update", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("todo_write", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("enter_plan_mode", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("exit_plan_mode", true), session));
+        assertTrue(LongRunningToolPolicy.isToolVisible(new StubTool("ask_user_question", false), session));
+        assertTrue(LongRunningToolPolicy.isToolVisible(new StubTool("longrun_stage_update", true), session));
+    }
+
+    @Test
+    void waitingForApprovalDeniesNormalWriteTools() {
+        ConversationSession session = new ConversationSession();
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("bash", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("write", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("edit", false), session));
+        assertTrue(LongRunningToolPolicy.isToolVisible(new StubTool("file_read", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_create", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_get", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_list", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("plan_update", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("todo_write", false), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("enter_plan_mode", true), session));
+        assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("exit_plan_mode", true), session));
+        assertTrue(LongRunningToolPolicy.isToolVisible(new StubTool("ask_user_question", false), session));
+        assertTrue(LongRunningToolPolicy.isToolVisible(new StubTool("longrun_stage_update", true), session));
+    }
+
     // ---- Execution denial tests ----
 
     @Test
@@ -157,9 +199,9 @@ class LongRunningToolPolicyTest {
     void filterRemovesLongRunningToolsInCommonMode() {
         ConversationSession session = new ConversationSession();
         List<Tool<?>> tools = List.of(
-                new StubTool("file_read"),
-                new StubTool("longrun_stage_update"),
-                new StubTool("longrun_task_update"));
+                new StubTool("file_read", true),
+                new StubTool("longrun_stage_update", true),
+                new StubTool("longrun_task_update", true));
 
         var filtered = LongRunningToolPolicy.filterVisibleTools(tools, session);
         assertEquals(1, filtered.size());
@@ -172,9 +214,9 @@ class LongRunningToolPolicyTest {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.PLANNING);
         List<Tool<?>> tools = List.of(
-                new StubTool("file_read"),
-                new StubTool("longrun_stage_update"),
-                new StubTool("longrun_task_update"));
+                new StubTool("file_read", true),
+                new StubTool("longrun_stage_update", true),
+                new StubTool("longrun_task_update", true));
 
         var filtered = LongRunningToolPolicy.filterVisibleTools(tools, session);
         assertEquals(2, filtered.size());
@@ -184,17 +226,18 @@ class LongRunningToolPolicyTest {
         assertFalse(names.contains("longrun_task_update"));
     }
 
-    private record StubTool(String name) implements Tool<ObjectNode> {
+    private record StubTool(String name, boolean readOnly) implements Tool<ObjectNode> {
         @Override
         public Class<ObjectNode> inputType() { return ObjectNode.class; }
         @Override
         public String description() { return "stub"; }
         @Override
-        public boolean isReadOnly() { return true; }
+        public boolean isReadOnly() { return readOnly; }
         @Override
         public ObjectNode inputSchema(ObjectMapper mapper) {
             ObjectNode schema = mapper.createObjectNode();
             schema.put("type", "object");
+            schema.set("properties", mapper.createObjectNode());
             return schema;
         }
         @Override

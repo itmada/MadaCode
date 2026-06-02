@@ -11,6 +11,7 @@ public sealed interface SlashAction {
         }
     }
     record RunLocalTurn(String label, LocalTurnTask task) implements SlashAction {}
+    record AutoContinue(int maxTurns) implements SlashAction {}
     record SwitchSession(ConversationSession session, boolean fresh) implements SlashAction {
         public SwitchSession(ConversationSession session) {
             this(session, false);

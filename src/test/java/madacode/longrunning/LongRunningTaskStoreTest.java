@@ -14,6 +14,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -43,6 +44,7 @@ class LongRunningTaskStoreTest {
         assertTrue(Files.isRegularFile(taskDir.resolve("progress.txt")));
         assertTrue(Files.isRegularFile(taskDir.resolve("known-issues.json")));
         assertTrue(Files.isRegularFile(taskDir.resolve("init.sh")));
+        assertTrue(Files.isRegularFile(taskDir.resolve("logs/events.jsonl")));
 
         JsonNode taskJson = mapper.readTree(taskDir.resolve("task.json").toFile());
         assertEquals("task-001", taskJson.path("id").asText());
@@ -53,8 +55,81 @@ class LongRunningTaskStoreTest {
         assertEquals(0, mapper.readTree(taskDir.resolve("feature_list.json").toFile()).size());
         assertEquals(0, mapper.readTree(taskDir.resolve("known-issues.json").toFile()).size());
         assertEquals("", Files.readString(taskDir.resolve("progress.txt")));
+        assertEquals("", Files.readString(taskDir.resolve("logs/events.jsonl")));
         assertTrue(Files.readString(taskDir.resolve("init.sh")).contains("Initialization hook"));
         assertEquals(metadata, store.loadTask("task-001"));
+    }
+
+    @Test
+    void appendEventWritesReadableJsonl() throws Exception {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-events", "Structured events", "executing", "session-events", "EXECUTING"));
+
+        store.appendEvent("task-events", new LongRunningTaskEvent(
+                Instant.parse("2026-06-01T12:00:00Z"),
+                "task_update",
+                "task-events",
+                "session-events",
+                "EXECUTING",
+                "append_progress",
+                true,
+                "Progress appended.",
+                Map.of("featureId", "feature-1")));
+
+        Path eventsFile = tempDir.resolve(".mada/long-running/task-events/logs/events.jsonl");
+        List<String> lines = Files.readAllLines(eventsFile);
+        assertEquals(1, lines.size());
+        JsonNode raw = mapper.readTree(lines.getFirst());
+        assertEquals("task_update", raw.path("type").asText());
+        assertEquals("append_progress", raw.path("action").asText());
+        assertTrue(raw.path("success").asBoolean());
+
+        List<LongRunningTaskEvent> events = store.readEvents("task-events");
+        assertEquals(1, events.size());
+        LongRunningTaskEvent event = events.getFirst();
+        assertEquals("task_update", event.type());
+        assertEquals("feature-1", event.details().get("featureId"));
+    }
+
+    @Test
+    void validateTaskDirectoryCreatesMissingEventLogForLegacyTasks() throws Exception {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-legacy-events", "Legacy", "executing", "session-legacy", "EXECUTING"));
+        Path eventsFile = tempDir.resolve(".mada/long-running/task-legacy-events/logs/events.jsonl");
+        Files.delete(eventsFile);
+
+        store.validateTaskDirectory("task-legacy-events");
+
+        assertTrue(Files.isRegularFile(eventsFile));
+        assertEquals("", Files.readString(eventsFile));
+    }
+
+    @Test
+    void writeCheckpointPersistsSnapshotAndUpdatesInitScript() throws Exception {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-checkpoint", "Checkpoint", "executing", "session-cp", "EXECUTING"));
+        LongRunningWorkspaceCheckpoint checkpoint = new LongRunningWorkspaceCheckpoint(
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir,
+                false,
+                null,
+                null,
+                null,
+                false,
+                "");
+
+        store.writeCheckpoint("task-checkpoint", checkpoint);
+
+        Path taskDir = tempDir.resolve(".mada/long-running/task-checkpoint");
+        JsonNode raw = mapper.readTree(taskDir.resolve("checkpoint.json").toFile());
+        assertEquals("2026-06-01T12:00:00Z", raw.path("capturedAt").asText());
+        assertFalse(raw.path("gitRepository").asBoolean());
+        assertTrue(Files.readString(taskDir.resolve("init.sh"))
+                .contains("No git repository detected"));
+        assertTrue(store.readCheckpoint("task-checkpoint").isPresent());
     }
 
     @Test
@@ -90,6 +165,34 @@ class LongRunningTaskStoreTest {
         Path progressFile = tempDir.resolve(".mada/long-running/task-002/progress.txt");
         assertEquals("step 1\nstep 2\n", Files.readString(progressFile));
         assertTrue(store.loadTask("task-002").updatedAt().compareTo(beforeAppend) >= 0);
+    }
+
+    @Test
+    void planningLifecycleMovesBetweenPlanningAndApproval() {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-plan-lifecycle", "Plan lifecycle", "planning", "session-plan", "PLANNING"));
+
+        LongRunningTaskMetadata awaitingApproval = store.markPlanAwaitingApproval("task-plan-lifecycle");
+        LongRunningTaskMetadata backToPlanning = store.markPlanRevision("task-plan-lifecycle");
+
+        assertEquals("planning", awaitingApproval.status());
+        assertEquals("WAITING_FOR_APPROVAL", awaitingApproval.stage());
+        assertEquals("planning", backToPlanning.status());
+        assertEquals("PLANNING", backToPlanning.stage());
+    }
+
+    @Test
+    void markTaskExecutingAcceptsPlanAwaitingApproval() {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-approved", "Approved plan", "planning", "session-approved", "PLANNING"));
+
+        store.markPlanAwaitingApproval("task-approved");
+        LongRunningTaskMetadata executing = store.markTaskExecuting("task-approved");
+
+        assertEquals("executing", executing.status());
+        assertEquals("EXECUTING", executing.stage());
     }
 
     @Test
@@ -254,6 +357,7 @@ class LongRunningTaskStoreTest {
         Path secondTaskDir = tempDir.resolve(".mada/long-running/task-008");
         Path outsideLogs = tempDir.resolve("outside-logs");
         Files.createDirectories(outsideLogs);
+        Files.delete(secondTaskDir.resolve("logs/events.jsonl"));
         Files.delete(secondTaskDir.resolve("logs"));
         Files.createSymbolicLink(secondTaskDir.resolve("logs"), outsideLogs);
 

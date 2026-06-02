@@ -422,6 +422,39 @@ public class SlashCommandHandlerTest {
     }
 
     @Test
+    void longRunContinueCommandReturnsAutoContinueAction() {
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+
+        var action = handler.handle("/longrun-continue 3", current);
+
+        SlashAction.AutoContinue auto = assertInstanceOf(SlashAction.AutoContinue.class, action);
+        assertEquals(3, auto.maxTurns());
+    }
+
+    @Test
+    void longRunContinueCommandDefaultsMaxTurns() {
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+
+        var action = handler.handle("/longrun-continue", current);
+
+        SlashAction.AutoContinue auto = assertInstanceOf(SlashAction.AutoContinue.class, action);
+        assertEquals(5, auto.maxTurns());
+    }
+
+    @Test
+    void longRunContinueCommandRejectsInvalidMaxTurns() {
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+
+        var action = handler.handle("/longrun-continue 0", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(stripAnsi(outBytes.toString()).contains("max-turns"));
+    }
+
+    @Test
     void modeCommandUnknownModeDoesNotChangeSession() {
         current.setWorkflowMode(SessionMode.COMMON);
         current.setPermissionMode(PermissionMode.ACCEPT_EDITS);

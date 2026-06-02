@@ -15,6 +15,7 @@ import madacode.core.turn.Turn;
 import madacode.core.turn.TurnResult;
 import madacode.core.turn.TurnRunner;
 
+import madacode.core.session.SessionMode;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiClientException;
 import madacode.services.compact.CompactPlanner;
@@ -203,6 +204,15 @@ public class QueryEngine {
             }
             session.addMessage(Message.user(toolResultBlocks));
 
+            if (shouldStopAfterLongRunningStageUpdate(session)) {
+                session.addMessage(Message.assistant(
+                        "Long-running stage transition recorded. Waiting for harness to apply it."));
+                DiagnosticEventLogger.turnCompleted(session, FinishReason.COMPLETED,
+                        iteration + 1, elapsedMs(turnStart));
+                return new TurnResult("Long-running stage transition recorded.",
+                        FinishReason.COMPLETED, iteration + 1);
+            }
+
             if (cancel.isCancelled()) {
                 return completeWithCancellation(session, cancel.reason(),
                         iteration + 1, elapsedMs(turnStart));
@@ -240,6 +250,14 @@ public class QueryEngine {
         }
         DiagnosticEventLogger.turnCompleted(session, finishReason, iterations, durationMs);
         return new TurnResult(message, finishReason, iterations);
+    }
+
+    private boolean shouldStopAfterLongRunningStageUpdate(ConversationSession session) {
+        if (session.workflowMode() != SessionMode.LONG_RUNNING) return false;
+        var update = session.lastLongRunningStageUpdate().orElse(null);
+        if (update == null) return false;
+        if (update.confidence() != ConversationSession.LongRunningConfidence.HIGH) return false;
+        return session.longRunningStage() == update.stage();
     }
 
     private long elapsedMs(long startedAtNanos) {

@@ -16,6 +16,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -30,7 +32,9 @@ public final class LongRunningTaskStore {
     private static final String PROGRESS_FILE = "progress.txt";
     private static final String KNOWN_ISSUES_FILE = "known-issues.json";
     private static final String INIT_SCRIPT_FILE = "init.sh";
+    private static final String CHECKPOINT_FILE = "checkpoint.json";
     private static final String LOGS_DIR = "logs";
+    private static final String EVENTS_FILE = "events.jsonl";
     private static final String ROOT_DIR = ".mada/long-running";
     private static final String DEFAULT_INIT_SCRIPT = """
             #!/usr/bin/env bash
@@ -88,6 +92,7 @@ public final class LongRunningTaskStore {
                 writeStringAtomically(stagingDirectory.resolve(PROGRESS_FILE), "");
                 writeJsonAtomically(stagingDirectory.resolve(KNOWN_ISSUES_FILE), mapper.createArrayNode());
                 writeStringAtomically(stagingDirectory.resolve(INIT_SCRIPT_FILE), DEFAULT_INIT_SCRIPT);
+                writeStringAtomically(stagingDirectory.resolve(LOGS_DIR).resolve(EVENTS_FILE), "");
                 moveIntoPlace(stagingDirectory, taskDirectory);
                 moved = true;
             } finally {
@@ -185,6 +190,67 @@ public final class LongRunningTaskStore {
     public synchronized List<KnownIssue> readKnownIssues(String taskId) {
         Path directory = validateTaskDirectory(taskId);
         return readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
+    }
+
+    public synchronized void appendEvent(String taskId, LongRunningTaskEvent event) {
+        Objects.requireNonNull(event, "event");
+        String safeTaskId = validateTaskId(taskId);
+        if (!safeTaskId.equals(event.taskId())) {
+            throw new LongRunningTaskStoreException(
+                    "Event task id " + event.taskId() + " does not match active task " + safeTaskId);
+        }
+        Path directory = validateTaskDirectory(safeTaskId);
+        Path eventsFile = directory.resolve(LOGS_DIR).resolve(EVENTS_FILE);
+        try {
+            String line = mapper.writeValueAsString(serializeEvent(event)) + System.lineSeparator();
+            Files.writeString(eventsFile, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to append event for task " + safeTaskId, exception);
+        }
+    }
+
+    public synchronized List<LongRunningTaskEvent> readEvents(String taskId) {
+        String safeTaskId = validateTaskId(taskId);
+        Path directory = validateTaskDirectory(safeTaskId);
+        Path eventsFile = directory.resolve(LOGS_DIR).resolve(EVENTS_FILE);
+        try {
+            List<LongRunningTaskEvent> events = new ArrayList<>();
+            for (String line : Files.readAllLines(eventsFile)) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                events.add(deserializeEvent(mapper.readTree(line), safeTaskId));
+            }
+            return List.copyOf(events);
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to read events for task " + safeTaskId, exception);
+        }
+    }
+
+    public synchronized void writeCheckpoint(String taskId, LongRunningWorkspaceCheckpoint checkpoint) {
+        Objects.requireNonNull(checkpoint, "checkpoint");
+        String safeTaskId = validateTaskId(taskId);
+        Path directory = validateTaskDirectory(safeTaskId);
+        try {
+            writeJsonAtomically(directory.resolve(CHECKPOINT_FILE), serializeCheckpoint(checkpoint));
+            writeStringAtomically(directory.resolve(INIT_SCRIPT_FILE), initScript(checkpoint));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to write workspace checkpoint for " + safeTaskId, exception);
+        }
+    }
+
+    public synchronized Optional<LongRunningWorkspaceCheckpoint> readCheckpoint(String taskId) {
+        String safeTaskId = validateTaskId(taskId);
+        Path directory = validateTaskDirectory(safeTaskId);
+        Path checkpointFile = directory.resolve(CHECKPOINT_FILE);
+        if (!Files.isRegularFile(checkpointFile, LinkOption.NOFOLLOW_LINKS)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(deserializeCheckpoint(mapper.readTree(checkpointFile.toFile())));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to read workspace checkpoint for " + safeTaskId, exception);
+        }
     }
 
     public synchronized KnownIssue recordIssue(String taskId, KnownIssue issue) {
@@ -347,6 +413,69 @@ public final class LongRunningTaskStore {
         return updated;
     }
 
+    /**
+     * Promotes a planned task into executable state.
+     *
+     * <p>Planning tasks are created as soon as a long-running request is
+     * received so the harness has durable state before model deliberation. Once
+     * the user approves execution, this method updates the same task directory
+     * instead of creating a second task.
+     */
+    public synchronized LongRunningTaskMetadata markTaskExecuting(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if ("executing".equals(metadata.status())
+                && "EXECUTING".equals(metadata.stage())) {
+            return metadata;
+        }
+        if (!"planning".equals(metadata.status())
+                || (!"PLANNING".equals(metadata.stage())
+                && !"WAITING_FOR_APPROVAL".equals(metadata.stage()))) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot enter execution: status="
+                            + metadata.status() + ", stage=" + metadata.stage());
+        }
+        return writeTaskLifecycle(directory, metadata, "executing", "EXECUTING",
+                "Failed to mark task " + taskId + " as executing");
+    }
+
+    public synchronized LongRunningTaskMetadata markPlanAwaitingApproval(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if ("planning".equals(metadata.status())
+                && "WAITING_FOR_APPROVAL".equals(metadata.stage())) {
+            return metadata;
+        }
+        if (!"planning".equals(metadata.status())
+                || !"PLANNING".equals(metadata.stage())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot await approval: status="
+                            + metadata.status() + ", stage=" + metadata.stage());
+        }
+        return writeTaskLifecycle(directory, metadata, "planning", "WAITING_FOR_APPROVAL",
+                "Failed to mark task " + taskId + " as waiting for approval");
+    }
+
+    public synchronized LongRunningTaskMetadata markPlanRevision(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if ("planning".equals(metadata.status())
+                && "PLANNING".equals(metadata.stage())) {
+            return metadata;
+        }
+        if (!"planning".equals(metadata.status())
+                || !"WAITING_FOR_APPROVAL".equals(metadata.stage())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot return to planning: status="
+                            + metadata.status() + ", stage=" + metadata.stage());
+        }
+        return writeTaskLifecycle(directory, metadata, "planning", "PLANNING",
+                "Failed to return task " + taskId + " to planning");
+    }
+
     private void validateTaskCompletionPreconditions(String taskId, Path directory) {
         List<FeatureItem> features = readFeatures(directory.resolve(FEATURE_LIST_FILE));
         if (features.isEmpty()) {
@@ -420,6 +549,7 @@ public final class LongRunningTaskStore {
         if (!Files.isDirectory(logs, LinkOption.NOFOLLOW_LINKS)) {
             throw new LongRunningTaskStoreException("Missing logs directory for task " + safeTaskId);
         }
+        ensureEventLogFile(logs.resolve(EVENTS_FILE), safeTaskId);
         readTaskMetadata(directory.resolve(TASK_FILE), safeTaskId);
         readFeatures(directory.resolve(FEATURE_LIST_FILE));
         readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
@@ -442,6 +572,28 @@ public final class LongRunningTaskStore {
         } catch (IOException exception) {
             throw new LongRunningTaskStoreException("Failed to update task metadata for " + taskId, exception);
         }
+    }
+
+    private LongRunningTaskMetadata writeTaskLifecycle(
+            Path directory,
+            LongRunningTaskMetadata metadata,
+            String status,
+            String stage,
+            String failureMessage) {
+        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
+                metadata.id(),
+                metadata.title(),
+                status,
+                metadata.createdAt(),
+                Instant.now(),
+                metadata.sessionId(),
+                stage);
+        try {
+            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(failureMessage, exception);
+        }
+        return updated;
     }
 
     private List<FeatureItem> readFeatures(Path featureFile) {
@@ -647,6 +799,95 @@ public final class LongRunningTaskStore {
         return root;
     }
 
+    private ObjectNode serializeEvent(LongRunningTaskEvent event) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("timestamp", event.timestamp().toString());
+        root.put("type", event.type());
+        root.put("taskId", event.taskId());
+        if (event.sessionId() != null) {
+            root.put("sessionId", event.sessionId());
+        }
+        if (event.stage() != null) {
+            root.put("stage", event.stage());
+        }
+        if (event.action() != null) {
+            root.put("action", event.action());
+        }
+        if (event.success() != null) {
+            root.put("success", event.success());
+        }
+        if (event.message() != null) {
+            root.put("message", event.message());
+        }
+        ObjectNode details = mapper.createObjectNode();
+        for (Map.Entry<String, String> entry : event.details().entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                details.put(entry.getKey(), entry.getValue());
+            }
+        }
+        root.set("details", details);
+        return root;
+    }
+
+    private ObjectNode serializeCheckpoint(LongRunningWorkspaceCheckpoint checkpoint) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("capturedAt", checkpoint.capturedAt().toString());
+        root.put("projectDirectory", checkpoint.projectDirectory().toString());
+        root.put("gitRepository", checkpoint.gitRepository());
+        if (checkpoint.gitRoot() != null) {
+            root.put("gitRoot", checkpoint.gitRoot().toString());
+        }
+        if (checkpoint.branch() != null) {
+            root.put("branch", checkpoint.branch());
+        }
+        if (checkpoint.head() != null) {
+            root.put("head", checkpoint.head());
+        }
+        root.put("dirty", checkpoint.dirty());
+        root.put("statusShort", checkpoint.statusShort());
+        return root;
+    }
+
+    private LongRunningWorkspaceCheckpoint deserializeCheckpoint(JsonNode root) {
+        return new LongRunningWorkspaceCheckpoint(
+                Instant.parse(requiredText(root, "capturedAt")),
+                Path.of(requiredText(root, "projectDirectory")),
+                root.path("gitRepository").asBoolean(false),
+                optionalText(root, "gitRoot").map(Path::of).orElse(null),
+                optionalText(root, "branch").orElse(null),
+                optionalText(root, "head").orElse(null),
+                root.path("dirty").asBoolean(false),
+                optionalText(root, "statusShort").orElse(""));
+    }
+
+    private LongRunningTaskEvent deserializeEvent(JsonNode root, String expectedTaskId) {
+        String taskId = requiredText(root, "taskId");
+        if (!expectedTaskId.equals(taskId)) {
+            throw new LongRunningTaskStoreException("Event task id mismatch for " + expectedTaskId);
+        }
+        Map<String, String> details = new LinkedHashMap<>();
+        JsonNode detailsNode = root.path("details");
+        if (detailsNode.isObject()) {
+            detailsNode.fields().forEachRemaining(entry -> {
+                if (entry.getValue().isTextual()) {
+                    details.put(entry.getKey(), entry.getValue().asText());
+                }
+            });
+        }
+        return new LongRunningTaskEvent(
+                Instant.parse(requiredText(root, "timestamp")),
+                requiredText(root, "type"),
+                taskId,
+                optionalText(root, "sessionId").orElse(null),
+                optionalText(root, "stage").orElse(null),
+                optionalText(root, "action").orElse(null),
+                root.has("success") && root.get("success").isBoolean()
+                        ? root.get("success").asBoolean()
+                        : null,
+                optionalText(root, "message").orElse(null),
+                details);
+    }
+
     private LongRunningTaskMetadata deserializeTask(JsonNode root) {
         return new LongRunningTaskMetadata(
                 requiredText(root, "id"),
@@ -768,6 +1009,32 @@ public final class LongRunningTaskStore {
         }
     }
 
+    private void ensureEventLogFile(Path path, String taskId) {
+        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            requireRegularFile(path, EVENTS_FILE, taskId);
+            return;
+        }
+        try {
+            writeStringAtomically(path, "");
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to create event log for task " + taskId, exception);
+        }
+    }
+
+    /**
+     * Returns the canonical task directory path for the given task id without
+     * checking whether the directory exists.
+     *
+     * <p>Use this when you need only the path computation (e.g. to display the
+     * expected location or to set the session field). For actual existence
+     * checks and file validation, call {@link #validateTaskDirectory} instead.
+     *
+     * @throws IllegalArgumentException if the task id is invalid
+     */
+    public synchronized Path taskDirectoryPath(String taskId) {
+        return taskDirectory(validateTaskId(taskId));
+    }
+
     private Path taskDirectory(String taskId) {
         Path directory = rootDirectory.resolve(validateTaskId(taskId)).normalize();
         if (!directory.startsWith(rootDirectory)) {
@@ -827,6 +1094,33 @@ public final class LongRunningTaskStore {
                 Files.deleteIfExists(tempFile);
             }
         }
+    }
+
+    private String initScript(LongRunningWorkspaceCheckpoint checkpoint) {
+        StringBuilder script = new StringBuilder();
+        script.append("#!/usr/bin/env bash\n");
+        script.append("set -euo pipefail\n\n");
+        script.append("# Initialization helper for this long-running task.\n");
+        script.append("cd ").append(shellQuote(checkpoint.projectDirectory().toString())).append("\n");
+        script.append("echo ").append(shellQuote("Long-running task workspace checkpoint")).append("\n");
+        if (checkpoint.gitRepository()) {
+            script.append("echo ").append(shellQuote("Git root: " + checkpoint.gitRoot())).append("\n");
+            script.append("echo ").append(shellQuote("Start branch: " + nullToEmpty(checkpoint.branch()))).append("\n");
+            script.append("echo ").append(shellQuote("Start HEAD: " + nullToEmpty(checkpoint.head()))).append("\n");
+            script.append("echo ").append(shellQuote("Dirty at start: " + checkpoint.dirty())).append("\n");
+            script.append("git status --short\n");
+        } else {
+            script.append("echo ").append(shellQuote("No git repository detected at task start.")).append("\n");
+        }
+        return script.toString();
+    }
+
+    private static String shellQuote(String value) {
+        return "'" + (value == null ? "" : value.replace("'", "'\"'\"'")) + "'";
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private void moveIntoPlace(Path tempFile, Path target) throws IOException {

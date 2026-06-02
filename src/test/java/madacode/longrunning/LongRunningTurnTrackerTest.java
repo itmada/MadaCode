@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -59,6 +60,11 @@ class LongRunningTurnTrackerTest {
         String progress = Files.readString(tempDir
                 .resolve(".mada/long-running/task-tracker-1/progress.txt"));
         assertFalse(progress.contains("HARNESS WARNING"));
+        List<LongRunningTaskEvent> events = store.readEvents("task-tracker-1");
+        assertEquals(1, events.size());
+        assertEquals("turn_completed", events.getFirst().type());
+        assertTrue(events.getFirst().success());
+        assertEquals("append_progress", events.getFirst().details().get("recordedActions"));
     }
 
     @Test
@@ -73,6 +79,11 @@ class LongRunningTurnTrackerTest {
         String progress = Files.readString(tempDir
                 .resolve(".mada/long-running/task-tracker-2/progress.txt"));
         assertTrue(progress.contains("HARNESS WARNING"));
+        List<LongRunningTaskEvent> events = store.readEvents("task-tracker-2");
+        assertEquals(1, events.size());
+        assertEquals("turn_completed", events.getFirst().type());
+        assertFalse(events.getFirst().success());
+        assertTrue(events.getFirst().message().contains("HARNESS WARNING"));
     }
 
     @Test

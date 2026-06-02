@@ -82,6 +82,21 @@ class LongRunStageUpdateToolTest {
     }
 
     @Test
+    void waitingForApprovalAllowsRevisePlanIntent() {
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+
+        ToolResult result = ToolTestSupport.invoke(tool,
+                input("REVISE_PLAN", "high", "User wants to discuss more details."),
+                context);
+
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().contains("ready_for_transition: true"));
+        assertEquals(LongRunningStageUpdateIntent.REVISE_PLAN,
+                session.lastLongRunningStageUpdate().orElseThrow().intent());
+    }
+
+    @Test
     void rejectsIntentNotAllowedForStage() {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.PLANNING);

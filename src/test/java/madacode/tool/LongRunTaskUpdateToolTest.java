@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import madacode.core.engine.ToolUseContext;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
+import madacode.core.session.LongRunningTurnAssignment;
 import madacode.core.session.SessionMode;
 import madacode.longrunning.CreateTaskRequest;
 import madacode.longrunning.LongRunningTaskMetadata;
@@ -19,6 +20,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LongRunTaskUpdateToolTest {
@@ -398,6 +401,87 @@ class LongRunTaskUpdateToolTest {
 
         assertFalse(result.success());
         assertTrue(result.output().contains("resolved"));
+    }
+
+    @Test
+    void repairsMissingTaskDirectoryOnSessionWhenStoreExists() throws Exception {
+        // Create task on disk but do NOT set taskDirectory on session
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-repair-dir", "Repair dir test", "executing", "session-rd", "EXECUTING"));
+        Path realDir = store.taskDirectoryPath("task-repair-dir");
+
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningTaskId("task-repair-dir");
+        // taskDirectory intentionally left null
+
+        var result = tool.execute(new LongRunTaskUpdateTool.Input(
+                "append_progress",
+                null, null, null, null, null, null, null, null, null, null,
+                "repaired progress"),
+                context(session));
+
+        assertTrue(result.success());
+        assertTrue(result.output().contains("Progress appended"));
+        assertEquals(realDir.toString(), session.longRunningTaskDirectory());
+        assertTrue(Files.readString(realDir.resolve("progress.txt")).contains("repaired progress"));
+        var events = store.readEvents("task-repair-dir");
+        assertEquals(1, events.size());
+        assertEquals("task_update", events.getFirst().type());
+        assertEquals("append_progress", events.getFirst().action());
+        assertTrue(events.getFirst().success());
+        assertTrue(events.getFirst().message().contains("Progress appended"));
+
+        // Subsequent operations should also work
+        var progressive = tool.execute(new LongRunTaskUpdateTool.Input(
+                "append_progress",
+                null, null, null, null, null, null, null, null, null, null,
+                "second append"),
+                context(session));
+        assertTrue(progressive.success());
+    }
+
+    @Test
+    void taskUpdateEventIncludesHarnessAssignmentTarget() {
+        ConversationSession session = initializedSession("task-assignment-details");
+        session.setLongRunningTurnAssignment(new LongRunningTurnAssignment(
+                LongRunningTurnAssignment.Kind.FEATURE,
+                "feature-a",
+                "Build feature A",
+                "eligible",
+                List.of("verify")));
+
+        var result = tool.execute(new LongRunTaskUpdateTool.Input(
+                "append_progress",
+                null, null, null, null, null, null, null, null, null, null,
+                "feature progress"),
+                context(session));
+
+        assertTrue(result.success());
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        var event = store.readEvents("task-assignment-details").getFirst();
+        assertEquals("FEATURE", event.details().get("assignedKind"));
+        assertEquals("feature-a", event.details().get("assignedTargetId"));
+    }
+
+    @Test
+    void failsWhenTaskDirectoryDoesNotExistOnDisk() {
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningTaskId("task-missing");
+
+        var result = tool.execute(new LongRunTaskUpdateTool.Input(
+                "append_progress",
+                null, null, null, null, null, null, null, null, null, null,
+                "should fail"),
+                context(session));
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("Task directory not found"));
+        assertNull(session.longRunningTaskDirectory());
     }
 
     private ConversationSession initializedSession(String taskId) {

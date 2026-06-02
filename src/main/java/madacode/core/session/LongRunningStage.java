@@ -19,6 +19,7 @@ public enum LongRunningStage {
                     ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
             case WAITING_FOR_APPROVAL -> EnumSet.of(
                     ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION,
+                    ConversationSession.LongRunningStageUpdateIntent.REVISE_PLAN,
                     ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
             case WAITING_FOR_TASK, INITIALIZING, EXECUTING, COMPLETED, CANCELLED -> false;
         };

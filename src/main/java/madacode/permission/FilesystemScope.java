@@ -41,7 +41,8 @@ public final class FilesystemScope {
     );
 
     private static final Set<String> PROTECTED_LONG_RUNNING_STATE_FILENAMES = Set.of(
-            "task.json", "feature_list.json", "known-issues.json", "progress.txt"
+            "task.json", "feature_list.json", "known-issues.json", "progress.txt",
+            "events.jsonl", "checkpoint.json", "init.sh"
     );
 
     /**

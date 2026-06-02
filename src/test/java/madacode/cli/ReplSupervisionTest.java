@@ -1,6 +1,8 @@
 package madacode.cli;
 
 import madacode.cli.mode.ModeRouter;
+import madacode.cli.mode.ModeExecution;
+import madacode.core.model.FinishReason;
 import madacode.core.turn.CancellationToken;
 import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
@@ -11,6 +13,7 @@ import madacode.core.model.MetaEvent;
 import madacode.core.engine.QueryEngine;
 import madacode.core.session.SessionMode;
 import madacode.core.session.SessionListener;
+import madacode.core.turn.TurnHandle;
 import madacode.provider.Model;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
@@ -26,6 +29,9 @@ import madacode.services.compact.CompactPlanner;
 import madacode.services.compact.TokenEstimator;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
+import madacode.longrunning.CreateTaskRequest;
+import madacode.longrunning.LongRunningTaskEvent;
+import madacode.longrunning.LongRunningTaskStore;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 
@@ -39,7 +45,9 @@ import java.io.StringReader;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -441,6 +449,80 @@ class ReplSupervisionTest {
         assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
         assertEquals(PermissionMode.BYPASS, restored.permissionMode());
         assertEquals(LongRunningStage.WAITING_FOR_TASK, restored.longRunningStage());
+    }
+
+    @Test
+    void longRunContinueStopsWhenAssignmentVerificationFails() {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-auto"));
+        Path workingDirectory = tempDir.resolve("ws-auto");
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.EXECUTING);
+
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-auto", "Auto task", "executing", session.sessionId(), "EXECUTING"));
+        session.setLongRunningTaskId("task-auto");
+        session.setLongRunningTaskDirectory(store.taskDirectoryPath("task-auto").toString());
+
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> {
+                    throw new AssertionError("auto-continue test uses a fake mode router");
+                },
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-auto")));
+        AtomicInteger turns = new AtomicInteger();
+        ModeRouter router = new ModeRouter(
+                (line, s) -> {
+                    throw new AssertionError("common handler should not be used");
+                },
+                (line, s) -> {
+                    int turn = turns.incrementAndGet();
+                    TurnHandle handle = new TurnHandle(
+                            "auto-" + turn,
+                            CompletableFuture.completedFuture(new madacode.core.turn.TurnResult(
+                                    "ok", FinishReason.COMPLETED, 1)),
+                            reason -> { });
+                    return ModeExecution.managedTurn(handle, () -> store.appendEvent(
+                            "task-auto",
+                            LongRunningTaskEvent.of(
+                                    "assignment_verified",
+                                    "task-auto",
+                                    s.sessionId(),
+                                    LongRunningStage.EXECUTING.name(),
+                                    "FEATURE",
+                                    turn < 2,
+                                    turn < 2 ? "ok" : "failed",
+                                    Map.of())));
+                });
+
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ProviderRegistry testRegistry = ProviderRegistry.singleProvider(
+                new Provider("test", "test-token",
+                        java.net.URI.create("https://api.anthropic.com"),
+                        "claude-opus-4-7",
+                        List.of(new Model("claude-opus-4-7", 200_000))));
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("/longrun-continue 5\nexit\n")),
+                new PrintStream(buf, true),
+                storage,
+                madacode.cli.slash.SlashCommandRegistry.create(null),
+                testRegistry,
+                null,
+                router);
+
+        try {
+            repl.run();
+        } finally {
+            executor.close();
+        }
+
+        assertEquals(2, turns.get());
+        assertTrue(stripAnsi(buf.toString()).contains("Auto-continue completed 2 turn(s)."));
+        ConversationSession restored = storage.load(session.sessionId());
+        assertEquals(LongRunningStage.EXECUTING, restored.longRunningStage());
     }
 
     private static String firstText(Message m) {

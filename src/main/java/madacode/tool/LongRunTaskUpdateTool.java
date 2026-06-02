@@ -6,15 +6,17 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.model.ToolResult;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
+import madacode.core.session.LongRunningTurnAssignment;
 import madacode.core.session.SessionMode;
 import madacode.longrunning.FeatureItem;
 import madacode.longrunning.KnownIssue;
+import madacode.longrunning.LongRunningTaskEvent;
 import madacode.longrunning.LongRunningTaskStore;
-import madacode.longrunning.LongRunningTaskStoreException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.Input> {
@@ -120,6 +122,9 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
             return failed("No initialized long-running task is active for this session.");
         }
+        LongRunningTaskStore storeForEvent = null;
+        String taskIdForEvent = null;
+        String action = input.action() == null ? "" : input.action().strip().toLowerCase(Locale.ROOT);
         try {
             String taskId = activeTaskId(input, session);
             if (taskId == null) {
@@ -127,8 +132,14 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
             }
 
             LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
-            String action = input.action() == null ? "" : input.action().strip().toLowerCase(Locale.ROOT);
-            return switch (action) {
+            storeForEvent = store;
+            taskIdForEvent = taskId;
+            // Validate task directory and repair session if directory field is stale
+            store.validateTaskDirectory(taskId);
+            String canonicalDir = store.taskDirectoryPath(taskId).toString();
+            session.setLongRunningTaskDirectory(canonicalDir);
+
+            ToolResult result = switch (action) {
                 case "write_initial_feature_list" -> writeInitialFeatureList(store, taskId, input);
                 case "mark_feature_passed" -> markFeaturePassed(store, taskId, input);
                 case "record_issue" -> recordIssue(store, taskId, input, session);
@@ -139,10 +150,16 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
                 case "cancel_task" -> cancelTask(store, taskId, session);
                 default -> failed("Unsupported long-running task update action: " + safe(input.action()));
             };
+            appendTaskUpdateEvent(store, taskId, session, action, result, input);
+            return result;
         } catch (RuntimeException exception) {
-            return failed(exception.getMessage() == null
+            ToolResult result = failed(exception.getMessage() == null
                     ? exception.getClass().getSimpleName()
                     : exception.getMessage());
+            if (storeForEvent != null && taskIdForEvent != null) {
+                appendTaskUpdateEvent(storeForEvent, taskIdForEvent, session, action, result, input);
+            }
+            return result;
         }
     }
 
@@ -224,6 +241,56 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         store.cancelTask(taskId);
         session.setLongRunningStage(LongRunningStage.CANCELLED);
         return succeeded("Task " + taskId + " cancelled.");
+    }
+
+    private void appendTaskUpdateEvent(
+            LongRunningTaskStore store,
+            String taskId,
+            ConversationSession session,
+            String action,
+            ToolResult result,
+            Input input) {
+        try {
+            store.appendEvent(taskId, LongRunningTaskEvent.of(
+                    "task_update",
+                    taskId,
+                    session.sessionId(),
+                    session.longRunningStage() == null ? null : session.longRunningStage().name(),
+                    action,
+                    result.success(),
+                    result.output(),
+                    eventDetails(input, session)));
+        } catch (RuntimeException ignored) {
+            // Event logging is diagnostic. A failed append must not turn an
+            // already-applied task-store mutation into a failed tool result.
+        }
+    }
+
+    private static Map<String, String> eventDetails(Input input, ConversationSession session) {
+        java.util.LinkedHashMap<String, String> details = new java.util.LinkedHashMap<>();
+        putIfPresent(details, "featureId", input.feature_id());
+        putIfPresent(details, "issueId", input.issue_id());
+        putIfPresent(details, "newStatus", input.new_status());
+        putIfPresent(details, "severity", input.severity());
+        if (input.features() != null) {
+            details.put("featureCount", String.valueOf(input.features().size()));
+        }
+        session.longRunningTurnAssignment().ifPresent(assignment ->
+                putAssignmentDetails(details, assignment));
+        return Map.copyOf(details);
+    }
+
+    private static void putAssignmentDetails(
+            Map<String, String> details,
+            LongRunningTurnAssignment assignment) {
+        details.put("assignedKind", assignment.kind().name());
+        putIfPresent(details, "assignedTargetId", assignment.id());
+    }
+
+    private static void putIfPresent(Map<String, String> details, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            details.put(key, value.strip());
+        }
     }
 
     private static String activeTaskId(Input input, ConversationSession session) {

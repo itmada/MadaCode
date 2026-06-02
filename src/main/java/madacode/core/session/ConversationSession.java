@@ -66,6 +66,7 @@ public class ConversationSession {
     private volatile String longRunningTaskTitle;
     private volatile String longRunningPlanSummary;
     private volatile LongRunningStageUpdate lastLongRunningStageUpdate;
+    private volatile LongRunningTurnAssignment longRunningTurnAssignment;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
     private final List<SessionListener> listeners = new CopyOnWriteArrayList<>();
@@ -357,6 +358,7 @@ public class ConversationSession {
             this.longRunningTaskTitle = null;
             this.longRunningPlanSummary = null;
             this.lastLongRunningStageUpdate = null;
+            this.longRunningTurnAssignment = null;
         }
     }
 
@@ -384,6 +386,9 @@ public class ConversationSession {
         requireLongRunningMode("longRunningStage", longRunningStage);
         if (this.longRunningStage != longRunningStage) {
             this.lastLongRunningStageUpdate = null;
+        }
+        if (longRunningStage != LongRunningStage.EXECUTING) {
+            this.longRunningTurnAssignment = null;
         }
         this.longRunningStage = longRunningStage;
     }
@@ -443,6 +448,19 @@ public class ConversationSession {
 
     public void clearLongRunningStageUpdate() {
         this.lastLongRunningStageUpdate = null;
+    }
+
+    public Optional<LongRunningTurnAssignment> longRunningTurnAssignment() {
+        return Optional.ofNullable(longRunningTurnAssignment);
+    }
+
+    public void setLongRunningTurnAssignment(LongRunningTurnAssignment assignment) {
+        requireLongRunningMode("longRunningTurnAssignment", assignment);
+        if (assignment != null && longRunningStage != LongRunningStage.EXECUTING) {
+            throw new IllegalStateException(
+                    "longRunningTurnAssignment requires EXECUTING stage");
+        }
+        this.longRunningTurnAssignment = assignment;
     }
 
     private void requireLongRunningMode(String fieldName, Object value) {
@@ -594,6 +612,7 @@ public class ConversationSession {
     public enum LongRunningStageUpdateIntent {
         FINALIZE_PLAN,
         APPROVE_EXECUTION,
+        REVISE_PLAN,
         CANCEL;
 
         public static Optional<LongRunningStageUpdateIntent> fromWire(String value) {
