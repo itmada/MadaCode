@@ -224,6 +224,49 @@ class ToolOrchestratorTest {
         assertTrue(results.get(2).success());
     }
 
+    @Test
+    void terminalLongRunningStageSkipsRemainingToolsInBatch() {
+        ToolRegistry registry = new ToolRegistry();
+        ConversationSession session = longRunningSession(LongRunningStage.EXECUTING);
+        AtomicInteger afterTerminalExecutions = new AtomicInteger(0);
+        registry.register(new RecordingTool("complete", false,
+                () -> session.setLongRunningStage(LongRunningStage.COMPLETED)));
+        registry.register(new RecordingTool("after_terminal", false,
+                afterTerminalExecutions::incrementAndGet));
+
+        ToolOrchestrator orchestrator = newOrchestrator(registry);
+        List<ToolResult> results = orchestrator.run(
+                List.of(callOf("complete", "1"), callOf("after_terminal", "2")),
+                new ToolUseContext(java.nio.file.Path.of("."), session));
+
+        assertEquals(2, results.size());
+        assertTrue(results.get(0).success());
+        assertFalse(results.get(1).success());
+        assertTrue(results.get(1).output().contains("terminal stage COMPLETED"));
+        assertEquals(0, afterTerminalExecutions.get());
+    }
+
+    @Test
+    void alreadyTerminalLongRunningStageSkipsEntireBatch() {
+        ToolRegistry registry = new ToolRegistry();
+        AtomicInteger executions = new AtomicInteger(0);
+        registry.register(new RecordingTool("unsafe", false, executions::incrementAndGet));
+        registry.register(new RecordingTool("safe", true, executions::incrementAndGet));
+
+        ToolOrchestrator orchestrator = newOrchestrator(registry);
+        List<ToolResult> results = orchestrator.run(
+                List.of(callOf("unsafe", "1"), callOf("safe", "2")),
+                new ToolUseContext(java.nio.file.Path.of("."),
+                        longRunningSession(LongRunningStage.CANCELLED)));
+
+        assertEquals(2, results.size());
+        assertFalse(results.get(0).success());
+        assertFalse(results.get(1).success());
+        assertTrue(results.get(0).output().contains("terminal stage CANCELLED"));
+        assertTrue(results.get(1).output().contains("terminal stage CANCELLED"));
+        assertEquals(0, executions.get());
+    }
+
     // -- helpers ------------------------------------------------------------
 
     private static ToolOrchestrator newOrchestrator(ToolRegistry registry) {
@@ -243,6 +286,13 @@ class ToolOrchestratorTest {
         ObjectNode input = MAPPER.createObjectNode();
         input.put("tag", tag);
         return new ToolCall("call-" + tag, toolName, input);
+    }
+
+    private static ConversationSession longRunningSession(LongRunningStage stage) {
+        ConversationSession session = new ConversationSession();
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(stage);
+        return session;
     }
 
     private static final ThreadLocal<String> CURRENT_TAG = new ThreadLocal<>();

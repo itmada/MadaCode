@@ -15,9 +15,11 @@ public enum LongRunningStage {
     public boolean allowsIntent(ConversationSession.LongRunningStageUpdateIntent intent) {
         return switch (this) {
             case PLANNING -> EnumSet.of(
-                    ConversationSession.LongRunningStageUpdateIntent.FINALIZE_PLAN).contains(intent);
+                    ConversationSession.LongRunningStageUpdateIntent.FINALIZE_PLAN,
+                    ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
             case WAITING_FOR_APPROVAL -> EnumSet.of(
-                    ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION).contains(intent);
+                    ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION,
+                    ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
             case WAITING_FOR_TASK, INITIALIZING, EXECUTING, COMPLETED, CANCELLED -> false;
         };
     }

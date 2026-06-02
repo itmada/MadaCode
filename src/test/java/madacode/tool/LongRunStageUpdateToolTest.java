@@ -108,7 +108,7 @@ class LongRunStageUpdateToolTest {
     }
 
     @Test
-    void planningStageRejectsCancelIntent() {
+    void planningStageAllowsCancelIntent() {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.PLANNING);
 
@@ -116,8 +116,8 @@ class LongRunStageUpdateToolTest {
                 input("CANCEL", "high", "Stop the workflow."),
                 context);
 
-        assertFalse(result.success());
-        assertTrue(result.output().contains("is not allowed"));
+        assertTrue(result.success());
+        assertTrue(result.output().contains("ready_for_transition: true"));
     }
 
     @Test
@@ -126,7 +126,7 @@ class LongRunStageUpdateToolTest {
         session.setLongRunningStage(LongRunningStage.EXECUTING);
 
         ToolResult result = ToolTestSupport.invoke(tool,
-                input("COMPLETE", "high", "Execution appears done."),
+                input("FINALIZE_PLAN", "high", "Execution appears done."),
                 context);
 
         assertFalse(result.success());

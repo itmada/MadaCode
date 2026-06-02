@@ -405,6 +405,44 @@ class ReplSupervisionTest {
                         && firstText(m).equals("continue work")));
     }
 
+    @Test
+    void handledSlashCommandPersistsSessionStateImmediately() {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-slash"));
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws-slash"));
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> {
+                    throw new AssertionError("slash mode command must not run a model turn");
+                },
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-slash")));
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ProviderRegistry testRegistry = ProviderRegistry.singleProvider(
+                new Provider("test", "test-token",
+                        java.net.URI.create("https://api.anthropic.com"),
+                        "claude-opus-4-7",
+                        List.of(new Model("claude-opus-4-7", 200_000))));
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("")),
+                new PrintStream(buf, true),
+                storage,
+                madacode.cli.slash.SlashCommandRegistry.create(null),
+                testRegistry,
+                null);
+
+        try {
+            assertTrue(repl.handleLine("/mode long-running"));
+        } finally {
+            executor.close();
+        }
+
+        ConversationSession restored = storage.load(session.sessionId());
+        assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
+        assertEquals(PermissionMode.BYPASS, restored.permissionMode());
+        assertEquals(LongRunningStage.WAITING_FOR_TASK, restored.longRunningStage());
+    }
+
     private static String firstText(Message m) {
         if (m.contentBlocks().isEmpty()) return "";
         ContentBlock first = m.contentBlocks().getFirst();

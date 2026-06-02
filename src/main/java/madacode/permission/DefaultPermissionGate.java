@@ -94,6 +94,7 @@ public class DefaultPermissionGate implements PermissionGate {
     private static List<PermissionRule> defaultRules(List<Path> trustedRoots) {
         return List.of(
                 new BashSafetyPermissionRule(),
+                new LongRunningTaskStatePermissionRule(),
                 new ReadOnlyPermissionRule(trustedRoots),
                 new BypassPermissionRule(),
                 new AcceptEditsPermissionRule());

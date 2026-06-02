@@ -77,6 +77,8 @@ public class EvalRunner {
                 new madacode.agent.AgentRunner(registry, apiClient, gate)));
         registry.register(new EnterPlanModeTool());
         registry.register(new ExitPlanModeTool());
+        registry.register(new madacode.tool.LongRunStageUpdateTool());
+        registry.register(new madacode.tool.LongRunTaskUpdateTool());
 
         return new QueryEngine(apiClient, registry,
                 new SystemPromptBuilder(), gate);

@@ -5,9 +5,11 @@ import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
 import madacode.core.turn.TurnExecutor;
+import madacode.core.turn.TurnHandle;
 import madacode.longrunning.CreateTaskRequest;
 import madacode.longrunning.LongRunningTaskMetadata;
 import madacode.longrunning.LongRunningTaskStore;
+import madacode.longrunning.LongRunningTurnTracker;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -78,7 +80,12 @@ public final class LongRunningModeHandler implements ModeHandler {
             case WAITING_FOR_TASK, INITIALIZING ->
                     throw new IllegalStateException("Unexpected long-running stage after preflight: " + stage);
         };
-        return new ModeExecution(execution.handle(), () -> applyStageUpdate(session, expanded));
+        // Compose the tracker cleanup (if any) with the standard stage-update callback.
+        Runnable existingAfterTurn = execution.afterTurn();
+        return new ModeExecution(execution.handle(), () -> {
+            existingAfterTurn.run();
+            applyStageUpdate(session, expanded);
+        });
     }
 
     private ModeExecution runConversationalTurn(ConversationSession session, String expanded) {
@@ -86,7 +93,18 @@ public final class LongRunningModeHandler implements ModeHandler {
     }
 
     private ModeExecution runExecutingTurn(ConversationSession session, String expanded) {
-        return ModeExecution.managedTurn(turnExecutor.submit(session, expanded));
+        LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
+        LongRunningTurnTracker tracker = new LongRunningTurnTracker(session, store);
+        session.addListener(tracker);
+        TurnHandle handle = turnExecutor.submit(session, expanded);
+        return ModeExecution.managedTurn(handle, () -> {
+            session.removeListener(tracker);
+            // The tracker's onTurnEnd() fires during the turn, but if it
+            // hasn't been called yet (e.g. exception path), audit now.
+            if (!tracker.hasProgress() && session.longRunningStage() == LongRunningStage.EXECUTING) {
+                tracker.onTurnEnd();
+            }
+        });
     }
 
     LongRunningStage stage(ConversationSession session) {
@@ -121,11 +139,11 @@ public final class LongRunningModeHandler implements ModeHandler {
                 }
             }
             case CANCEL -> session.setLongRunningStage(LongRunningStage.CANCELLED);
-            case COMPLETE -> session.setLongRunningStage(LongRunningStage.COMPLETED);
         }
     }
 
     private void initializeTask(ConversationSession session, String expandedInput) {
+        session.setPlanMode(false);
         if (session.longRunningTaskId() != null) {
             taskStoreFactory.create(session.workingDirectory())
                     .validateTaskDirectory(session.longRunningTaskId());

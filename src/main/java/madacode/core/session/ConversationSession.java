@@ -594,8 +594,7 @@ public class ConversationSession {
     public enum LongRunningStageUpdateIntent {
         FINALIZE_PLAN,
         APPROVE_EXECUTION,
-        CANCEL,
-        COMPLETE;
+        CANCEL;
 
         public static Optional<LongRunningStageUpdateIntent> fromWire(String value) {
             if (value == null || value.isBlank()) {

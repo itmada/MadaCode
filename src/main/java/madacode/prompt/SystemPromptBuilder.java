@@ -1,6 +1,7 @@
 package madacode.prompt;
 
 import madacode.core.session.ConversationSession;
+import madacode.longrunning.LongRunningToolPolicy;
 import madacode.memory.MemoryLoader;
 import madacode.skill.Skill;
 import madacode.skill.SkillRegistry;
@@ -53,6 +54,15 @@ public class SystemPromptBuilder {
         return build(tools, cwd, null);
     }
 
+    /**
+     * Builds the system prompt for the given session.
+     *
+     * <p>Callers MUST pre-filter {@code tools} through
+     * {@link #visibleToolsForSession} before passing them in. This method
+     * trusts the caller — it does not re-filter, avoiding redundant work
+     * when the same filtered collection is also used as the model API's
+     * tool declarations.
+     */
     public String build(Collection<Tool<?>> tools, Path cwd, ConversationSession session) {
         Collection<Tool<?>> safeTools = tools == null ? java.util.List.of() : tools;
         StringBuilder sb = new StringBuilder();
@@ -206,15 +216,15 @@ public class SystemPromptBuilder {
         return bullets(items);
     }
 
+    public static Collection<Tool<?>> visibleToolsForSession(Collection<Tool<?>> tools,
+                                                             ConversationSession session) {
+        Collection<Tool<?>> safeTools = tools == null ? java.util.List.of() : tools;
+        return LongRunningToolPolicy.filterVisibleTools(safeTools, session);
+    }
+
     private static Collection<Tool<?>> visibleToolsForPrompt(Collection<Tool<?>> tools,
                                                              ConversationSession session) {
-        boolean longRunningActive = session != null && session.longRunningStage() != null;
-        if (longRunningActive) {
-            return tools;
-        }
-        return tools.stream()
-                .filter(tool -> !"longrun_stage_update".equals(tool.name()))
-                .toList();
+        return visibleToolsForSession(tools, session);
     }
 
     private static String actionsSection() {
@@ -269,7 +279,13 @@ public class SystemPromptBuilder {
             case EXECUTING -> bullets(
                     "Long-running stage: EXECUTING.",
                     "Do not call longrun_stage_update in this stage.",
-                    "Continue the normal execution loop and let the harness manage long-running progress.");
+                    "At the start of every execution turn, read the task's known-issues.json before choosing work.",
+                    "If known-issues.json contains any open or blocked issue, fix exactly one issue in this turn and do not pick a feature.",
+                    "If feature_list.json is empty, create the initial feature list from the approved plan with longrun_task_update action=write_initial_feature_list, append progress, and stop the turn.",
+                    "If there are no open or blocked known issues, pick exactly one eligible feature from feature_list.json and work only on that feature.",
+                    "Use longrun_task_update to append progress, record or resolve issues, seed the initial feature list, and mark a feature passed.",
+                    "Record what changed, files touched, blockers, and the next step in progress.txt before ending the turn.",
+                    "Only mark a feature's passes value from false to true after its verification steps pass; do not rewrite feature descriptions opportunistically.");
             case WAITING_FOR_TASK, INITIALIZING, COMPLETED, CANCELLED -> bullets(
                     "Long-running stage: " + stage.name() + ".",
                     "Do not call longrun_stage_update in this stage unless the harness instructions explicitly request it.");

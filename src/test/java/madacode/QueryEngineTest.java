@@ -25,6 +25,8 @@ public class QueryEngineTest {
         private final Queue<ApiResponse> responses = new ArrayDeque<>();
 
         private final List<List<Message>> calls = new ArrayList<>();
+        private final List<Collection<Tool<?>>> toolDeclarations = new ArrayList<>();
+        private final List<String> systemPrompts = new ArrayList<>();
 
         void enqueue(ApiResponse response) {
             responses.add(response);
@@ -37,6 +39,8 @@ public class QueryEngineTest {
         @Override
         public ApiResponse send(List<Message> messages, String systemPrompt, Collection<Tool<?>> tools, ApiStreamSink sink, CancellationToken cancellationToken) {
             calls.add(List.copyOf(messages));
+            toolDeclarations.add(List.copyOf(tools));
+            systemPrompts.add(systemPrompt);
             if(responses.isEmpty()) {
                 throw new AssertionError("no fake api responses!");
             }
@@ -48,6 +52,16 @@ public class QueryEngineTest {
                 sink.onToolUseBlock(new ContentBlock.ToolUseBlock(tc.id(), tc.toolName(), tc.input()));
             }
             return resp;
+        }
+
+        List<String> lastToolNames() {
+            return toolDeclarations.getLast().stream()
+                    .map(Tool::name)
+                    .toList();
+        }
+
+        String lastSystemPrompt() {
+            return systemPrompts.getLast();
         }
     }
 
@@ -241,6 +255,49 @@ public class QueryEngineTest {
 
         assertEquals(FinishReason.MODEL_TRUNCATED, result.finishReason());
         assertFalse(result.completed());
+    }
+
+    @Test
+    void longRunningToolDeclarationsAreFilteredByStage() {
+        FakeApiClient fakeApiClient = new FakeApiClient();
+        fakeApiClient.enqueue(new ApiClient.ApiResponse("planning", List.of()));
+
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(new StubTool("file_read"));
+        registry.register(new StubTool("longrun_stage_update"));
+        registry.register(new StubTool("longrun_task_update"));
+
+        QueryEngine engine = new QueryEngine(
+                fakeApiClient,
+                registry,
+                new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        ConversationSession session = new ConversationSession();
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.PLANNING);
+
+        engine.runTurn(session, "finish planning");
+
+        assertTrue(fakeApiClient.lastToolNames().contains("longrun_stage_update"));
+        assertFalse(fakeApiClient.lastToolNames().contains("longrun_task_update"));
+        assertTrue(fakeApiClient.lastSystemPrompt().contains("Available tools: file_read, longrun_stage_update"));
+
+        FakeApiClient executingClient = new FakeApiClient();
+        executingClient.enqueue(new ApiClient.ApiResponse("executing", List.of()));
+        QueryEngine executingEngine = new QueryEngine(
+                executingClient,
+                registry,
+                new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        ConversationSession executing = new ConversationSession();
+        executing.setWorkflowMode(SessionMode.LONG_RUNNING);
+        executing.setLongRunningStage(LongRunningStage.EXECUTING);
+
+        executingEngine.runTurn(executing, "continue");
+
+        assertFalse(executingClient.lastToolNames().contains("longrun_stage_update"));
+        assertTrue(executingClient.lastToolNames().contains("longrun_task_update"));
+        assertTrue(executingClient.lastSystemPrompt().contains("Available tools: file_read, longrun_task_update"));
     }
 
     @Test

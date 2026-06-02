@@ -5,7 +5,11 @@ import madacode.core.turn.LocalTurnTask;
 
 public sealed interface SlashAction {
     record Continue() implements SlashAction {}
-    record Handled() implements SlashAction {}
+    record Handled(boolean persistSession) implements SlashAction {
+        public Handled() {
+            this(false);
+        }
+    }
     record RunLocalTurn(String label, LocalTurnTask task) implements SlashAction {}
     record SwitchSession(ConversationSession session, boolean fresh) implements SlashAction {
         public SwitchSession(ConversationSession session) {

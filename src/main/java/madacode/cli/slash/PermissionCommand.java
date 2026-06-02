@@ -61,7 +61,7 @@ final class PermissionCommand implements SlashCommand {
             SlashFeedback.muted(ctx.screen(),
                     "Warning: all-pass suppresses interactive approval. Structural safety rules still apply.");
         }
-        return new SlashAction.Handled();
+        return new SlashAction.Handled(true);
     }
 
     private static void listPermissions(SlashContext ctx) {

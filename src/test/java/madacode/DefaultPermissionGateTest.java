@@ -192,6 +192,46 @@ public class DefaultPermissionGateTest {
     }
 
     @Test
+    void bypassModeDeniesGenericWritesToLongRunningTaskState() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.BYPASS);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("file_path", tempDir
+                .resolve(".mada/long-running/task-001/feature_list.json")
+                .toString());
+        input.put("content", "[]");
+
+        PermissionDecision decision = gate.check(new FileWriteTool(), input, new ToolUseContext(tempDir, session));
+
+        assertFalse(decision.isAllowed());
+        assertTrue(decision.reason().contains("longrun_task_update"));
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void bashCannotMutateLongRunningTaskStateThroughGenericCommand() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setPermissionMode(PermissionMode.BYPASS);
+
+        String target = tempDir
+                .resolve(".mada/long-running/task-001/progress.txt")
+                .toString();
+        PermissionDecision decision = gate.check(
+                new BashTool(),
+                bashInput("printf 'done' >> " + target),
+                new ToolUseContext(tempDir, session));
+
+        assertFalse(decision.isAllowed());
+        assertTrue(decision.reason().contains("longrun_task_update"));
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
     void acceptEditsModeAutoAllowsFileEditInsideWorkingDir() {
         RecordingPrompt prompt = new RecordingPrompt();
         DefaultPermissionGate gate = gate(prompt);
@@ -335,6 +375,89 @@ public class DefaultPermissionGateTest {
         assertTrue(decision.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, decision.source());
         assertEquals(1, prompt.calls());
+    }
+
+    // ---- Bash protection for long-running state files ----
+
+    @Test
+    void bashCatOfTaskJsonIsDeniedWithoutPrompt() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        String target = tempDir.resolve(".mada/long-running/task-1/task.json").toString();
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("cat " + target), context());
+
+        assertFalse(decision.isAllowed());
+        assertTrue(decision.reason().contains("longrun_task_update"));
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void bashDdOfTaskJsonIsDenied() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        String target = tempDir.resolve(".mada/long-running/task-1/task.json").toString();
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("dd of=" + target), context());
+
+        assertFalse(decision.isAllowed());
+        assertTrue(decision.reason().contains("longrun_task_update"));
+        assertEquals(0, prompt.calls());
+    }
+
+    @Test
+    void bashRubyWithKnownIssuesJsonIsDenied() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        String target = tempDir.resolve(".mada/long-running/task-1/known-issues.json").toString();
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("ruby -e 'File.write(\"" + target + "\", \"[]\")'"), context());
+
+        assertFalse(decision.isAllowed());
+        assertTrue(decision.reason().contains("longrun_task_update"));
+    }
+
+    @Test
+    void bashShCcatOfProgressTxtIsDenied() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        String target = tempDir.resolve(".mada/long-running/task-1/progress.txt").toString();
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("sh -c 'cat " + target + "'"), context());
+
+        assertFalse(decision.isAllowed());
+        assertTrue(decision.reason().contains("longrun_task_update"));
+    }
+
+    @Test
+    void bashLsLongRunningDirIsAllowed() {
+        RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = gate(prompt);
+
+        PermissionDecision decision = gate.check(
+                new BashTool(), bashInput("ls .mada/long-running"), context());
+
+        assertTrue(decision.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, decision.source());
+        assertEquals(1, prompt.calls());
+    }
+
+    @Test
+    void fileReadOfCoreStateFileIsAllowed() {
+        RecordingPrompt prompt = new RecordingPrompt();
+        DefaultPermissionGate gate = gate(prompt);
+
+        ObjectNode input = mapper.createObjectNode();
+        input.put("path", tempDir.resolve(".mada/long-running/task-1/task.json").toString());
+
+        PermissionDecision decision = gate.check(new FileReadTool(), input, context());
+
+        assertTrue(decision.isAllowed());
+        assertEquals(0, prompt.calls());
     }
 
     private ObjectNode bashInput(String command) {

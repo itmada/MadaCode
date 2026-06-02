@@ -4,6 +4,7 @@ import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.SessionMode;
 import madacode.provider.Model;
@@ -379,6 +380,9 @@ public class SlashCommandHandlerTest {
         assertTrue(plain.contains("will not execute immediately"));
         assertTrue(plain.contains("Current permission is all-pass"));
         assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+        assertTrue(current.messages().stream()
+                .anyMatch(message -> message.role() == MessageRole.SYSTEM
+                        && firstText(message).contains("[long-running mode entered]")));
     }
 
     @Test
@@ -392,6 +396,29 @@ public class SlashCommandHandlerTest {
         assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
         assertEquals(SessionMode.COMMON, current.workflowMode());
         assertTrue(stripAnsi(outBytes.toString()).contains("Mode set to: common"));
+    }
+
+    @Test
+    void modeCommandLongRunningStartsFreshTaskState() {
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+        current.setLongRunningTaskId("task-old");
+        current.setLongRunningTaskDirectory(tempDir.resolve("old").toString());
+        current.setLongRunningTaskTitle("Old task");
+        current.setLongRunningPlanSummary("Old plan");
+        current.setPlanMode(true);
+
+        var action = handler.handle("/mode long-running", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertEquals(SessionMode.LONG_RUNNING, current.workflowMode());
+        assertEquals(madacode.core.session.LongRunningStage.WAITING_FOR_TASK,
+                current.longRunningStage());
+        assertEquals(false, current.isPlanMode());
+        assertEquals(null, current.longRunningTaskId());
+        assertEquals(null, current.longRunningTaskDirectory());
+        assertEquals(null, current.longRunningTaskTitle());
+        assertEquals(null, current.longRunningPlanSummary());
     }
 
     @Test
@@ -632,6 +659,16 @@ public class SlashCommandHandlerTest {
                 Instant.now(),
                 Path.of("."),
                 List.of(Message.system("Init"), Message.user(firstUserMessage)));
+    }
+
+    private static String firstText(Message message) {
+        if (message.contentBlocks().isEmpty()) {
+            return "";
+        }
+        var first = message.contentBlocks().getFirst();
+        return first instanceof madacode.core.model.ContentBlock.TextBlock text
+                ? text.text()
+                : "";
     }
 
     private static SkillLoader testSkillLoader() {

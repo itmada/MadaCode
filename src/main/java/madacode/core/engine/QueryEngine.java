@@ -114,9 +114,6 @@ public class QueryEngine {
         session.addMessage(Message.user(userInput));
         DiagnosticEventLogger.turnStarted(session, maxIterations);
 
-        String systemPrompt = systemPromptBuilder.build(
-                toolRegistry.tools(), session.workingDirectory(), session);
-
         ToolExecutor toolExecutor = new ToolExecutor(
                 toolRegistry, toolInputValidator, permissionGate, hookManager);
         ToolOrchestrator toolOrchestrator = new ToolOrchestrator(toolRegistry, toolExecutor);
@@ -139,12 +136,19 @@ public class QueryEngine {
             }
             long iterStart = System.nanoTime();
 
+            // Recalculate visible tools and system prompt each iteration so that
+            // stage changes within a turn (e.g. longrun_task_update completing a
+            // task) are reflected in subsequent model requests.
+            var visibleTools = SystemPromptBuilder.visibleToolsForSession(toolRegistry.tools(), session);
+            String systemPrompt = systemPromptBuilder.build(
+                    visibleTools, session.workingDirectory(), session);
+
             ApiClient.ApiResponse response;
             try (AssistantTurnWriter writer = AssistantTurnWriter.open(session)) {
                 try {
                     session.fireMetaEvent(new MetaEvent.ModelRequestStarted());
                     response = apiClient.send(session.messages(), systemPrompt,
-                            toolRegistry.tools(), writer.sink(), cancel);
+                            visibleTools, writer.sink(), cancel);
                     long iterElapsed = elapsedMs(iterStart);
                     DiagnosticEventLogger.modelIterationCompleted(
                             session, iteration + 1, iterElapsed,

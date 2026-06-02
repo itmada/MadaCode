@@ -1,7 +1,8 @@
 package madacode.cli.slash;
 
-import madacode.core.session.SessionMode;
+import madacode.core.model.Message;
 import madacode.core.session.LongRunningStage;
+import madacode.core.session.SessionMode;
 import madacode.permission.PermissionMode;
 
 import java.util.Arrays;
@@ -59,9 +60,16 @@ final class ModeCommand implements SlashCommand {
         }
 
         if (mode == SessionMode.LONG_RUNNING) {
+            ctx.session().setPlanMode(false);
+            ctx.session().setLongRunningTaskId(null);
+            ctx.session().setLongRunningTaskDirectory(null);
+            ctx.session().setLongRunningTaskTitle(null);
+            ctx.session().setLongRunningPlanSummary(null);
+            ctx.session().clearLongRunningStageUpdate();
             ctx.session().setPermissionMode(PermissionMode.BYPASS);
             ctx.session().setLongRunningStage(LongRunningStage.WAITING_FOR_TASK);
             if (ctx.sessionContext() != null) {
+                ctx.sessionContext().setPlanMode(false);
                 ctx.sessionContext().setPermissionMode(PermissionMode.BYPASS);
             }
             SlashFeedback.muted(ctx.screen(), "Entered long-running mode.");
@@ -69,11 +77,15 @@ final class ModeCommand implements SlashCommand {
                     "This mode is for larger serial relay tasks. It starts with planning and confirmation, and will not execute immediately.");
             SlashFeedback.muted(ctx.screen(),
                     "Current permission is all-pass. Use /permission to change it.");
-            return new SlashAction.Handled();
+            ctx.session().addMessage(Message.system(
+                    "[long-running mode entered] This mode is for larger serial relay tasks. "
+                            + "It starts with planning and confirmation, uses all-pass permission by default, "
+                            + "and waits for the user to provide the task request."));
+            return new SlashAction.Handled(true);
         }
 
         SlashFeedback.muted(ctx.screen(), "Mode set to: " + mode.id());
-        return new SlashAction.Handled();
+        return new SlashAction.Handled(true);
     }
 
     private static void listModes(SlashContext ctx) {

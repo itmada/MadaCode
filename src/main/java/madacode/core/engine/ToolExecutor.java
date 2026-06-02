@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import madacode.hook.HookManager;
 import madacode.logging.DiagnosticEventLogger;
+import madacode.longrunning.LongRunningToolPolicy;
 import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
 import madacode.tool.Tool;
@@ -40,7 +41,7 @@ public final class ToolExecutor {
     private static final Set<String> PLAN_MODE_ALLOWED = Set.of(
             "enter_plan_mode", "exit_plan_mode", "plan_create", "plan_get", "plan_list",
             "plan_update", "todo_write", "skill", "ask_user_question", "agent",
-            "longrun_stage_update");
+            "longrun_stage_update", "longrun_task_update");
 
     private final ToolRegistry toolRegistry;
     private final ToolInputValidator inputValidator;
@@ -94,6 +95,16 @@ public final class ToolExecutor {
                     toolCall.toolName(), false,
                     "Error: unknown tool \"" + toolCall.toolName() + "\"");
             emitCompleted(session, toolCall.id(), toolCall.toolName(), toolCall.input(), result, 0);
+            return result;
+        }
+
+        // Long-running tool policy: hard execution guard that matches the
+        // visibility rules in SystemPromptBuilder. Even if a tool call slips
+        // through prompt filtering, it is rejected here.
+        String denialReason = LongRunningToolPolicy.executionDenialReason(tool.name(), session);
+        if (denialReason != null) {
+            ToolResult result = new ToolResult(tool.name(), false, denialReason);
+            emitCompleted(session, toolCall.id(), tool.name(), toolCall.input(), result, 0);
             return result;
         }
 

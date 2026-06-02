@@ -119,6 +119,7 @@ public final class LongRunningTaskStore {
             throw new LongRunningTaskStoreException("Initial feature list already exists for " + taskId);
         }
         List<FeatureItem> validated = validateFeatureList(features, false);
+        validateFeatureDependencies(validated, false);
         writeFeatures(directory.resolve(FEATURE_LIST_FILE), validated, taskId);
         updateTaskTimestamp(taskId, Instant.now());
     }
@@ -127,31 +128,58 @@ public final class LongRunningTaskStore {
         requireNonBlank(featureId, "featureId");
         Path directory = validateTaskDirectory(taskId);
         List<FeatureItem> features = readFeatures(directory.resolve(FEATURE_LIST_FILE));
+
+        // Find the target feature
+        FeatureItem target = features.stream()
+                .filter(f -> f.id().equals(featureId))
+                .findFirst()
+                .orElseThrow(() -> new LongRunningTaskStoreException(
+                        "Unknown feature id " + featureId + " for task " + taskId));
+
+        if (target.passes()) {
+            return target;
+        }
+
+        // Validate all dependency features are already passed
+        for (String depId : target.dependsOn()) {
+            FeatureItem dep = features.stream()
+                    .filter(f -> f.id().equals(depId))
+                    .findFirst()
+                    .orElseThrow(() -> new LongRunningTaskStoreException(
+                            "Feature " + featureId + " depends on unknown feature " + depId));
+            if (!dep.passes()) {
+                throw new LongRunningTaskStoreException(
+                        "Feature " + featureId + " cannot be passed: dependency " + depId + " has not passed yet");
+            }
+        }
+
+        // Check for open or blocked known issues
+        List<KnownIssue> issues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
+        boolean hasActiveIssue = issues.stream()
+                .anyMatch(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()));
+        if (hasActiveIssue) {
+            throw new LongRunningTaskStoreException(
+                    "Cannot mark feature " + featureId + " as passed: resolve open or blocked known issues first");
+        }
+
         List<FeatureItem> updated = new ArrayList<>(features.size());
-        FeatureItem changed = null;
         for (FeatureItem feature : features) {
             if (feature.id().equals(featureId)) {
-                changed = feature.passes()
-                        ? feature
-                        : new FeatureItem(
-                                feature.id(),
-                                feature.category(),
-                                feature.priority(),
-                                feature.description(),
-                                feature.dependsOn(),
-                                feature.verificationSteps(),
-                                true);
-                updated.add(changed);
+                updated.add(new FeatureItem(
+                        feature.id(),
+                        feature.category(),
+                        feature.priority(),
+                        feature.description(),
+                        feature.dependsOn(),
+                        feature.verificationSteps(),
+                        true));
             } else {
                 updated.add(feature);
             }
         }
-        if (changed == null) {
-            throw new LongRunningTaskStoreException("Unknown feature id " + featureId + " for task " + taskId);
-        }
         writeFeatures(directory.resolve(FEATURE_LIST_FILE), updated, taskId);
         updateTaskTimestamp(taskId, Instant.now());
-        return changed;
+        return updated.stream().filter(f -> f.id().equals(featureId)).findFirst().orElseThrow();
     }
 
     public synchronized List<KnownIssue> readKnownIssues(String taskId) {
@@ -206,6 +234,74 @@ public final class LongRunningTaskStore {
         return changed;
     }
 
+    /**
+     * Updates the status of a known issue with state-machine validation.
+     *
+     * <p>Allowed transitions:
+     * <ul>
+     *   <li>{@code open -> blocked}</li>
+     *   <li>{@code blocked -> open}</li>
+     *   <li>{@code open -> resolved}</li>
+     *   <li>{@code blocked -> resolved}</li>
+     * </ul>
+     *
+     * <p>Transitions from {@code resolved} back to any other status are
+     * rejected. {@code resolvedAt} is set only when entering
+     * {@code resolved}, and cleared when leaving it.
+     *
+     * @return the updated issue
+     * @throws LongRunningTaskStoreException if the issue is not found or the
+     *         transition is invalid
+     */
+    public synchronized KnownIssue updateIssueStatus(String taskId, String issueId, String newStatus) {
+        requireNonBlank(issueId, "issueId");
+        requireNonBlank(newStatus, "newStatus");
+        if (!ALLOWED_ISSUE_STATUSES.contains(newStatus)) {
+            throw new LongRunningTaskStoreException("Unsupported issue status: " + newStatus);
+        }
+        Path directory = validateTaskDirectory(taskId);
+        List<KnownIssue> issues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
+        List<KnownIssue> updated = new ArrayList<>(issues.size());
+        KnownIssue changed = null;
+        Instant now = Instant.now();
+        for (KnownIssue issue : issues) {
+            if (issue.id().equals(issueId)) {
+                String currentStatus = issue.status();
+                if (currentStatus.equals(newStatus)) {
+                    changed = issue;
+                } else if ("resolved".equals(currentStatus)) {
+                    throw new LongRunningTaskStoreException(
+                            "Cannot change status of resolved issue " + issueId);
+                } else if ("open".equals(currentStatus) && "blocked".equals(newStatus)) {
+                    changed = new KnownIssue(issue.id(), issue.description(), issue.severity(),
+                            "blocked", issue.discoveredIn(), issue.verificationSteps(),
+                            issue.createdAt(), null);
+                } else if ("blocked".equals(currentStatus) && "open".equals(newStatus)) {
+                    changed = new KnownIssue(issue.id(), issue.description(), issue.severity(),
+                            "open", issue.discoveredIn(), issue.verificationSteps(),
+                            issue.createdAt(), null);
+                } else if (("open".equals(currentStatus) || "blocked".equals(currentStatus))
+                        && "resolved".equals(newStatus)) {
+                    changed = new KnownIssue(issue.id(), issue.description(), issue.severity(),
+                            "resolved", issue.discoveredIn(), issue.verificationSteps(),
+                            issue.createdAt(), now);
+                } else {
+                    throw new LongRunningTaskStoreException(
+                            "Invalid issue status transition: " + currentStatus + " -> " + newStatus);
+                }
+                updated.add(changed);
+            } else {
+                updated.add(issue);
+            }
+        }
+        if (changed == null) {
+            throw new LongRunningTaskStoreException("Unknown issue id " + issueId + " for task " + taskId);
+        }
+        writeKnownIssues(directory.resolve(KNOWN_ISSUES_FILE), updated, taskId);
+        updateTaskTimestamp(taskId, now);
+        return changed;
+    }
+
     public synchronized void appendProgress(String taskId, String text) {
         requireNonBlank(text, "text");
         Path directory = validateTaskDirectory(taskId);
@@ -216,6 +312,97 @@ public final class LongRunningTaskStore {
         } catch (IOException exception) {
             throw new LongRunningTaskStoreException("Failed to append progress for task " + taskId, exception);
         }
+    }
+
+    /**
+     * Marks a task as completed: updates task.json status and stage.
+     *
+     * @return the updated metadata
+     * @throws LongRunningTaskStoreException if the task is not in an
+     *         executable state
+     */
+    public synchronized LongRunningTaskMetadata markTaskCompleted(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if (!"executing".equals(metadata.status())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be completed: current status is " + metadata.status());
+        }
+        validateTaskCompletionPreconditions(taskId, directory);
+        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
+                metadata.id(),
+                metadata.title(),
+                "completed",
+                metadata.createdAt(),
+                Instant.now(),
+                metadata.sessionId(),
+                "COMPLETED");
+        try {
+            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(
+                    "Failed to mark task " + taskId + " as completed", exception);
+        }
+        return updated;
+    }
+
+    private void validateTaskCompletionPreconditions(String taskId, Path directory) {
+        List<FeatureItem> features = readFeatures(directory.resolve(FEATURE_LIST_FILE));
+        if (features.isEmpty()) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be completed: feature list is empty");
+        }
+        List<String> incompleteFeatures = features.stream()
+                .filter(feature -> !feature.passes())
+                .map(FeatureItem::id)
+                .toList();
+        if (!incompleteFeatures.isEmpty()) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be completed: incomplete features "
+                            + String.join(", ", incompleteFeatures));
+        }
+        List<String> activeIssues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE)).stream()
+                .filter(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()))
+                .map(KnownIssue::id)
+                .toList();
+        if (!activeIssues.isEmpty()) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be completed: active known issues "
+                            + String.join(", ", activeIssues));
+        }
+    }
+
+    /**
+     * Cancels a task: updates task.json status and stage.
+     *
+     * @return the updated metadata
+     * @throws LongRunningTaskStoreException if the task is not in an
+     *         executable state
+     */
+    public synchronized LongRunningTaskMetadata cancelTask(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if (!"executing".equals(metadata.status())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be cancelled: current status is " + metadata.status());
+        }
+        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
+                metadata.id(),
+                metadata.title(),
+                "cancelled",
+                metadata.createdAt(),
+                Instant.now(),
+                metadata.sessionId(),
+                "CANCELLED");
+        try {
+            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(
+                    "Failed to cancel task " + taskId, exception);
+        }
+        return updated;
     }
 
     public synchronized Path validateTaskDirectory(String taskId) {
@@ -267,6 +454,10 @@ public final class LongRunningTaskStore {
             for (JsonNode item : root) {
                 features.add(deserializeFeature(item));
             }
+            // Structural validation only — duplicates, required fields, etc.
+            // Dependency integrity (existence, no self-deps, no cycles) is
+            // validated on write in writeInitialFeatureList. We trust on read
+            // to avoid O(V+E) DFS on every store operation.
             return validateFeatureList(features, true);
         } catch (IOException exception) {
             throw new LongRunningTaskStoreException("Failed to read feature list from " + featureFile, exception);
@@ -331,6 +522,78 @@ public final class LongRunningTaskStore {
             }
         }
         return validated;
+    }
+
+    /**
+     * Validates feature dependency integrity: all depends_on references must
+     * point to existing feature IDs, self-dependencies are forbidden, and
+     * circular dependencies are detected.
+     *
+     * @param features the feature list to validate
+     * @param allowPassedFeatures if true, skip dependency checks for features
+     *        that are already passed (used when reading from disk)
+     */
+    private void validateFeatureDependencies(List<FeatureItem> features, boolean allowPassedFeatures) {
+        Set<String> ids = features.stream().map(FeatureItem::id).collect(java.util.stream.Collectors.toSet());
+
+        for (FeatureItem feature : features) {
+            // Skip dependency validation for already-passed features when
+            // reading from disk — they may have been written before validation
+            // was added.
+            if (allowPassedFeatures && feature.passes()) {
+                continue;
+            }
+            for (String depId : feature.dependsOn()) {
+                if (depId.equals(feature.id())) {
+                    throw new LongRunningTaskStoreException(
+                            "Feature " + feature.id() + " has a self-dependency");
+                }
+                if (!ids.contains(depId)) {
+                    throw new LongRunningTaskStoreException(
+                            "Feature " + feature.id() + " depends on unknown feature " + depId);
+                }
+            }
+        }
+
+        // Detect circular dependencies via DFS
+        Set<String> visited = new LinkedHashSet<>();
+        Set<String> recursionStack = new LinkedHashSet<>();
+        for (FeatureItem feature : features) {
+            if (allowPassedFeatures && feature.passes()) {
+                continue;
+            }
+            if (hasCycle(feature.id(), features, visited, recursionStack)) {
+                throw new LongRunningTaskStoreException(
+                        "Circular dependency detected in feature list");
+            }
+        }
+    }
+
+    private boolean hasCycle(String featureId, List<FeatureItem> features,
+                             Set<String> visited, Set<String> recursionStack) {
+        if (recursionStack.contains(featureId)) {
+            return true;
+        }
+        if (visited.contains(featureId)) {
+            return false;
+        }
+        visited.add(featureId);
+        recursionStack.add(featureId);
+
+        FeatureItem feature = features.stream()
+                .filter(f -> f.id().equals(featureId))
+                .findFirst()
+                .orElse(null);
+        if (feature != null) {
+            for (String depId : feature.dependsOn()) {
+                if (hasCycle(depId, features, visited, recursionStack)) {
+                    return true;
+                }
+            }
+        }
+
+        recursionStack.remove(featureId);
+        return false;
     }
 
     private List<KnownIssue> validateKnownIssues(List<KnownIssue> issues) {

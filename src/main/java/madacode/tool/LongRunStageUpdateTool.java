@@ -45,7 +45,7 @@ public final class LongRunStageUpdateTool implements Tool<LongRunStageUpdateTool
         ObjectNode properties = mapper.createObjectNode();
         properties.set("intent", ToolSchemas.stringEnumProperty(mapper,
                 "Structured long-running user intent",
-                "FINALIZE_PLAN", "APPROVE_EXECUTION", "CANCEL", "COMPLETE"));
+                "FINALIZE_PLAN", "APPROVE_EXECUTION", "CANCEL"));
         properties.set("confidence", ToolSchemas.stringEnumProperty(mapper,
                 "Confidence in the inferred intent",
                 "high", "medium", "low"));

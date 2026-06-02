@@ -50,6 +50,52 @@ public class SystemPromptBuilderLongRunningTest {
     }
 
     @Test
+    void longRunningExecutingPromptEnforcesIssueFirstSingleItemLoop() {
+        ConversationSession session = new ConversationSession();
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.EXECUTING);
+
+        String prompt = new SystemPromptBuilder().build(
+                List.of(new StubTool("file_read"), new StubTool("longrun_task_update")),
+                session.workingDirectory(),
+                session);
+
+        assertTrue(prompt.contains("Long-running stage: EXECUTING."));
+        assertTrue(prompt.contains("known-issues.json"));
+        assertTrue(prompt.contains("fix exactly one issue"));
+        assertTrue(prompt.contains("do not pick a feature"));
+        assertTrue(prompt.contains("pick exactly one eligible feature"));
+        assertTrue(prompt.contains("progress.txt"));
+        assertTrue(prompt.contains("longrun_task_update"));
+        assertTrue(prompt.contains("passes value from false to true"));
+    }
+
+    @Test
+    void longRunningToolVisibilityTracksStage() {
+        ConversationSession planning = new ConversationSession();
+        planning.setWorkflowMode(SessionMode.LONG_RUNNING);
+        planning.setLongRunningStage(LongRunningStage.PLANNING);
+
+        String planningPrompt = new SystemPromptBuilder().build(
+                List.of(new StubTool("longrun_stage_update"), new StubTool("longrun_task_update")),
+                planning.workingDirectory(),
+                planning);
+        assertTrue(planningPrompt.contains("Available tools: longrun_stage_update"));
+        assertFalse(planningPrompt.contains("Available tools: longrun_stage_update, longrun_task_update"));
+
+        ConversationSession executing = new ConversationSession();
+        executing.setWorkflowMode(SessionMode.LONG_RUNNING);
+        executing.setLongRunningStage(LongRunningStage.EXECUTING);
+
+        String executingPrompt = new SystemPromptBuilder().build(
+                List.of(new StubTool("longrun_stage_update"), new StubTool("longrun_task_update")),
+                executing.workingDirectory(),
+                executing);
+        assertTrue(executingPrompt.contains("Available tools: longrun_task_update"));
+        assertFalse(executingPrompt.contains("Available tools: longrun_stage_update, longrun_task_update"));
+    }
+
+    @Test
     void commonModePromptDoesNotMentionLongRunningWorkflow() {
         String prompt = new SystemPromptBuilder().build(
                 List.of(new StubTool("file_read"), new StubTool("longrun_stage_update")));

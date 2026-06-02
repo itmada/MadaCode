@@ -113,7 +113,12 @@ public abstract class Repl {
                 runManagedTurn(turnExecutor.submitLocal(session, r.label(), r.task()));
                 yield true;
             }
-            case SlashAction.Handled h -> true;
+            case SlashAction.Handled h -> {
+                if (h.persistSession()) {
+                    persistSession();
+                }
+                yield true;
+            }
             case SlashAction.SwitchSession s -> {
                 replaceSession(s.session(), s.fresh());
                 yield true;
