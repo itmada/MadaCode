@@ -25,7 +25,7 @@ class LongRunningTaskStoreFeatureDependencyTest {
     }
 
     private String createTask(String taskId) {
-        store.createTask(new CreateTaskRequest(taskId, "Test task", "RUNNING", "session-1", "RUNNING"));
+        store.createTask(new CreateTaskRequest(taskId, "Test task", "RUNNING", null, "session-1", null));
         return taskId;
     }
 

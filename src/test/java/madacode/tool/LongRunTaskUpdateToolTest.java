@@ -347,7 +347,7 @@ class LongRunTaskUpdateToolTest {
         // Create task on disk but do NOT set taskDirectory on session
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
-                "task-repair-dir", "Repair dir test", "RUNNING", "session-rd", "RUNNING"));
+                "task-repair-dir", "Repair dir test", "RUNNING", null, "session-rd", null));
         Path realDir = store.taskDirectoryPath("task-repair-dir");
 
         ConversationSession session = new ConversationSession(tempDir);
@@ -406,8 +406,9 @@ class LongRunTaskUpdateToolTest {
                 taskId,
                 "Test task",
                 "RUNNING",
+                null,
                 "session-1",
-                "RUNNING"));
+                null));
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.RUNNING);

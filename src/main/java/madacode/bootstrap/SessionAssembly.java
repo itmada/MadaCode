@@ -11,6 +11,7 @@ import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
+import madacode.longrunning.LongRunningControlSessionFactory;
 import madacode.tui.WelcomeCard;
 import madacode.tui.inline.InlineChoicePrompt;
 
@@ -82,9 +83,8 @@ final class SessionAssembly {
                 yield session;
             }
             case CliArgs.LongRunningSession l -> {
-                ConversationSession session = new ConversationSession();
-                session.setWorkflowMode(SessionMode.LONG_RUNNING);
-                session.setLongRunningStage(LongRunningStage.DRAFT);
+                ConversationSession session =
+                        new LongRunningControlSessionFactory().create(Path.of(System.getProperty("user.dir")));
                 SessionPointer.write(session.sessionId());
                 yield session;
             }

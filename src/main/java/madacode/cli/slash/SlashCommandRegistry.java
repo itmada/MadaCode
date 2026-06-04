@@ -26,13 +26,6 @@ public final class SlashCommandRegistry {
         commands.add(new ExitCommand());
         commands.add(new ModelCommand());
         commands.add(new ModeCommand());
-        madacode.longrunning.LongRunningController lrController =
-                new madacode.longrunning.LongRunningController();
-        commands.add(new LongRunFinalizeCommand(lrController));
-        commands.add(new LongRunApproveCommand(lrController));
-        commands.add(new LongRunReviseCommand(lrController));
-        commands.add(new LongRunCancelCommand(lrController));
-        commands.add(new LongRunContinueCommand());
         commands.add(new PermissionCommand());
         commands.add(new CompactCommand());
         commands.add(new CostCommand());

@@ -19,7 +19,7 @@ class LongRunningControllerTest {
 
     private ConversationSession sessionWithTask(String taskId, LongRunningStage stage) {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest(taskId, "Test Task", stage.name(), "test-session", "test plan"));
+        store.createTask(new CreateTaskRequest(taskId, "Test Task", stage.name(), null, "test-session", "test plan"));
 
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
@@ -77,7 +77,8 @@ class LongRunningControllerTest {
         ConversationSession session = sessionWithTask("task-cancel", LongRunningStage.DRAFT);
         LongRunningController controller = new LongRunningController();
 
-        controller.cancelTask(session);
+        controller.requestTransition(session, LongRunningStage.DONE,
+                "user_requested_cancel", "cancel", null, "test");
         controller.applyPendingRequest(session, "user", null);
 
         assertEquals(LongRunningStage.DONE, session.longRunningStage());

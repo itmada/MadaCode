@@ -83,7 +83,7 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
         properties.set("title", ToolSchemas.stringProperty(
                 mapper, "Optional replacement task title for update_plan_summary."));
         properties.set("reason", ToolSchemas.stringProperty(
-                mapper, "Optional draft reason such as awaiting_approval for update_plan_summary."));
+                mapper, "Optional draft reason such as requirements_updated for update_plan_summary."));
         properties.set("plan_summary", ToolSchemas.stringProperty(
                 mapper, "Updated structured plan summary for update_plan_summary."));
         properties.set("features", ToolSchemas.arrayProperty(

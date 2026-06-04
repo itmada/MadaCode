@@ -26,7 +26,7 @@ class LongRunningTaskStoreIssueStatusTest {
     }
 
     private String createTaskWithFeatures(String taskId) {
-        store.createTask(new CreateTaskRequest(taskId, "Test task", "RUNNING", "session-1", "RUNNING"));
+        store.createTask(new CreateTaskRequest(taskId, "Test task", "RUNNING", null, "session-1", null));
         store.writeInitialFeatureList(taskId, List.of(
                 new FeatureItem("f1", "cat", "high", "desc", List.of(), List.of("v"), false)));
         return taskId;

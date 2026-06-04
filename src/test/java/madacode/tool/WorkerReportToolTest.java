@@ -106,7 +106,7 @@ class WorkerReportToolTest {
         Path workingDirectory = tempDir.resolve("ws-report");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-report", "Test task", "RUNNING", "session-ctrl", "RUNNING"));
+                "task-report", "Test task", "RUNNING", null, "session-ctrl", null));
 
         ConversationSession session = workerSession("task-report", workingDirectory);
         ToolUseContext context = new ToolUseContext(workingDirectory, session);
@@ -155,7 +155,7 @@ class WorkerReportToolTest {
         Path workingDirectory = tempDir.resolve("ws-complete");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-complete", "Test task", "RUNNING", "session-ctrl", "RUNNING"));
+                "task-complete", "Test task", "RUNNING", null, "session-ctrl", null));
 
         ConversationSession session = workerSession("task-complete", workingDirectory);
         ToolUseContext context = new ToolUseContext(workingDirectory, session);
@@ -173,7 +173,7 @@ class WorkerReportToolTest {
         Path workingDirectory = tempDir.resolve("ws-duplicate");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-duplicate", "Test task", "RUNNING", "session-ctrl", "RUNNING"));
+                "task-duplicate", "Test task", "RUNNING", null, "session-ctrl", null));
         ConversationSession session = workerSession("task-duplicate", workingDirectory);
         ToolUseContext context = new ToolUseContext(workingDirectory, session);
 

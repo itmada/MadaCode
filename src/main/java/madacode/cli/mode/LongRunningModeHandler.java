@@ -49,10 +49,7 @@ public final class LongRunningModeHandler implements ModeHandler {
         String expanded = AtFileCompleter.expandMentions(line, session);
         LongRunningStage stage = stage(session);
         if (stage == LongRunningStage.DRAFT && session.longRunningTaskId() == null) {
-            if (session.longRunningTaskTitle() == null) {
-                session.setLongRunningTaskTitle(taskTitle(expanded));
-            }
-            initializePlanningTask(session, expanded);
+            initializePlanningTask(session, "");
         }
 
         return runConversationalTurn(session, expanded);
@@ -76,10 +73,6 @@ public final class LongRunningModeHandler implements ModeHandler {
         LongRunningTaskInitializer initializer =
                 new LongRunningTaskInitializer(store, taskIdGenerator);
         initializer.ensurePlanningTask(session, expandedInput);
-    }
-
-    private static String taskTitle(String input) {
-        return LongRunningTaskInitializer.taskTitle(input);
     }
 
     private static void ensureLongRunningSession(ConversationSession session) {

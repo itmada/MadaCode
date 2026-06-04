@@ -58,7 +58,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsEmptyFeatureList() {
-        store.createTask(new CreateTaskRequest("task-empty-features", "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest("task-empty-features", "Test", "RUNNING", null, "s1", null));
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
                 () -> store.markTaskCompleted("task-empty-features"));
@@ -68,7 +68,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsIncompleteFeatures() {
-        store.createTask(new CreateTaskRequest("task-incomplete", "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest("task-incomplete", "Test", "RUNNING", null, "s1", null));
         store.writeInitialFeatureList("task-incomplete", List.of(feature("feature-a")));
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
@@ -80,7 +80,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsOpenKnownIssue() {
-        store.createTask(new CreateTaskRequest("task-open-issue", "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest("task-open-issue", "Test", "RUNNING", null, "s1", null));
         store.writeInitialFeatureList("task-open-issue", List.of(feature("feature-a")));
         store.markFeaturePassed("task-open-issue", "feature-a");
         store.recordIssue("task-open-issue", issue("issue-a", "open"));
@@ -94,7 +94,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsBlockedKnownIssue() {
-        store.createTask(new CreateTaskRequest("task-blocked-issue", "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest("task-blocked-issue", "Test", "RUNNING", null, "s1", null));
         store.writeInitialFeatureList("task-blocked-issue", List.of(feature("feature-a")));
         store.markFeaturePassed("task-blocked-issue", "feature-a");
         store.recordIssue("task-blocked-issue", issue("issue-a", "blocked"));
@@ -110,7 +110,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void cancelTaskUpdatesStatusAndStage() {
-        store.createTask(new CreateTaskRequest("task-cancel-1", "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest("task-cancel-1", "Test", "RUNNING", null, "s1", null));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-1");
 
@@ -120,7 +120,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void cancelTaskPersistsToDisk() {
-        store.createTask(new CreateTaskRequest("task-cancel-2", "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest("task-cancel-2", "Test", "RUNNING", null, "s1", null));
         store.cancelTask("task-cancel-2");
 
         LongRunningTaskMetadata reloaded = store.loadTask("task-cancel-2");
@@ -130,7 +130,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void cancelTaskAllowsPlanningTask() {
-        store.createTask(new CreateTaskRequest("task-cancel-planning", "Test", "DRAFT", "s1", "PLANNING"));
+        store.createTask(new CreateTaskRequest("task-cancel-planning", "Test", "DRAFT", null, "s1", null));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-planning");
 
@@ -141,7 +141,7 @@ class LongRunningTaskStoreLifecycleTest {
     @Test
     void cancelTaskAllowsPlanAwaitingApproval() {
         store.createTask(new CreateTaskRequest(
-                "task-cancel-approval", "Test", "DRAFT", "s1", "DRAFT"));
+                "task-cancel-approval", "Test", "DRAFT", "s1", "DRAFT", null));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-approval");
 
@@ -152,7 +152,7 @@ class LongRunningTaskStoreLifecycleTest {
     @Test
     void cancelTaskAllowsInitializedTask() {
         store.createTask(new CreateTaskRequest(
-                "task-cancel-initialized", "Test", "DRAFT", "s1", "DRAFT"));
+                "task-cancel-initialized", "Test", "DRAFT", "s1", "DRAFT", null));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-initialized");
 
@@ -162,7 +162,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void cancelTaskRejectsAlreadyCancelledTask() {
-        store.createTask(new CreateTaskRequest("task-cancel-3", "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest("task-cancel-3", "Test", "RUNNING", null, "s1", null));
         store.cancelTask("task-cancel-3");
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
@@ -181,7 +181,7 @@ class LongRunningTaskStoreLifecycleTest {
     }
 
     private void createTaskReadyToComplete(String taskId) {
-        store.createTask(new CreateTaskRequest(taskId, "Test", "RUNNING", "s1", "RUNNING"));
+        store.createTask(new CreateTaskRequest(taskId, "Test", "RUNNING", null, "s1", null));
         store.writeInitialFeatureList(taskId, List.of(feature("feature-a")));
         store.markFeaturePassed(taskId, "feature-a");
     }

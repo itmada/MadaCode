@@ -18,7 +18,7 @@ import java.util.UUID;
  * <p>This class is the <em>single authority</em> for creating new tasks and
  * repairing partially-initialized session state. It ensures that planning has
  * durable state as soon as the user provides the long-running request, and
- * that approval initializes durable task state before launcher/worker handoff.
+ * that RUNNING handoff initializes durable task state before launcher/worker handoff.
  *
  * <p>Neither the model nor the prompt should ever see initialization logic —
  * it is a code-level harness invariant enforced before every execution turn.
@@ -92,13 +92,13 @@ public final class LongRunningTaskInitializer {
 
         if (session.longRunningTaskId() != null) {
             LongRunningTaskContext context = restoreOrInitializeExecutionTask(session, expandedInput);
-            persistApprovedPlan(session);
+            persistPlanSummary(session);
             return context;
         }
 
         LongRunningTaskContext context = createNewTask(session, expandedInput, "DRAFT", LongRunningStage.DRAFT);
         context = restoreOrInitializeExecutionTask(session, expandedInput);
-        persistApprovedPlan(session);
+        persistPlanSummary(session);
         return context;
     }
 
@@ -233,8 +233,9 @@ public final class LongRunningTaskInitializer {
                         taskId,
                         durableTaskTitle(session),
                         status,
+                        session.longRunningReason(),
                         session.sessionId(),
-                        stage.name()));
+                        session.longRunningPlanSummary()));
             } catch (LongRunningTaskStoreException exception) {
                 if (!exception.getMessage().contains("already exists")) {
                     throw exception;
@@ -248,8 +249,9 @@ public final class LongRunningTaskInitializer {
                 fallbackId,
                 durableTaskTitle(session),
                 status,
+                session.longRunningReason(),
                 session.sessionId(),
-                stage.name()));
+                session.longRunningPlanSummary()));
     }
 
     private static String durableTaskTitle(ConversationSession session) {
@@ -296,7 +298,7 @@ public final class LongRunningTaskInitializer {
                 stage: RUNNING
                 session: %s
                 task: %s
-                approval input: %s
+                transition input: %s
                 status: task entered RUNNING; awaiting launcher/worker
 
                 """.formatted(
@@ -306,7 +308,7 @@ public final class LongRunningTaskInitializer {
                 input == null ? "" : input.strip());
     }
 
-    private void persistApprovedPlan(ConversationSession session) {
+    private void persistPlanSummary(ConversationSession session) {
         String taskId = session.longRunningTaskId();
         if (taskId == null || taskId.isBlank()) {
             return;
@@ -319,7 +321,7 @@ public final class LongRunningTaskInitializer {
             plan.append(session.longRunningPlanSummary().strip()).append("\n");
         }
         if (!plan.isEmpty()) {
-            store.writeApprovedPlan(taskId, plan.toString());
+            store.writePlanSummary(taskId, plan.toString());
         }
     }
 

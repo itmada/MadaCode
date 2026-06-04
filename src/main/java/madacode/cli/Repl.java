@@ -8,6 +8,7 @@ import madacode.cli.session.SessionChooser;
 import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashContext;
+import madacode.core.model.Message;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
@@ -34,6 +35,7 @@ import madacode.tui.widget.SessionContext;
 
 import madacode.longrunning.LongRunningController;
 import madacode.longrunning.LongRunningLauncher;
+import madacode.longrunning.LongRunningRuntime;
 import madacode.longrunning.LongRunningWorkerRunner;
 import madacode.permission.PermissionGate;
 
@@ -61,6 +63,7 @@ public abstract class Repl {
     final TurnExecutor turnExecutor;
     final ModeRouter modeRouter;
     final LongRunningLauncher launcher;
+    final LongRunningRuntime longRunningRuntime;
     final LongRunningController longRunningController;
     final UserPromptChannel promptChannel;
     final PermissionGate permissionGate;
@@ -84,6 +87,9 @@ public abstract class Repl {
                         new CommonModeHandler(turnExecutor),
                         new LongRunningModeHandler(turnExecutor));
         this.launcher = config.launcher;
+        this.longRunningRuntime = config.longRunningRuntime != null
+                ? config.longRunningRuntime
+                : createLongRunningRuntime();
         this.longRunningController = config.longRunningController != null
                 ? config.longRunningController
                 : new LongRunningController();
@@ -142,16 +148,13 @@ public abstract class Repl {
             }
             case SlashAction.SwitchSession s -> {
                 replaceSession(s.session(), s.fresh());
+                persistSession();
                 yield true;
             }
             case SlashAction.ReplayAll r -> {
                 turnRenderer.reset();
                 metaEventRenderer.reset();
                 historyPrinter.printAll(session.messages());
-                yield true;
-            }
-            case SlashAction.LongRunLaunch l -> {
-                runLongRunLaunch(l.maxWorkers());
                 yield true;
             }
             case SlashAction.Exit e -> {
@@ -163,48 +166,71 @@ public abstract class Repl {
 
     public TurnRenderer turnRenderer() { return turnRenderer; }
 
-    private void runLongRunLaunch(int maxWorkers) {
+    private LongRunningRuntime createLongRunningRuntime() {
+        LongRunningLauncher effectiveLauncher = launcher;
+        if (effectiveLauncher != null) {
+            return new LongRunningRuntime(effectiveLauncher);
+        }
+        if (permissionGate == null) {
+            return null;
+        }
+        Path effectiveTurnLogRoot = workerTurnLogRoot != null
+                ? workerTurnLogRoot
+                : sessionStorage.transcriptPath(session.sessionId()).getParent();
+        LongRunningWorkerRunner.QueryEngineFactory engineFactory = (toolRegistry, promptBuilder) ->
+                new madacode.core.engine.QueryEngine(
+                        queryEngine.apiClient(), toolRegistry, promptBuilder,
+                        permissionGate);
+        LongRunningWorkerRunner workerRunner = new LongRunningWorkerRunner(
+                engineFactory, sessionStorage, queryEngine.toolRegistry(), effectiveTurnLogRoot);
+        return new LongRunningRuntime(new LongRunningLauncher(workerRunner));
+    }
+
+    private void startLongRunningRuntime() {
         String taskId = session.longRunningTaskId();
         if (taskId == null || taskId.isBlank()) {
             screen.scrollback("No active long-running task.");
             return;
         }
-
-        screen.scrollback("Launching worker cycles for task: " + taskId + " (max " + maxWorkers + ")...");
-
-        // Construct launcher on demand if not pre-configured
-        LongRunningLauncher effectiveLauncher = launcher;
-        if (effectiveLauncher == null) {
-            if (permissionGate == null) {
-                screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
-                return;
-            }
-            Path effectiveTurnLogRoot = workerTurnLogRoot != null
-                    ? workerTurnLogRoot
-                    : sessionStorage.transcriptPath(session.sessionId()).getParent();
-            LongRunningWorkerRunner.QueryEngineFactory engineFactory = (toolRegistry, promptBuilder) ->
-                    new madacode.core.engine.QueryEngine(
-                            queryEngine.apiClient(), toolRegistry, promptBuilder,
-                            permissionGate);
-            LongRunningWorkerRunner workerRunner = new LongRunningWorkerRunner(
-                    engineFactory, sessionStorage, queryEngine.toolRegistry(), effectiveTurnLogRoot);
-            effectiveLauncher = new LongRunningLauncher(workerRunner);
+        if (longRunningRuntime == null) {
+            screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
+            return;
         }
+        boolean started = longRunningRuntime.start(
+                taskId,
+                session.workingDirectory(),
+                session,
+                result -> {
+                    String summary = longRunningResultSummary(result);
+                    screen.scrollback(summary);
+                    session.addMessage(Message.system("[long-running] " + summary));
+                    persistSession();
+                },
+                error -> {
+                    String summary = "[failed] Long-running launcher failed: "
+                            + (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
+                    screen.scrollback(summary);
+                    session.addMessage(Message.system("[long-running] " + summary));
+                    persistSession();
+                });
+        if (started) {
+            screen.scrollback("Long-running workers started in the background for task: " + taskId + ".");
+        } else {
+            screen.scrollback("Long-running workers are already running for this task.");
+        }
+    }
 
-        LongRunningLauncher.LaunchResult result = effectiveLauncher.run(
-                taskId, session.workingDirectory(), session, maxWorkers);
-
-        // Display result
+    private static String longRunningResultSummary(LongRunningLauncher.LaunchResult result) {
         String statusTag = switch (result.status()) {
             case COMPLETED -> "[completed]";
             case BLOCKED -> "[blocked]";
             case FAILED -> "[failed]";
             case NEEDS_USER -> "[needs-user]";
+            case INTERRUPTED -> "[interrupted]";
             case MAX_WORKERS_EXHAUSTED -> "[exhausted]";
         };
-        screen.scrollback(statusTag + " " + result.message()
-                + " (" + result.workersLaunched() + " worker cycle(s) launched)");
-        persistSession();
+        return statusTag + " " + result.message()
+                + " (" + result.workersLaunched() + " worker cycle(s) launched)";
     }
 
     private void runManagedTurn(TurnHandle handle) {
@@ -239,7 +265,12 @@ public abstract class Repl {
                 LongRunningController.AppliedTransition applied =
                         longRunningController.applyPendingRequest(session, "user", interruptController);
                 if (applied.targetStage() == LongRunningStage.RUNNING) {
-                    runLongRunLaunch(5);
+                    startLongRunningRuntime();
+                } else if (applied.targetStage() == LongRunningStage.DRAFT
+                        || applied.targetStage() == LongRunningStage.DONE) {
+                    if (longRunningRuntime != null) {
+                        longRunningRuntime.interrupt("longrun-transition-" + applied.targetStage().name().toLowerCase());
+                    }
                 }
             } else {
                 longRunningController.rejectPendingRequest(session, "user");
@@ -413,6 +444,9 @@ public abstract class Repl {
     }
 
     protected void closeResources() {
+        if (longRunningRuntime != null) {
+            longRunningRuntime.close();
+        }
         for (AutoCloseable target : shutdownTargets) {
             try {
                 target.close();
@@ -447,6 +481,7 @@ public abstract class Repl {
         List<AutoCloseable> shutdownTargets;
         ModeRouter modeRouter;
         LongRunningLauncher launcher;
+        LongRunningRuntime longRunningRuntime;
         LongRunningController longRunningController;
         UserPromptChannel promptChannel;
         PermissionGate permissionGate;

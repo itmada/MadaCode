@@ -370,19 +370,23 @@ public class SlashCommandHandlerTest {
 
         var action = handler.handle("/mode long-running", current);
 
-        assertInstanceOf(SlashAction.Handled.class, action);
-        assertEquals(PermissionMode.BYPASS, current.permissionMode());
-        assertEquals(false, current.isPlanMode());
-        assertEquals(SessionMode.LONG_RUNNING, sessionContext.mode());
+        assertInstanceOf(SlashAction.SwitchSession.class, action);
+        var switched = (SlashAction.SwitchSession) action;
+        assertTrue(switched.fresh());
+        ConversationSession longRunning = switched.session();
+        assertEquals(PermissionMode.BYPASS, longRunning.permissionMode());
+        assertEquals(false, longRunning.isPlanMode());
+        assertEquals(SessionMode.LONG_RUNNING, longRunning.workflowMode());
         String output = outBytes.toString();
         String plain = stripAnsi(output);
         assertTrue(plain.contains("Entered long-running mode."));
-        assertTrue(plain.contains("will not execute immediately"));
-        assertTrue(plain.contains("Current permission is all-pass"));
+        assertTrue(plain.contains("fresh control session"));
+        assertTrue(plain.contains("task shell"));
         assertTrue(output.contains("\u001B["), "expected styled output: " + output);
-        assertTrue(current.messages().stream()
+        assertTrue(longRunning.messages().stream()
                 .anyMatch(message -> message.role() == MessageRole.SYSTEM
-                        && firstText(message).contains("[long-running mode entered]")));
+                        && firstText(message).contains("[long-running control session]")));
+        assertTrue(longRunning.longRunningTaskId() != null && !longRunning.longRunningTaskId().isBlank());
     }
 
     @Test
@@ -410,63 +414,27 @@ public class SlashCommandHandlerTest {
 
         var action = handler.handle("/mode long-running", current);
 
-        assertInstanceOf(SlashAction.Handled.class, action);
-        assertEquals(SessionMode.LONG_RUNNING, current.workflowMode());
+        assertInstanceOf(SlashAction.SwitchSession.class, action);
+        ConversationSession fresh = ((SlashAction.SwitchSession) action).session();
+        assertEquals(SessionMode.LONG_RUNNING, fresh.workflowMode());
         assertEquals(madacode.core.session.LongRunningStage.DRAFT,
-                current.longRunningStage());
-        assertEquals(false, current.isPlanMode());
-        assertEquals(null, current.longRunningTaskId());
-        assertEquals(null, current.longRunningTaskDirectory());
-        assertEquals(null, current.longRunningTaskTitle());
-        assertEquals(null, current.longRunningPlanSummary());
+                fresh.longRunningStage());
+        assertEquals(false, fresh.isPlanMode());
+        assertTrue(fresh.longRunningTaskId() != null && !fresh.longRunningTaskId().isBlank());
+        assertTrue(fresh.longRunningTaskDirectory() != null && !fresh.longRunningTaskDirectory().isBlank());
+        assertEquals("task-old", current.longRunningTaskId());
     }
 
     @Test
-    void longRunContinueCommandReturnsLaunchWhenTaskActive() {
+    void longRunContinueCommandIsNotRegistered() {
         current.setWorkflowMode(SessionMode.LONG_RUNNING);
         current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
         current.setLongRunningTaskId("task-test");
 
         var action = handler.handle("/longrun-continue 3", current);
 
-        assertInstanceOf(SlashAction.LongRunLaunch.class, action);
-        assertEquals(3, ((SlashAction.LongRunLaunch) action).maxWorkers());
-    }
-
-    @Test
-    void longRunContinueCommandDefaultsMaxWorkers() {
-        current.setWorkflowMode(SessionMode.LONG_RUNNING);
-        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
-        current.setLongRunningTaskId("task-test");
-
-        var action = handler.handle("/longrun-continue", current);
-
-        assertInstanceOf(SlashAction.LongRunLaunch.class, action);
-        assertEquals(5, ((SlashAction.LongRunLaunch) action).maxWorkers());
-    }
-
-    @Test
-    void longRunContinueCommandRejectsInvalidMaxWorkers() {
-        current.setWorkflowMode(SessionMode.LONG_RUNNING);
-        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
-        current.setLongRunningTaskId("task-test");
-
-        var action = handler.handle("/longrun-continue 0", current);
-
         assertInstanceOf(SlashAction.Handled.class, action);
-        assertTrue(stripAnsi(outBytes.toString()).contains("max-workers"));
-    }
-
-    @Test
-    void longRunContinueCommandRejectsWhenNoTaskId() {
-        current.setWorkflowMode(SessionMode.LONG_RUNNING);
-        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
-        // No taskId set
-
-        var action = handler.handle("/longrun-continue 3", current);
-
-        assertInstanceOf(SlashAction.Handled.class, action);
-        assertTrue(stripAnsi(outBytes.toString()).contains("No active long-running task"));
+        assertTrue(stripAnsi(outBytes.toString()).contains("Unknown command"));
     }
 
     @Test

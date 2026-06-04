@@ -18,6 +18,9 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Creates and runs a fresh worker agent session for a single bounded work cycle.
@@ -100,10 +103,14 @@ public class LongRunningWorkerRunner {
                 new TurnLog(turnLogRoot))) {
             TurnHandle handle = workerExecutor.submit(workerSession, workerInput);
             try {
-                turnResult = handle.result().join();
-            } catch (java.util.concurrent.CompletionException e) {
+                turnResult = waitForWorkerTurn(handle);
+            } catch (ExecutionException e) {
                 Throwable cause = e.getCause() == null ? e : e.getCause();
                 throw cause instanceof RuntimeException re ? re : new RuntimeException(cause);
+            } catch (InterruptedException e) {
+                handle.cancel().accept("long-running launcher interrupted");
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Worker interrupted", e);
             }
         }
 
@@ -133,6 +140,20 @@ public class LongRunningWorkerRunner {
                 workerSession.sessionId(),
                 turnResult,
                 report);
+    }
+
+    private static TurnResult waitForWorkerTurn(TurnHandle handle)
+            throws InterruptedException, ExecutionException {
+        while (true) {
+            try {
+                return handle.result().get(250, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException ignored) {
+                if (Thread.currentThread().isInterrupted()) {
+                    handle.cancel().accept("long-running launcher interrupted");
+                    throw new InterruptedException("long-running launcher interrupted");
+                }
+            }
+        }
     }
 
     /**

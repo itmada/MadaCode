@@ -125,12 +125,12 @@ class LongRunningModeHandlerTest {
 
         assertEquals(LongRunningStage.DRAFT, stageDuringTurn.get());
         assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
-        assertEquals("build the thing", session.longRunningTaskTitle());
         assertNotNull(taskIdDuringTurn.get());
         assertEquals(taskIdDuringTurn.get(), session.longRunningTaskId());
         assertTrue(Files.isDirectory(Path.of(session.longRunningTaskDirectory())));
         LongRunningTaskStore store = new LongRunningTaskStore(session.workingDirectory());
         assertEquals("DRAFT", store.loadTask(session.longRunningTaskId()).status());
+        assertEquals("Long-running task", store.loadTask(session.longRunningTaskId()).title());
         assertTrue(Files.isRegularFile(Path.of(session.longRunningTaskDirectory()).resolve("logs/events.jsonl")));
     }
 

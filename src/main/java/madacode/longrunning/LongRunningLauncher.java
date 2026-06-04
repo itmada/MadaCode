@@ -53,7 +53,7 @@ public final class LongRunningLauncher {
                 Map.of("maxWorkers", String.valueOf(maxWorkers)));
 
         LongRunningTaskMetadata initialMeta = store.loadTask(taskId);
-        if ("completed".equals(initialMeta.status()) || "cancelled".equals(initialMeta.status())) {
+        if ("DONE".equals(initialMeta.status())) {
             appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
                     true, "Task is already " + initialMeta.status(),
                     Map.of("reason", "terminal_status"));
@@ -78,9 +78,30 @@ public final class LongRunningLauncher {
         }
 
         for (int i = 0; i < maxWorkers; i++) {
+            if (Thread.currentThread().isInterrupted()) {
+                appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
+                        true, "Launcher interrupted before starting next worker.",
+                        Map.of("reason", "interrupted"));
+                return new LaunchResult(LaunchStatus.INTERRUPTED, i,
+                        "Launcher interrupted before starting next worker.");
+            }
+
+            int allowedCycles = allowedWorkerCycles(store, taskId, maxWorkers);
+            if (i >= allowedCycles) {
+                appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
+                        true, "Launcher exhausted dynamic worker cycle budget",
+                        Map.of(
+                                "reason", "worker_cycle_budget_exhausted",
+                                "allowedCycles", String.valueOf(allowedCycles),
+                                "hardLimit", String.valueOf(maxWorkers)));
+                return new LaunchResult(LaunchStatus.MAX_WORKERS_EXHAUSTED, i,
+                        "Launcher exhausted " + allowedCycles
+                                + " worker cycle(s) allowed by the current feature and issue lists.");
+            }
+
             // Check if task is already terminal
             LongRunningTaskMetadata meta = store.loadTask(taskId);
-            if ("completed".equals(meta.status()) || "cancelled".equals(meta.status())) {
+            if ("DONE".equals(meta.status())) {
                 appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
                         true, "Task is already " + meta.status(),
                         Map.of("reason", "terminal_status"));
@@ -89,14 +110,27 @@ public final class LongRunningLauncher {
 
             // Append worker started event
             appendLauncherEvent(store, taskId, controlSession, "worker_started",
-                    true, "Starting worker cycle " + (i + 1) + " of " + maxWorkers,
-                    Map.of("cycle", String.valueOf(i + 1)));
+                    true, "Starting worker cycle " + (i + 1) + " of " + allowedCycles,
+                    Map.of(
+                            "cycle", String.valueOf(i + 1),
+                            "allowedCycles", String.valueOf(allowedCycles),
+                            "hardLimit", String.valueOf(maxWorkers)));
 
             // Run the worker
             LongRunningWorkerRunner.WorkerRunResult result;
             try {
                 result = workerRunner.run(taskId, projectDir);
             } catch (RuntimeException e) {
+                if (Thread.currentThread().isInterrupted() || causedByInterruption(e)) {
+                    appendLauncherEvent(store, taskId, controlSession, "worker_finished",
+                            false, "Worker interrupted: " + safeMessage(e),
+                            Map.of("cycle", String.valueOf(i + 1), "reason", "interrupted"));
+                    appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
+                            true, "Launcher interrupted during worker cycle.",
+                            Map.of("reason", "interrupted"));
+                    return new LaunchResult(LaunchStatus.INTERRUPTED, i + 1,
+                            "Launcher interrupted during worker cycle.");
+                }
                 appendLauncherEvent(store, taskId, controlSession, "worker_finished",
                         false, "Worker crashed: " + e.getMessage(),
                         Map.of("cycle", String.valueOf(i + 1), "error", e.getMessage()));
@@ -152,6 +186,7 @@ public final class LongRunningLauncher {
                     }
                 }
                 case BLOCKED -> {
+                    controlSession.setLongRunningStage(madacode.core.session.LongRunningStage.DRAFT);
                     appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
                             false, "Worker blocked: " + report.summary(),
                             Map.of("reason", "blocked"));
@@ -159,6 +194,7 @@ public final class LongRunningLauncher {
                             "Worker blocked: " + report.summary());
                 }
                 case FAILED -> {
+                    controlSession.setLongRunningStage(madacode.core.session.LongRunningStage.DRAFT);
                     appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
                             false, "Worker failed: " + report.summary(),
                             Map.of("reason", "worker_failed"));
@@ -166,6 +202,7 @@ public final class LongRunningLauncher {
                             "Worker failed: " + report.summary());
                 }
                 case NEEDS_USER -> {
+                    controlSession.setLongRunningStage(madacode.core.session.LongRunningStage.DRAFT);
                     appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
                             true, "Worker needs user input: " + report.summary(),
                             Map.of("reason", "needs_user"));
@@ -181,6 +218,29 @@ public final class LongRunningLauncher {
                 Map.of("reason", "max_workers_exhausted"));
         return new LaunchResult(LaunchStatus.MAX_WORKERS_EXHAUSTED, maxWorkers,
                 "Launcher exhausted " + maxWorkers + " worker cycles. Task may still have remaining work.");
+    }
+
+    private static boolean causedByInterruption(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            if (cursor instanceof InterruptedException) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
+    }
+
+    private static String safeMessage(Throwable throwable) {
+        return throwable.getMessage() == null
+                ? throwable.getClass().getSimpleName()
+                : throwable.getMessage();
+    }
+
+    private int allowedWorkerCycles(LongRunningTaskStore store, String taskId, int hardLimit) {
+        int featureCount = store.readFeatureList(taskId).size();
+        int issueCount = store.readKnownIssues(taskId).size();
+        return Math.min(hardLimit, Math.max(1, featureCount + issueCount));
     }
 
     private void appendLauncherEvent(
@@ -215,6 +275,7 @@ public final class LongRunningLauncher {
         BLOCKED,
         FAILED,
         NEEDS_USER,
+        INTERRUPTED,
         MAX_WORKERS_EXHAUSTED
     }
 

@@ -293,7 +293,7 @@ public class QueryEngineTest {
 
         executingEngine.runTurn(executing, "continue");
 
-        // Control session EXECUTING hides long-running tools
+        // Control session RUNNING hides worker-only long-running tools
         assertFalse(executingClient.lastToolNames().contains("longrun_task_update"));
         assertTrue(executingClient.lastSystemPrompt().contains("Available tools: file_read"));
     }

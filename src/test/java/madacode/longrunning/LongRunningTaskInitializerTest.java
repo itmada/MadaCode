@@ -106,9 +106,9 @@ class LongRunningTaskInitializerTest {
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals("RUNNING", store().loadTask(taskId).status());
         assertEquals("RUNNING", store().loadTask(taskId).stage());
-        String approvedPlan = Files.readString(initialized.taskDirectory().resolve("task.json"));
-        assertTrue(approvedPlan.contains("Build marketplace"));
-        assertTrue(approvedPlan.contains("Spring Boot and React"));
+        String taskJson = Files.readString(initialized.taskDirectory().resolve("task.json"));
+        assertTrue(taskJson.contains("Build marketplace"));
+        assertTrue(taskJson.contains("Spring Boot and React"));
         assertTrue(store().readEvents(taskId).stream()
                 .anyMatch(event -> "task_execution_initialized".equals(event.type())));
         assertFalse(store().readEvents(taskId).stream()
@@ -116,16 +116,15 @@ class LongRunningTaskInitializerTest {
     }
 
     @Test
-    void approvalInitializesTaskAwaitingApprovalInsteadOfCrashing() throws Exception {
+    void runningTransitionInitializesPlanningTaskInsteadOfCrashing() throws Exception {
         ConversationSession session = session();
         session.setLongRunningStage(LongRunningStage.DRAFT);
 
         LongRunningTaskContext planning = initializer().ensurePlanningTask(session, "plan request");
         String taskId = planning.taskId();
-        store().markPlanAwaitingApproval(taskId);
 
         session.setLongRunningStage(LongRunningStage.RUNNING);
-        LongRunningTaskContext initialized = initializer().ensureExecutionTask(session, "approved");
+        LongRunningTaskContext initialized = initializer().ensureExecutionTask(session, "confirmed");
 
         assertEquals(taskId, initialized.taskId());
         assertEquals(taskId, session.longRunningTaskId());
@@ -134,7 +133,7 @@ class LongRunningTaskInitializerTest {
         assertEquals("RUNNING", store().loadTask(taskId).stage());
         String progress = Files.readString(initialized.taskDirectory().resolve("progress.txt"));
         assertTrue(progress
-                .contains("approval input: approved"));
+                .contains("transition input: confirmed"));
         assertTrue(progress.contains("awaiting launcher/worker"));
         assertTrue(store().readEvents(taskId).stream()
                 .anyMatch(event -> "task_execution_initialized".equals(event.type())));
@@ -145,7 +144,7 @@ class LongRunningTaskInitializerTest {
         // Create a real task first
         LongRunningTaskStore store = store();
         LongRunningTaskMetadata meta = store.createTask(new CreateTaskRequest(
-                "task-repair-test", "Repair test", "DRAFT", "session-r", "DRAFT"));
+                "task-repair-test", "Repair test", "DRAFT", null, "session-r", null));
         Path realDir = store.taskDirectoryPath("task-repair-test");
 
         // Set up session with taskId but no taskDirectory
@@ -170,7 +169,7 @@ class LongRunningTaskInitializerTest {
         // Create a real task
         LongRunningTaskStore store = store();
         store.createTask(new CreateTaskRequest(
-                "task-dir-fix", "Dir fix test", "DRAFT", "session-d", "DRAFT"));
+                "task-dir-fix", "Dir fix test", "DRAFT", null, "session-d", null));
         Path realDir = store.taskDirectoryPath("task-dir-fix");
 
         // Set up session with taskId and a wrong taskDirectory
@@ -200,7 +199,7 @@ class LongRunningTaskInitializerTest {
     void throwsWhenExistingTaskIsNotExecutable() {
         LongRunningTaskStore store = store();
         store.createTask(new CreateTaskRequest(
-                "task-cancelled", "Cancelled task", "RUNNING", "session-x", "RUNNING"));
+                "task-cancelled", "Cancelled task", "RUNNING", null, "session-x", null));
         store.cancelTask("task-cancelled");
 
         ConversationSession session = session();
@@ -219,7 +218,7 @@ class LongRunningTaskInitializerTest {
         // Pre-create a task with the id that would be generated first
         LongRunningTaskStore store = store();
         store.createTask(new CreateTaskRequest(
-                "task-collide", "Collision", "DRAFT", "session-c", "DRAFT"));
+                "task-collide", "Collision", "DRAFT", null, "session-c", null));
 
         ConversationSession session = session();
         session.setLongRunningStage(LongRunningStage.RUNNING);

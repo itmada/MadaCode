@@ -1,9 +1,10 @@
 package madacode.cli.slash;
 
-import madacode.core.model.Message;
-import madacode.core.session.LongRunningStage;
+import madacode.cli.session.SessionPointer;
+import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionMode;
-import madacode.permission.PermissionMode;
+import madacode.core.session.SessionStorageException;
+import madacode.longrunning.LongRunningControlSessionFactory;
 
 import java.util.Arrays;
 import java.util.Locale;
@@ -60,30 +61,21 @@ final class ModeCommand implements SlashCommand {
         }
 
         if (mode == SessionMode.LONG_RUNNING) {
-            ctx.session().setPlanMode(false);
-            ctx.session().setLongRunningTaskId(null);
-            ctx.session().setLongRunningTaskDirectory(null);
-            ctx.session().setLongRunningTaskTitle(null);
-            ctx.session().setLongRunningReason(null);
-            ctx.session().setLongRunningPlanSummary(null);
-            ctx.session().clearPendingLongRunningTransitionRequest();
-            ctx.session().setPermissionMode(PermissionMode.BYPASS);
-            ctx.session().setLongRunningStage(LongRunningStage.DRAFT);
-            if (ctx.sessionContext() != null) {
-                ctx.sessionContext().setPlanMode(false);
-                ctx.sessionContext().setPermissionMode(PermissionMode.BYPASS);
+            try {
+                ctx.storage().save(ctx.session());
+                SlashFeedback.muted(ctx.screen(), "(saved current session)");
+            } catch (SessionStorageException e) {
+                ctx.screen().scrollback("[warn] Failed to save current session: " + e.getMessage());
             }
+            ConversationSession fresh =
+                    new LongRunningControlSessionFactory().create(ctx.session().workingDirectory());
+            SessionPointer.write(fresh.sessionId());
             SlashFeedback.muted(ctx.screen(), "Entered long-running mode.");
             SlashFeedback.muted(ctx.screen(),
-                    "This mode is for larger serial relay tasks. It starts with planning and confirmation, and will not execute immediately.");
+                    "Created a fresh control session and initialized a long-running task shell.");
             SlashFeedback.muted(ctx.screen(),
-                    "Current permission is all-pass. Use /permission to change it.");
-            // Clear messages for a clean control session
-            ctx.session().replaceMessages(java.util.List.of(Message.system(
-                    "[long-running mode entered] This mode is for larger serial relay tasks. "
-                            + "It starts in DRAFT with a fresh control session, uses all-pass permission by default, "
-                            + "and creates the task shell when the user provides the task request.")));
-            return new SlashAction.Handled(true);
+                    "Discuss and refine the task in DRAFT; workers start only after confirmed transition to RUNNING.");
+            return new SlashAction.SwitchSession(fresh, true);
         }
 
         SlashFeedback.muted(ctx.screen(), "Mode set to: " + mode.id());

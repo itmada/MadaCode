@@ -150,7 +150,7 @@ public final class LongRunningTaskStore {
         return readFeatures(directory.resolve(FEATURE_LIST_FILE));
     }
 
-    public synchronized Optional<String> readApprovedPlan(String taskId) {
+    public synchronized Optional<String> readPlanSummary(String taskId) {
         String safeTaskId = validateTaskId(taskId);
         LongRunningTaskMetadata metadata = loadTask(safeTaskId);
         if (metadata.planSummary() == null || metadata.planSummary().isBlank()) {
@@ -159,7 +159,7 @@ public final class LongRunningTaskStore {
         return Optional.of(metadata.planSummary() + System.lineSeparator());
     }
 
-    public synchronized void writeApprovedPlan(String taskId, String plan) {
+    public synchronized void writePlanSummary(String taskId, String plan) {
         String safeTaskId = validateTaskId(taskId);
         String value = plan == null ? "" : plan.strip();
         updateTaskMetadata(safeTaskId, metadata -> new LongRunningTaskMetadata(
@@ -473,39 +473,6 @@ public final class LongRunningTaskStore {
                 "Failed to mark task " + taskId + " as executing");
     }
 
-    public synchronized LongRunningTaskMetadata markTaskInitialized(String taskId) {
-        requireNonBlank(taskId, "taskId");
-        Path directory = validateTaskDirectory(taskId);
-        LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("DRAFT".equals(metadata.status())) {
-            return metadata;
-        }
-        if (!"DRAFT".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be initialized: status="
-                            + metadata.status() + ", stage=" + metadata.stage());
-        }
-        return writeTaskLifecycle(directory, metadata, "DRAFT", "DRAFT",
-                "Failed to mark task " + taskId + " as initialized");
-    }
-
-    public synchronized LongRunningTaskMetadata markPlanAwaitingApproval(String taskId) {
-        requireNonBlank(taskId, "taskId");
-        Path directory = validateTaskDirectory(taskId);
-        LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("DRAFT".equals(metadata.status())
-                && "awaiting_approval".equals(metadata.reason())) {
-            return metadata;
-        }
-        if (!"DRAFT".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot await approval: status="
-                            + metadata.status() + ", stage=" + metadata.stage());
-        }
-        return writeTaskLifecycle(directory, metadata, "DRAFT", "DRAFT",
-                "Failed to mark task " + taskId + " as waiting for approval");
-    }
-
     public synchronized LongRunningTaskMetadata markPlanRevision(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
@@ -654,27 +621,15 @@ public final class LongRunningTaskStore {
     private static String mapLifecycleStatus(String status) {
         String normalized = requireNonBlank(status, "status").toUpperCase();
         return switch (normalized) {
-            case "PLANNING", "INITIALIZING", "INITIALIZED", "WAITING_FOR_APPROVAL", "DRAFT" -> "DRAFT";
-            case "EXECUTING", "RUNNING" -> "RUNNING";
-            case "COMPLETED", "CANCELLED", "DONE" -> "DONE";
+            case "DRAFT", "RUNNING", "DONE" -> normalized;
             default -> throw new LongRunningTaskStoreException("Unsupported lifecycle status: " + status);
         };
     }
 
     private static String mapLifecycleReason(String status, String stage) {
         String normalizedStatus = requireNonBlank(status, "status").toUpperCase();
-        String normalizedStage = stage == null ? "" : stage.strip().toUpperCase();
-        if ("DONE".equals(normalizedStatus) || "COMPLETED".equals(normalizedStatus)) {
+        if ("DONE".equals(normalizedStatus)) {
             return "task_completed";
-        }
-        if ("CANCELLED".equals(normalizedStatus)) {
-            return "cancelled";
-        }
-        if ("INITIALIZING".equals(normalizedStage) || "INITIALIZED".equals(normalizedStatus)) {
-            return "initializing";
-        }
-        if ("WAITING_FOR_APPROVAL".equals(normalizedStage)) {
-            return "awaiting_approval";
         }
         return null;
     }

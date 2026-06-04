@@ -17,6 +17,5 @@ public sealed interface SlashAction {
         }
     }
     record ReplayAll() implements SlashAction {}
-    record LongRunLaunch(int maxWorkers) implements SlashAction {}
     record Exit() implements SlashAction {}
 }

@@ -25,11 +25,13 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-progress");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
         // Set up features and mark them passed so markTaskCompleted succeeds
         store.writeInitialFeatureList("task-1", List.of(
-                new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false)));
+                new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false),
+                new FeatureItem("feat-2", "core", "high", "Feature 2", List.of(), List.of(), false)));
         store.markFeaturePassed("task-1", "feat-1");
+        store.markFeaturePassed("task-1", "feat-2");
 
         WorkerReport[] reports = {
                 report(WorkerReport.Status.PROGRESS_MADE, "Did step 1"),
@@ -62,7 +64,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-complete");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
         // Set up features and mark them passed so markTaskCompleted succeeds
         store.writeInitialFeatureList("task-1", List.of(
                 new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false)));
@@ -93,7 +95,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-blocked");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -117,7 +119,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-failed");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -140,7 +142,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-needsuser");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -163,7 +165,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-noreport");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -187,7 +189,11 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-exhausted");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+        store.writeInitialFeatureList("task-1", List.of(
+                new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false),
+                new FeatureItem("feat-2", "core", "high", "Feature 2", List.of(), List.of(), false),
+                new FeatureItem("feat-3", "core", "high", "Feature 3", List.of(), List.of(), false)));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -203,6 +209,49 @@ class LongRunningLauncherTest {
 
         assertEquals(LongRunningLauncher.LaunchStatus.MAX_WORKERS_EXHAUSTED, result.status());
         assertEquals(3, result.workersLaunched());
+    }
+
+    @Test
+    void newlyRecordedIssueExtendsDynamicWorkerBudget() {
+        Path workingDirectory = tempDir.resolve("ws-dynamic-issue");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+        store.writeInitialFeatureList("task-1", List.of(
+                new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false)));
+
+        int[] callCount = {0};
+        LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId -> {
+            callCount[0]++;
+            if (callCount[0] == 1) {
+                new LongRunningTaskStore(workingDirectory).recordIssue(taskId, new KnownIssue(
+                        "issue-1",
+                        "Follow-up issue",
+                        "medium",
+                        "resolved",
+                        "RUNNING",
+                        List.of(),
+                        java.time.Instant.now(),
+                        java.time.Instant.now()));
+                return new LongRunningWorkerRunner.WorkerRunResult(
+                        "worker-1",
+                        new TurnResult("ok", FinishReason.COMPLETED, 1),
+                        Optional.of(report(WorkerReport.Status.PROGRESS_MADE, "Issue recorded")));
+            }
+            return new LongRunningWorkerRunner.WorkerRunResult(
+                    "worker-2",
+                    new TurnResult("ok", FinishReason.COMPLETED, 1),
+                    Optional.of(report(WorkerReport.Status.PROGRESS_MADE, "Second step")));
+        });
+
+        LongRunningLauncher launcher = new LongRunningLauncher(fakeRunner);
+        ConversationSession controlSession = controlSession(workingDirectory);
+
+        LongRunningLauncher.LaunchResult result = launcher.run(
+                "task-1", workingDirectory, controlSession, 50);
+
+        assertEquals(LongRunningLauncher.LaunchStatus.MAX_WORKERS_EXHAUSTED, result.status());
+        assertEquals(2, result.workersLaunched());
     }
 
     private ConversationSession controlSession(Path workingDirectory) {

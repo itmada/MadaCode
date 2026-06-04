@@ -102,38 +102,6 @@ public final class LongRunningController {
         return applyPendingRequest(session, requestedBy, interruptController);
     }
 
-    public void finalizePlan(ConversationSession session) {
-        requestTransition(session, LongRunningStage.DRAFT,
-                "plan_ready_for_confirmation",
-                firstNonBlank(session.longRunningPlanSummary(), session.longRunningTaskTitle(), "Plan ready."),
-                session.longRunningPlanSummary(),
-                "slash:/longrun-finalize");
-    }
-
-    public void approveExecution(ConversationSession session, String expandedInput) {
-        requestTransition(session, LongRunningStage.RUNNING,
-                "user_confirmed_start",
-                firstNonBlank(expandedInput, session.longRunningPlanSummary(), session.longRunningTaskTitle(), ""),
-                session.longRunningPlanSummary(),
-                "slash:/longrun-approve");
-    }
-
-    public void revisePlan(ConversationSession session) {
-        requestTransition(session, LongRunningStage.DRAFT,
-                "resume_after_revision",
-                "User requested plan revision.",
-                session.longRunningPlanSummary(),
-                "slash:/longrun-revise");
-    }
-
-    public void cancelTask(ConversationSession session) {
-        requestTransition(session, LongRunningStage.DONE,
-                "user_requested_cancel",
-                "User cancelled the long-running task.",
-                null,
-                "slash:/longrun-cancel");
-    }
-
     private AppliedTransition applyTransition(
             ConversationSession session,
             LongRunningTransitionRequest request,

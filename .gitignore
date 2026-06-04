@@ -17,6 +17,7 @@ dependency-reduced-pom.xml
 
 # Local agent/worktree state
 .claude/
+.mada/long-running/
 
 # OS
 .DS_Store

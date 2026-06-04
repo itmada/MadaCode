@@ -16,10 +16,9 @@ public enum LongRunningStage {
             return Optional.empty();
         }
         return switch (value.strip().toUpperCase()) {
-            case "DRAFT", "PLANNING", "WAITING_FOR_TASK", "WAITING_FOR_APPROVAL", "INITIALIZING" ->
-                    Optional.of(DRAFT);
-            case "RUNNING", "EXECUTING" -> Optional.of(RUNNING);
-            case "DONE", "COMPLETED", "CANCELLED" -> Optional.of(DONE);
+            case "DRAFT" -> Optional.of(DRAFT);
+            case "RUNNING" -> Optional.of(RUNNING);
+            case "DONE" -> Optional.of(DONE);
             default -> Optional.empty();
         };
     }
