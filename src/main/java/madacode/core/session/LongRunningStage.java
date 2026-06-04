@@ -1,38 +1,26 @@
 package madacode.core.session;
 
-import java.util.EnumSet;
 import java.util.Optional;
 
 public enum LongRunningStage {
-    WAITING_FOR_TASK,
-    PLANNING,
-    WAITING_FOR_APPROVAL,
-    INITIALIZING,
-    EXECUTING,
-    COMPLETED,
-    CANCELLED;
+    DRAFT,
+    RUNNING,
+    DONE;
 
-    public boolean allowsIntent(ConversationSession.LongRunningStageUpdateIntent intent) {
-        return switch (this) {
-            case PLANNING -> EnumSet.of(
-                    ConversationSession.LongRunningStageUpdateIntent.FINALIZE_PLAN,
-                    ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
-            case WAITING_FOR_APPROVAL -> EnumSet.of(
-                    ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION,
-                    ConversationSession.LongRunningStageUpdateIntent.REVISE_PLAN,
-                    ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
-            case WAITING_FOR_TASK, INITIALIZING, EXECUTING, COMPLETED, CANCELLED -> false;
-        };
+    public LongRunningStage normalized() {
+        return this;
     }
 
     public static Optional<LongRunningStage> fromWire(String value) {
         if (value == null || value.isBlank()) {
             return Optional.empty();
         }
-        try {
-            return Optional.of(LongRunningStage.valueOf(value.strip().toUpperCase()));
-        } catch (IllegalArgumentException ignored) {
-            return Optional.empty();
-        }
+        return switch (value.strip().toUpperCase()) {
+            case "DRAFT", "PLANNING", "WAITING_FOR_TASK", "WAITING_FOR_APPROVAL", "INITIALIZING" ->
+                    Optional.of(DRAFT);
+            case "RUNNING", "EXECUTING" -> Optional.of(RUNNING);
+            case "DONE", "COMPLETED", "CANCELLED" -> Optional.of(DONE);
+            default -> Optional.empty();
+        };
     }
 }

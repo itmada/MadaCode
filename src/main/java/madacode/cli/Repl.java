@@ -1,7 +1,6 @@
 package madacode.cli;
 
 import madacode.cli.mode.CommonModeHandler;
-import madacode.cli.mode.LongRunningAutoContinueRunner;
 import madacode.cli.mode.LongRunningModeHandler;
 import madacode.cli.mode.ModeExecution;
 import madacode.cli.mode.ModeRouter;
@@ -12,6 +11,8 @@ import madacode.cli.slash.SlashContext;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
+import madacode.core.session.LongRunningStage;
+import madacode.core.session.LongRunningTransitionRequest;
 import madacode.core.session.SessionListener;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorageException;
@@ -31,9 +32,16 @@ import madacode.tui.theme.Tk;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
 
+import madacode.longrunning.LongRunningController;
+import madacode.longrunning.LongRunningLauncher;
+import madacode.longrunning.LongRunningWorkerRunner;
+import madacode.permission.PermissionGate;
+
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 public abstract class Repl {
 
@@ -52,7 +60,11 @@ public abstract class Repl {
     InterruptController interruptController;
     final TurnExecutor turnExecutor;
     final ModeRouter modeRouter;
-    final LongRunningAutoContinueRunner autoContinueRunner;
+    final LongRunningLauncher launcher;
+    final LongRunningController longRunningController;
+    final UserPromptChannel promptChannel;
+    final PermissionGate permissionGate;
+    final Path workerTurnLogRoot;
     private final List<AutoCloseable> shutdownTargets;
 
     Repl(Config config) {
@@ -71,7 +83,15 @@ public abstract class Repl {
                 : new ModeRouter(
                         new CommonModeHandler(turnExecutor),
                         new LongRunningModeHandler(turnExecutor));
-        this.autoContinueRunner = new LongRunningAutoContinueRunner(this.modeRouter);
+        this.launcher = config.launcher;
+        this.longRunningController = config.longRunningController != null
+                ? config.longRunningController
+                : new LongRunningController();
+        this.promptChannel = config.promptChannel != null
+                ? config.promptChannel
+                : UnavailablePromptChannel.INSTANCE;
+        this.permissionGate = config.permissionGate;
+        this.workerTurnLogRoot = config.workerTurnLogRoot;
         this.shutdownTargets = config.shutdownTargets != null
                 ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
@@ -106,20 +126,15 @@ public abstract class Repl {
         return switch (action) {
             case SlashAction.Continue c -> {
                 ModeExecution execution = modeRouter.handle(line, session);
-                runManagedTurn(execution.handle());
-                runAfterTurnHook(execution.afterTurn());
-                persistSession();
+                runExecutionChain(execution, 1);
                 yield true;
             }
             case SlashAction.RunLocalTurn r -> {
                 runManagedTurn(turnExecutor.submitLocal(session, r.label(), r.task()));
                 yield true;
             }
-            case SlashAction.AutoContinue a -> {
-                runAutoContinue(a.maxTurns());
-                yield true;
-            }
             case SlashAction.Handled h -> {
+                processPendingLongRunningTransitionRequest();
                 if (h.persistSession()) {
                     persistSession();
                 }
@@ -135,6 +150,10 @@ public abstract class Repl {
                 historyPrinter.printAll(session.messages());
                 yield true;
             }
+            case SlashAction.LongRunLaunch l -> {
+                runLongRunLaunch(l.maxWorkers());
+                yield true;
+            }
             case SlashAction.Exit e -> {
                 persistSession();
                 yield false;
@@ -142,16 +161,51 @@ public abstract class Repl {
         };
     }
 
-    private void runAutoContinue(int maxTurns) {
-        LongRunningAutoContinueRunner.Result result = autoContinueRunner.run(session, maxTurns, execution -> {
-            runManagedTurn(execution.handle());
-            runAfterTurnHook(execution.afterTurn());
-            persistSession();
-        });
-        screen.scrollback(result.message());
-    }
-
     public TurnRenderer turnRenderer() { return turnRenderer; }
+
+    private void runLongRunLaunch(int maxWorkers) {
+        String taskId = session.longRunningTaskId();
+        if (taskId == null || taskId.isBlank()) {
+            screen.scrollback("No active long-running task.");
+            return;
+        }
+
+        screen.scrollback("Launching worker cycles for task: " + taskId + " (max " + maxWorkers + ")...");
+
+        // Construct launcher on demand if not pre-configured
+        LongRunningLauncher effectiveLauncher = launcher;
+        if (effectiveLauncher == null) {
+            if (permissionGate == null) {
+                screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
+                return;
+            }
+            Path effectiveTurnLogRoot = workerTurnLogRoot != null
+                    ? workerTurnLogRoot
+                    : sessionStorage.transcriptPath(session.sessionId()).getParent();
+            LongRunningWorkerRunner.QueryEngineFactory engineFactory = (toolRegistry, promptBuilder) ->
+                    new madacode.core.engine.QueryEngine(
+                            queryEngine.apiClient(), toolRegistry, promptBuilder,
+                            permissionGate);
+            LongRunningWorkerRunner workerRunner = new LongRunningWorkerRunner(
+                    engineFactory, sessionStorage, queryEngine.toolRegistry(), effectiveTurnLogRoot);
+            effectiveLauncher = new LongRunningLauncher(workerRunner);
+        }
+
+        LongRunningLauncher.LaunchResult result = effectiveLauncher.run(
+                taskId, session.workingDirectory(), session, maxWorkers);
+
+        // Display result
+        String statusTag = switch (result.status()) {
+            case COMPLETED -> "[completed]";
+            case BLOCKED -> "[blocked]";
+            case FAILED -> "[failed]";
+            case NEEDS_USER -> "[needs-user]";
+            case MAX_WORKERS_EXHAUSTED -> "[exhausted]";
+        };
+        screen.scrollback(statusTag + " " + result.message()
+                + " (" + result.workersLaunched() + " worker cycle(s) launched)");
+        persistSession();
+    }
 
     private void runManagedTurn(TurnHandle handle) {
         screen.setCursorVisible(false);
@@ -169,14 +223,71 @@ public abstract class Repl {
             }
         }
         session.fireTurnEnd();
+        processPendingLongRunningTransitionRequest();
         persistSession();
     }
 
-    private void runAfterTurnHook(Runnable afterTurn) {
+    private void processPendingLongRunningTransitionRequest() {
+        session.pendingLongRunningTransitionRequest()
+                .ifPresent(this::handlePendingLongRunningTransitionRequest);
+    }
+
+    private void handlePendingLongRunningTransitionRequest(LongRunningTransitionRequest request) {
+        boolean approved = promptChannel.confirm(longRunningTransitionPrompt(request));
         try {
-            afterTurn.run();
+            if (approved) {
+                LongRunningController.AppliedTransition applied =
+                        longRunningController.applyPendingRequest(session, "user", interruptController);
+                if (applied.targetStage() == LongRunningStage.RUNNING) {
+                    runLongRunLaunch(5);
+                }
+            } else {
+                longRunningController.rejectPendingRequest(session, "user");
+            }
+        } catch (RuntimeException exception) {
+            screen.scrollback("Failed to apply long-running transition: " + exception.getMessage());
+        }
+    }
+
+    protected static String longRunningTransitionPrompt(LongRunningTransitionRequest request) {
+        LongRunningStage source = request.sourceStage().normalized();
+        LongRunningStage target = request.targetStage().normalized();
+        String suffix = request.summary() == null ? "" : "\n\n" + request.summary();
+        if (source == LongRunningStage.DRAFT && target == LongRunningStage.RUNNING) {
+            return "Start this long-running task now?" + suffix;
+        }
+        if (source == LongRunningStage.RUNNING && target == LongRunningStage.DRAFT) {
+            return "Pause worker execution and return to DRAFT?" + suffix;
+        }
+        if (target == LongRunningStage.DONE) {
+            return "Mark this long-running task DONE?" + suffix;
+        }
+        return "Apply long-running transition " + source + " -> " + target + "?" + suffix;
+    }
+
+    private Optional<ModeExecution> runAfterTurnHook(ModeExecution.AfterTurn afterTurn) {
+        try {
+            return afterTurn.run();
         } catch (RuntimeException exception) {
             renderTurnCrash(exception);
+            return Optional.empty();
+        }
+    }
+
+    private void runExecutionChain(ModeExecution execution, int maxChainedTurns) {
+        ModeExecution current = execution;
+        int chainedTurns = 0;
+        while (current != null) {
+            runManagedTurn(current.handle());
+            Optional<ModeExecution> next = runAfterTurnHook(current.afterTurn());
+            persistSession();
+            if (next.isEmpty()) {
+                break;
+            }
+            if (++chainedTurns > maxChainedTurns) {
+                break;
+            }
+            current = next.get();
         }
     }
 
@@ -335,5 +446,10 @@ public abstract class Repl {
         NotificationCenter notifications;
         List<AutoCloseable> shutdownTargets;
         ModeRouter modeRouter;
+        LongRunningLauncher launcher;
+        LongRunningController longRunningController;
+        UserPromptChannel promptChannel;
+        PermissionGate permissionGate;
+        Path workerTurnLogRoot;
     }
 }

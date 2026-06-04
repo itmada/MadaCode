@@ -101,8 +101,7 @@ public final class ToolOrchestrator {
 
     private static boolean longRunningTerminalStageReached(ConversationSession session) {
         return session.workflowMode() == SessionMode.LONG_RUNNING
-                && (session.longRunningStage() == LongRunningStage.COMPLETED
-                || session.longRunningStage() == LongRunningStage.CANCELLED);
+                && session.longRunningStage() == LongRunningStage.DONE;
     }
 
     private static void fillSkippedAfterTerminalStage(

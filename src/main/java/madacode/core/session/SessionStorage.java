@@ -174,12 +174,18 @@ public final class SessionStorage {
         if (session.longRunningTaskTitle() != null) {
             root.put("longRunningTaskTitle", session.longRunningTaskTitle());
         }
+        if (session.longRunningReason() != null) {
+            root.put("longRunningReason", session.longRunningReason());
+        }
         if (session.longRunningPlanSummary() != null) {
             root.put("longRunningPlanSummary", session.longRunningPlanSummary());
         }
-        session.lastLongRunningStageUpdate()
-                .ifPresent(update -> root.set("lastLongRunningStageUpdate", serializeLongRunningStageUpdate(update)));
-
+        if (session.isLongRunningWorkerSession()) {
+            root.put("longRunningWorkerSession", true);
+        }
+        session.pendingLongRunningTransitionRequest()
+                .ifPresent(request -> root.set("pendingLongRunningTransitionRequest",
+                        serializeTransitionRequest(request)));
         ArrayNode messages = mapper.createArrayNode();
         for (Message message : session.messages()) {
             messages.add(serializeMessage(message));
@@ -210,16 +216,6 @@ public final class SessionStorage {
         return root;
     }
 
-    private JsonNode serializeLongRunningStageUpdate(ConversationSession.LongRunningStageUpdate update) {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("stage", update.stage().name());
-        node.put("intent", update.intent().name());
-        node.put("confidence", update.confidence().wireValue());
-        node.put("summary", update.summary());
-        node.put("recordedAt", update.recordedAt().toString());
-        return node;
-    }
-
     private ObjectNode serializeTask(PlanItem item) {
         ObjectNode node = mapper.createObjectNode();
         node.put("id", item.id());
@@ -236,6 +232,25 @@ public final class SessionStorage {
         if (!item.activeForm().isEmpty()) {
             node.put("activeForm", item.activeForm());
         }
+        return node;
+    }
+
+    private ObjectNode serializeTransitionRequest(LongRunningTransitionRequest request) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("sourceStage", request.sourceStage().name());
+        node.put("targetStage", request.targetStage().name());
+        node.put("reason", request.reason());
+        if (request.summary() != null) {
+            node.put("summary", request.summary());
+        }
+        if (request.planDelta() != null) {
+            node.put("planDelta", request.planDelta());
+        }
+        node.put("requestedAt", request.requestedAt().toString());
+        if (request.requestedBy() != null) {
+            node.put("requestedBy", request.requestedBy());
+        }
+        node.put("userConfirmationRequired", request.userConfirmationRequired());
         return node;
     }
 
@@ -354,8 +369,13 @@ public final class SessionStorage {
             session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
             session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
             session.setLongRunningTaskTitle(optionalText(migrated, "longRunningTaskTitle"));
+            session.setLongRunningReason(optionalText(migrated, "longRunningReason"));
             session.setLongRunningPlanSummary(optionalText(migrated, "longRunningPlanSummary"));
-            deserializeLongRunningStageUpdate(migrated.path("lastLongRunningStageUpdate"), session);
+            session.setLongRunningWorkerSession(migrated.path("longRunningWorkerSession").asBoolean(false));
+            JsonNode pendingRequest = migrated.get("pendingLongRunningTransitionRequest");
+            if (pendingRequest != null && !pendingRequest.isNull()) {
+                session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
+            }
         }
         return session;
     }
@@ -377,31 +397,29 @@ public final class SessionStorage {
         if (workflowMode != SessionMode.LONG_RUNNING) {
             return null;
         }
-        try {
-            return LongRunningStage.valueOf(raw);
-        } catch (IllegalArgumentException exception) {
-            throw new SessionStorageException("Unsupported longRunningStage: " + raw, exception);
-        }
+        return LongRunningStage.fromWire(raw)
+                .orElseThrow(() -> new SessionStorageException("Unsupported longRunningStage: " + raw));
     }
 
-    private void deserializeLongRunningStageUpdate(JsonNode updateNode, ConversationSession session) {
-        if (updateNode == null || !updateNode.isObject()) {
-            return;
+    private LongRunningTransitionRequest deserializeTransitionRequest(JsonNode node) {
+        if (!node.isObject()) {
+            throw new SessionStorageException("pendingLongRunningTransitionRequest must be an object");
         }
-        LongRunningStage updateStage = LongRunningStage.fromWire(
-                updateNode.path("stage").asText(null)).orElse(session.longRunningStage());
-        var intent = ConversationSession.LongRunningStageUpdateIntent.fromWire(
-                updateNode.path("intent").asText(null)).orElse(null);
-        var confidence = ConversationSession.LongRunningConfidence.fromWire(
-                updateNode.path("confidence").asText(null)).orElse(null);
-        String summary = updateNode.path("summary").asText("");
-        Instant recordedAt = updateNode.hasNonNull("recordedAt")
-                ? Instant.parse(updateNode.path("recordedAt").asText())
-                : Instant.now();
-        if (updateStage != null && intent != null && confidence != null) {
-            session.recordLongRunningStageUpdate(new ConversationSession.LongRunningStageUpdate(
-                    updateStage, intent, confidence, summary, recordedAt));
-        }
+        String sourceRaw = requiredText(node, "sourceStage");
+        String targetRaw = requiredText(node, "targetStage");
+        LongRunningStage source = LongRunningStage.fromWire(sourceRaw)
+                .orElseThrow(() -> new SessionStorageException("Unsupported sourceStage: " + sourceRaw));
+        LongRunningStage target = LongRunningStage.fromWire(targetRaw)
+                .orElseThrow(() -> new SessionStorageException("Unsupported targetStage: " + targetRaw));
+        return new LongRunningTransitionRequest(
+                source,
+                target,
+                requiredText(node, "reason"),
+                optionalText(node, "summary"),
+                optionalText(node, "planDelta"),
+                node.has("requestedAt") ? Instant.parse(node.path("requestedAt").asText()) : Instant.now(),
+                optionalText(node, "requestedBy"),
+                node.path("userConfirmationRequired").asBoolean(true));
     }
 
     private PlanItem deserializeTask(JsonNode node) {

@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
-import madacode.core.session.ConversationSession.LongRunningStageUpdate;
-import madacode.core.session.ConversationSession.LongRunningStageUpdateIntent;
 import madacode.core.session.LongRunningStage;
 import madacode.core.model.Message;
 import madacode.core.session.SessionMode;
@@ -52,13 +50,7 @@ public class SessionStorageTest {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setPlanMode(true);
         session.setPermissionMode(PermissionMode.BYPASS);
-        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
-        session.recordLongRunningStageUpdate(new LongRunningStageUpdate(
-                LongRunningStage.WAITING_FOR_APPROVAL,
-                LongRunningStageUpdateIntent.APPROVE_EXECUTION,
-                ConversationSession.LongRunningConfidence.HIGH,
-                "User explicitly approved starting implementation.",
-                Instant.parse("2026-04-22T08:45:00Z")));
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
@@ -78,7 +70,6 @@ public class SessionStorageTest {
         assertNull(restored.longRunningTaskDirectory());
         assertEquals(session.permissionMode(), restored.permissionMode());
         assertEquals(session.longRunningStage(), restored.longRunningStage());
-        assertEquals(session.lastLongRunningStageUpdate(), restored.lastLongRunningStageUpdate());
         assertEquals(session.messages().size(), restored.messages().size());
 
         for (int i = 0; i < session.messages().size(); i++) {
@@ -151,7 +142,7 @@ public class SessionStorageTest {
                 tempDir.resolve("workspace"),
                 List.of(Message.system("Session initialized.")));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
         session.setLongRunningTaskId("task-42");
         session.setLongRunningTaskDirectory(tempDir.resolve("workspace/tasks/task-42").toString());
         session.setLongRunningTaskTitle("Implement long-running workflow");
@@ -161,11 +152,32 @@ public class SessionStorageTest {
         ConversationSession restored = storage.load(session.sessionId());
 
         assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
-        assertEquals(LongRunningStage.WAITING_FOR_APPROVAL, restored.longRunningStage());
+        assertEquals(LongRunningStage.DRAFT, restored.longRunningStage());
         assertEquals("task-42", restored.longRunningTaskId());
         assertEquals(tempDir.resolve("workspace/tasks/task-42").toString(), restored.longRunningTaskDirectory());
         assertEquals("Implement long-running workflow", restored.longRunningTaskTitle());
         assertEquals("Finalize a durable serial execution plan.", restored.longRunningPlanSummary());
+    }
+
+    @Test
+    void saveAndLoadPreservesLongRunningWorkerMarker() {
+        SessionStorage storage = new SessionStorage(tempDir);
+        ConversationSession session = new ConversationSession(
+                "worker-session",
+                Instant.parse("2026-05-21T10:15:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized.")));
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningTaskId("task-worker");
+        session.setLongRunningWorkerSession(true);
+
+        storage.save(session);
+        ConversationSession restored = storage.load(session.sessionId());
+
+        assertTrue(restored.isLongRunningWorkerSession());
+        assertEquals(LongRunningStage.RUNNING, restored.longRunningStage());
+        assertEquals("task-worker", restored.longRunningTaskId());
     }
 
     @Test

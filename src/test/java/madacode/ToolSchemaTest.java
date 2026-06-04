@@ -11,7 +11,6 @@ import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.GlobTool;
 import madacode.tool.GrepTool;
-import madacode.tool.LongRunStageUpdateTool;
 import madacode.tool.LongRunTaskUpdateTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
@@ -35,9 +34,6 @@ public class ToolSchemaTest {
         assertRequired(new GlobTool(), "pattern");
         assertRequired(new GrepTool(), "pattern");
         assertRequired(new WebFetchTool(), "url");
-        assertRequired(new LongRunStageUpdateTool(), "intent");
-        assertRequired(new LongRunStageUpdateTool(), "confidence");
-        assertRequired(new LongRunStageUpdateTool(), "summary");
         assertRequired(new LongRunTaskUpdateTool(), "action");
         assertRequired(agentTool(), "description");
         assertRequired(agentTool(), "prompt");
@@ -65,7 +61,6 @@ public class ToolSchemaTest {
                 new GlobTool(),
                 new GrepTool(),
                 new WebFetchTool(),
-                new LongRunStageUpdateTool(),
                 new LongRunTaskUpdateTool(),
                 agentTool());
 

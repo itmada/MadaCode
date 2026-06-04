@@ -4,6 +4,8 @@ import madacode.cli.CliArgs;
 import madacode.cli.session.SessionPointer;
 import madacode.cli.session.StartupSessionLauncher;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.LongRunningStage;
+import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.events.AppEvents;
@@ -76,6 +78,13 @@ final class SessionAssembly {
             }
             case CliArgs.Interactive i -> {
                 ConversationSession session = new ConversationSession();
+                SessionPointer.write(session.sessionId());
+                yield session;
+            }
+            case CliArgs.LongRunningSession l -> {
+                ConversationSession session = new ConversationSession();
+                session.setWorkflowMode(SessionMode.LONG_RUNNING);
+                session.setLongRunningStage(LongRunningStage.DRAFT);
                 SessionPointer.write(session.sessionId());
                 yield session;
             }

@@ -43,6 +43,11 @@ public sealed interface CliArgs {
         @Override
         public String providerOverride() { return null; }
     }
+    record LongRunningSession(boolean noMemory, boolean dangerouslyBypassPermissions, String providerOverride) implements CliArgs {
+        public LongRunningSession {
+            if (providerOverride != null && providerOverride.isBlank()) providerOverride = null;
+        }
+    }
 
     // ---- parser --------------------------------------------------------
 
@@ -98,6 +103,7 @@ public sealed interface CliArgs {
         return switch (flag) {
             case "--help", "-h" -> new Help(noMemory);
             case "--new"       -> new NewSession(noMemory, dangerouslyBypassPermissions, providerOverride);
+            case "--long-running" -> new LongRunningSession(noMemory, dangerouslyBypassPermissions, providerOverride);
             case "--continue", "-c" -> new Continue(noMemory, dangerouslyBypassPermissions, providerOverride);
             case "--list", "-l" -> new ListSessions(noMemory);
             case "--resume", "-r" -> {
@@ -107,7 +113,7 @@ public sealed interface CliArgs {
             }
             default -> throw new IllegalArgumentException(
                     "Unknown argument(s): " + String.join(" ", remaining)
-                            + "\nUsage: mada [--new|--continue|-c|--resume <id>|-r <id>|--list|-l|--help|-h] [--no-memory] [--dangerously-bypass-permissions] [--provider <name>]");
+                            + "\nUsage: mada [--new|--long-running|--continue|-c|--resume <id>|-r <id>|--list|-l|--help|-h] [--no-memory] [--dangerously-bypass-permissions] [--provider <name>]");
         };
     }
 }

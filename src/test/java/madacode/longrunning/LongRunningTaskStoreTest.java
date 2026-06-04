@@ -34,26 +34,27 @@ class LongRunningTaskStoreTest {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
 
         LongRunningTaskMetadata metadata = store.createTask(
-                new CreateTaskRequest("task-001", "Refactor long-running mode", "initializing", "session-123", "INITIALIZING"));
+                new CreateTaskRequest("task-001", "Refactor long-running mode", "initializing", "session-123", "DRAFT"));
 
         Path taskDir = tempDir.resolve(".mada/long-running/task-001");
         assertTrue(Files.isDirectory(taskDir));
         assertTrue(Files.isDirectory(taskDir.resolve("logs")));
         assertTrue(Files.isRegularFile(taskDir.resolve("task.json")));
         assertTrue(Files.isRegularFile(taskDir.resolve("feature_list.json")));
+        assertTrue(Files.isRegularFile(taskDir.resolve("task.json")));
         assertTrue(Files.isRegularFile(taskDir.resolve("progress.txt")));
-        assertTrue(Files.isRegularFile(taskDir.resolve("known-issues.json")));
+        assertTrue(Files.isRegularFile(taskDir.resolve("known_issues.json")));
         assertTrue(Files.isRegularFile(taskDir.resolve("init.sh")));
         assertTrue(Files.isRegularFile(taskDir.resolve("logs/events.jsonl")));
 
         JsonNode taskJson = mapper.readTree(taskDir.resolve("task.json").toFile());
         assertEquals("task-001", taskJson.path("id").asText());
         assertEquals("Refactor long-running mode", taskJson.path("title").asText());
-        assertEquals("initializing", taskJson.path("status").asText());
-        assertEquals("session-123", taskJson.path("sessionId").asText());
-        assertEquals("INITIALIZING", taskJson.path("stage").asText());
+        assertEquals("DRAFT", taskJson.path("status").asText());
+        assertEquals("session-123", taskJson.path("controlSessionId").asText());
+        assertFalse(taskJson.has("stage"));
         assertEquals(0, mapper.readTree(taskDir.resolve("feature_list.json").toFile()).size());
-        assertEquals(0, mapper.readTree(taskDir.resolve("known-issues.json").toFile()).size());
+        assertEquals(0, mapper.readTree(taskDir.resolve("known_issues.json").toFile()).size());
         assertEquals("", Files.readString(taskDir.resolve("progress.txt")));
         assertEquals("", Files.readString(taskDir.resolve("logs/events.jsonl")));
         assertTrue(Files.readString(taskDir.resolve("init.sh")).contains("Initialization hook"));
@@ -61,17 +62,28 @@ class LongRunningTaskStoreTest {
     }
 
     @Test
+    void writeAndReadApprovedPlan() {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-plan", "Approved plan", "DRAFT", "session-plan", "DRAFT"));
+
+        store.writeApprovedPlan("task-plan", "Build the backend first.");
+
+        assertEquals("Build the backend first.\n", store.readApprovedPlan("task-plan").orElseThrow());
+    }
+
+    @Test
     void appendEventWritesReadableJsonl() throws Exception {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
-                "task-events", "Structured events", "executing", "session-events", "EXECUTING"));
+                "task-events", "Structured events", "RUNNING", "session-events", "RUNNING"));
 
         store.appendEvent("task-events", new LongRunningTaskEvent(
                 Instant.parse("2026-06-01T12:00:00Z"),
                 "task_update",
                 "task-events",
                 "session-events",
-                "EXECUTING",
+                "RUNNING",
                 "append_progress",
                 true,
                 "Progress appended.",
@@ -96,7 +108,7 @@ class LongRunningTaskStoreTest {
     void validateTaskDirectoryCreatesMissingEventLogForLegacyTasks() throws Exception {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
-                "task-legacy-events", "Legacy", "executing", "session-legacy", "EXECUTING"));
+                "task-legacy-events", "Legacy", "RUNNING", "session-legacy", "RUNNING"));
         Path eventsFile = tempDir.resolve(".mada/long-running/task-legacy-events/logs/events.jsonl");
         Files.delete(eventsFile);
 
@@ -110,7 +122,7 @@ class LongRunningTaskStoreTest {
     void writeCheckpointPersistsSnapshotAndUpdatesInitScript() throws Exception {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
-                "task-checkpoint", "Checkpoint", "executing", "session-cp", "EXECUTING"));
+                "task-checkpoint", "Checkpoint", "RUNNING", "session-cp", "RUNNING"));
         LongRunningWorkspaceCheckpoint checkpoint = new LongRunningWorkspaceCheckpoint(
                 Instant.parse("2026-06-01T12:00:00Z"),
                 tempDir,
@@ -148,7 +160,7 @@ class LongRunningTaskStoreTest {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir, failingMapper);
 
         assertThrows(LongRunningTaskStoreException.class, () -> store.createTask(
-                new CreateTaskRequest("task-fail", "Failing task", "initializing", "session-fail", "INITIALIZING")));
+                new CreateTaskRequest("task-fail", "Failing task", "initializing", "session-fail", "DRAFT")));
 
         assertFalse(Files.exists(tempDir.resolve(".mada/long-running/task-fail")));
     }
@@ -156,7 +168,7 @@ class LongRunningTaskStoreTest {
     @Test
     void appendProgressAppendsTextAndRefreshesUpdatedAt() throws Exception {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest("task-002", "Track progress", "initializing", "session-456", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-002", "Track progress", "initializing", "session-456", "DRAFT"));
         Instant beforeAppend = store.loadTask("task-002").updatedAt();
 
         store.appendProgress("task-002", "step 1\n");
@@ -171,34 +183,47 @@ class LongRunningTaskStoreTest {
     void planningLifecycleMovesBetweenPlanningAndApproval() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
-                "task-plan-lifecycle", "Plan lifecycle", "planning", "session-plan", "PLANNING"));
+                "task-plan-lifecycle", "Plan lifecycle", "DRAFT", "session-plan", "PLANNING"));
 
         LongRunningTaskMetadata awaitingApproval = store.markPlanAwaitingApproval("task-plan-lifecycle");
         LongRunningTaskMetadata backToPlanning = store.markPlanRevision("task-plan-lifecycle");
 
-        assertEquals("planning", awaitingApproval.status());
-        assertEquals("WAITING_FOR_APPROVAL", awaitingApproval.stage());
-        assertEquals("planning", backToPlanning.status());
-        assertEquals("PLANNING", backToPlanning.stage());
+        assertEquals("DRAFT", awaitingApproval.status());
+        assertEquals("DRAFT", awaitingApproval.stage());
+        assertEquals("DRAFT", backToPlanning.status());
+        assertEquals("DRAFT", backToPlanning.stage());
     }
 
     @Test
     void markTaskExecutingAcceptsPlanAwaitingApproval() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
-                "task-approved", "Approved plan", "planning", "session-approved", "PLANNING"));
+                "task-approved", "Approved plan", "DRAFT", "session-approved", "PLANNING"));
 
         store.markPlanAwaitingApproval("task-approved");
         LongRunningTaskMetadata executing = store.markTaskExecuting("task-approved");
 
-        assertEquals("executing", executing.status());
-        assertEquals("EXECUTING", executing.stage());
+        assertEquals("RUNNING", executing.status());
+        assertEquals("RUNNING", executing.stage());
+    }
+
+    @Test
+    void markTaskInitializedAcceptsPlanAwaitingApproval() {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-initialized", "Approved plan", "DRAFT", "session-approved", "PLANNING"));
+
+        store.markPlanAwaitingApproval("task-initialized");
+        LongRunningTaskMetadata initialized = store.markTaskInitialized("task-initialized");
+
+        assertEquals("DRAFT", initialized.status());
+        assertEquals("DRAFT", initialized.stage());
     }
 
     @Test
     void writeInitialFeatureListAndMarkFeaturePassed() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest("task-003", "Feature work", "initializing", "session-789", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-003", "Feature work", "initializing", "session-789", "DRAFT"));
 
         store.writeInitialFeatureList("task-003", List.of(
                 new FeatureItem(
@@ -229,14 +254,14 @@ class LongRunningTaskStoreTest {
     @Test
     void recordIssueAndResolveIt() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest("task-004", "Known issues", "initializing", "session-999", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-004", "Known issues", "initializing", "session-999", "DRAFT"));
 
         KnownIssue issue = new KnownIssue(
                 "issue-1",
                 "Feature list is not seeded",
                 "high",
                 "open",
-                "INITIALIZING",
+                "DRAFT",
                 List.of("Re-run initialization"),
                 Instant.parse("2026-06-01T08:00:00Z"),
                 null);
@@ -255,14 +280,14 @@ class LongRunningTaskStoreTest {
     @Test
     void resolvingResolvedIssueKeepsOriginalResolvedAt() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest("task-004b", "Known issues", "initializing", "session-999", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-004b", "Known issues", "initializing", "session-999", "DRAFT"));
 
         KnownIssue resolved = new KnownIssue(
                 "issue-1",
                 "Already resolved",
                 "high",
                 "resolved",
-                "INITIALIZING",
+                "DRAFT",
                 List.of("Re-run initialization"),
                 Instant.parse("2026-06-01T08:00:00Z"),
                 Instant.parse("2026-06-01T08:30:00Z"));
@@ -277,16 +302,16 @@ class LongRunningTaskStoreTest {
     void rejectsTraversalAndUnsafeTaskIds() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
 
-        assertThrows(IllegalArgumentException.class,
-                () -> store.createTask(new CreateTaskRequest("../escape", "Bad task", "initializing", "session-1", "INITIALIZING")));
-        assertThrows(IllegalArgumentException.class, () -> store.validateTaskDirectory("../escape"));
-        assertThrows(IllegalArgumentException.class, () -> store.loadTask("bad/task"));
+        assertThrows(LongRunningTaskStoreException.class,
+                () -> store.createTask(new CreateTaskRequest("../escape", "Bad task", "initializing", "session-1", "DRAFT")));
+        assertThrows(LongRunningTaskStoreException.class, () -> store.validateTaskDirectory("../escape"));
+        assertThrows(LongRunningTaskStoreException.class, () -> store.loadTask("bad/task"));
     }
 
     @Test
     void rejectsInitialFeatureListWithPassedItems() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest("task-005", "Feature validation", "initializing", "session-111", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-005", "Feature validation", "initializing", "session-111", "DRAFT"));
 
         assertThrows(LongRunningTaskStoreException.class, () -> store.writeInitialFeatureList("task-005", List.of(
                 new FeatureItem(
@@ -302,14 +327,14 @@ class LongRunningTaskStoreTest {
     @Test
     void rejectsDuplicateKnownIssueIdsAndInvalidStatuses() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest("task-006", "Issue validation", "initializing", "session-222", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-006", "Issue validation", "initializing", "session-222", "DRAFT"));
 
         KnownIssue first = new KnownIssue(
                 "issue-dup",
                 "First issue",
                 "medium",
                 "open",
-                "INITIALIZING",
+                "DRAFT",
                 List.of("Check logs"),
                 Instant.parse("2026-06-01T09:00:00Z"),
                 null);
@@ -320,7 +345,7 @@ class LongRunningTaskStoreTest {
                 "Duplicate issue",
                 "medium",
                 "open",
-                "INITIALIZING",
+                "DRAFT",
                 List.of("Check logs"),
                 Instant.parse("2026-06-01T09:01:00Z"),
                 null);
@@ -329,7 +354,7 @@ class LongRunningTaskStoreTest {
                 "Bad status",
                 "medium",
                 "closed",
-                "INITIALIZING",
+                "DRAFT",
                 List.of("Check logs"),
                 Instant.parse("2026-06-01T09:02:00Z"),
                 null);
@@ -341,7 +366,7 @@ class LongRunningTaskStoreTest {
     @Test
     void validateTaskDirectoryRejectsSymlinkedFilesAndLogsDirectory() throws Exception {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest("task-007", "Symlink validation", "initializing", "session-333", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-007", "Symlink validation", "initializing", "session-333", "DRAFT"));
 
         Path taskDir = tempDir.resolve(".mada/long-running/task-007");
         Path outsideTask = tempDir.resolve("outside-task.json");
@@ -353,7 +378,7 @@ class LongRunningTaskStoreTest {
         assertThrows(LongRunningTaskStoreException.class, () -> store.validateTaskDirectory("task-007"));
 
         Files.delete(taskDir.resolve("task.json"));
-        store.createTask(new CreateTaskRequest("task-008", "Symlink logs", "initializing", "session-334", "INITIALIZING"));
+        store.createTask(new CreateTaskRequest("task-008", "Symlink logs", "initializing", "session-334", "DRAFT"));
         Path secondTaskDir = tempDir.resolve(".mada/long-running/task-008");
         Path outsideLogs = tempDir.resolve("outside-logs");
         Files.createDirectories(outsideLogs);

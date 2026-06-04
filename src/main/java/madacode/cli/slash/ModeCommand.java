@@ -64,10 +64,11 @@ final class ModeCommand implements SlashCommand {
             ctx.session().setLongRunningTaskId(null);
             ctx.session().setLongRunningTaskDirectory(null);
             ctx.session().setLongRunningTaskTitle(null);
+            ctx.session().setLongRunningReason(null);
             ctx.session().setLongRunningPlanSummary(null);
-            ctx.session().clearLongRunningStageUpdate();
+            ctx.session().clearPendingLongRunningTransitionRequest();
             ctx.session().setPermissionMode(PermissionMode.BYPASS);
-            ctx.session().setLongRunningStage(LongRunningStage.WAITING_FOR_TASK);
+            ctx.session().setLongRunningStage(LongRunningStage.DRAFT);
             if (ctx.sessionContext() != null) {
                 ctx.sessionContext().setPlanMode(false);
                 ctx.sessionContext().setPermissionMode(PermissionMode.BYPASS);
@@ -77,10 +78,11 @@ final class ModeCommand implements SlashCommand {
                     "This mode is for larger serial relay tasks. It starts with planning and confirmation, and will not execute immediately.");
             SlashFeedback.muted(ctx.screen(),
                     "Current permission is all-pass. Use /permission to change it.");
-            ctx.session().addMessage(Message.system(
+            // Clear messages for a clean control session
+            ctx.session().replaceMessages(java.util.List.of(Message.system(
                     "[long-running mode entered] This mode is for larger serial relay tasks. "
-                            + "It starts with planning and confirmation, uses all-pass permission by default, "
-                            + "and waits for the user to provide the task request."));
+                            + "It starts in DRAFT with a fresh control session, uses all-pass permission by default, "
+                            + "and creates the task shell when the user provides the task request.")));
             return new SlashAction.Handled(true);
         }
 

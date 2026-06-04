@@ -6,7 +6,6 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.model.ToolResult;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
-import madacode.core.session.LongRunningTurnAssignment;
 import madacode.core.session.SessionMode;
 import madacode.longrunning.FeatureItem;
 import madacode.longrunning.KnownIssue;
@@ -52,7 +51,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
     public String description() {
         return "Safely update the current long-running task store: seed feature_list.json, "
                 + "mark one feature passed, record or resolve a known issue, update issue status, "
-                + "append progress, mark task complete, or cancel task.";
+                + "and append progress during worker execution.";
     }
 
     @Override
@@ -75,9 +74,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
                 "record_issue",
                 "resolve_issue",
                 "update_issue_status",
-                "append_progress",
-                "mark_task_complete",
-                "cancel_task"));
+                "append_progress"));
         properties.set("task_id", ToolSchemas.stringProperty(
                 mapper, "Optional current task id. If present, it must match the active session task."));
         properties.set("features", ToolSchemas.arrayProperty(
@@ -87,7 +84,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         properties.set("feature_id", ToolSchemas.stringProperty(
                 mapper, "Feature id for mark_feature_passed."));
         properties.set("issue_id", ToolSchemas.stringProperty(
-                mapper, "Issue id for record_issue or resolve_issue."));
+                mapper, "Issue id for record_issue, resolve_issue, or update_issue_status."));
         properties.set("description", ToolSchemas.stringProperty(
                 mapper, "Known issue description for record_issue."));
         properties.set("severity", ToolSchemas.stringProperty(
@@ -115,13 +112,14 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         if (session.workflowMode() != SessionMode.LONG_RUNNING) {
             return failed("Long-running mode is not active for this session.");
         }
-        if (session.longRunningStage() != LongRunningStage.EXECUTING) {
-            return failed("longrun_task_update is only available in the EXECUTING stage. Current stage: "
+        if (session.longRunningStage() != LongRunningStage.RUNNING) {
+            return failed("longrun_task_update is only available in the RUNNING stage. Current stage: "
                     + session.longRunningStage());
         }
         if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
             return failed("No initialized long-running task is active for this session.");
         }
+
         LongRunningTaskStore storeForEvent = null;
         String taskIdForEvent = null;
         String action = input.action() == null ? "" : input.action().strip().toLowerCase(Locale.ROOT);
@@ -134,10 +132,8 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
             LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
             storeForEvent = store;
             taskIdForEvent = taskId;
-            // Validate task directory and repair session if directory field is stale
             store.validateTaskDirectory(taskId);
-            String canonicalDir = store.taskDirectoryPath(taskId).toString();
-            session.setLongRunningTaskDirectory(canonicalDir);
+            session.setLongRunningTaskDirectory(store.taskDirectoryPath(taskId).toString());
 
             ToolResult result = switch (action) {
                 case "write_initial_feature_list" -> writeInitialFeatureList(store, taskId, input);
@@ -146,8 +142,6 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
                 case "resolve_issue" -> resolveIssue(store, taskId, input);
                 case "update_issue_status" -> updateIssueStatus(store, taskId, input);
                 case "append_progress" -> appendProgress(store, taskId, input);
-                case "mark_task_complete" -> markTaskComplete(store, taskId, session);
-                case "cancel_task" -> cancelTask(store, taskId, session);
                 default -> failed("Unsupported long-running task update action: " + safe(input.action()));
             };
             appendTaskUpdateEvent(store, taskId, session, action, result, input);
@@ -231,18 +225,6 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         return succeeded("Progress appended for " + taskId + ".");
     }
 
-    private ToolResult markTaskComplete(LongRunningTaskStore store, String taskId, ConversationSession session) {
-        store.markTaskCompleted(taskId);
-        session.setLongRunningStage(LongRunningStage.COMPLETED);
-        return succeeded("Task " + taskId + " marked as completed.");
-    }
-
-    private ToolResult cancelTask(LongRunningTaskStore store, String taskId, ConversationSession session) {
-        store.cancelTask(taskId);
-        session.setLongRunningStage(LongRunningStage.CANCELLED);
-        return succeeded("Task " + taskId + " cancelled.");
-    }
-
     private void appendTaskUpdateEvent(
             LongRunningTaskStore store,
             String taskId,
@@ -259,14 +241,14 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
                     action,
                     result.success(),
                     result.output(),
-                    eventDetails(input, session)));
+                    eventDetails(input)));
         } catch (RuntimeException ignored) {
             // Event logging is diagnostic. A failed append must not turn an
             // already-applied task-store mutation into a failed tool result.
         }
     }
 
-    private static Map<String, String> eventDetails(Input input, ConversationSession session) {
+    private static Map<String, String> eventDetails(Input input) {
         java.util.LinkedHashMap<String, String> details = new java.util.LinkedHashMap<>();
         putIfPresent(details, "featureId", input.feature_id());
         putIfPresent(details, "issueId", input.issue_id());
@@ -275,16 +257,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         if (input.features() != null) {
             details.put("featureCount", String.valueOf(input.features().size()));
         }
-        session.longRunningTurnAssignment().ifPresent(assignment ->
-                putAssignmentDetails(details, assignment));
         return Map.copyOf(details);
-    }
-
-    private static void putAssignmentDetails(
-            Map<String, String> details,
-            LongRunningTurnAssignment assignment) {
-        details.put("assignedKind", assignment.kind().name());
-        putIfPresent(details, "assignedTargetId", assignment.id());
     }
 
     private static void putIfPresent(Map<String, String> details, String key, String value) {
@@ -300,8 +273,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         }
         String requested = input.task_id().strip();
         if (!requested.equals(active)) {
-            throw new IllegalArgumentException(
-                    "task_id does not match the active long-running task.");
+            throw new IllegalArgumentException("task_id does not match the active long-running task.");
         }
         return active;
     }
@@ -342,8 +314,6 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
     }
 
     private static String currentStageName(ConversationSession session) {
-        return session.longRunningStage() == null
-                ? "EXECUTING"
-                : session.longRunningStage().name();
+        return session.longRunningStage() == null ? "RUNNING" : session.longRunningStage().name();
     }
 }

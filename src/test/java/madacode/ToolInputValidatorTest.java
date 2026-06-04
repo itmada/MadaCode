@@ -8,7 +8,6 @@ import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.GlobTool;
 import madacode.tool.GrepTool;
-import madacode.tool.LongRunStageUpdateTool;
 import madacode.tool.Tool;
 import madacode.tool.validation.ToolInputValidator;
 import madacode.tool.validation.ValidationResult;
@@ -128,20 +127,6 @@ public class ToolInputValidatorTest {
 
         assertTrue(result.valid());
         assertTrue(result.errors().isEmpty());
-    }
-
-    @Test
-    void rejectsInvalidLongRunningEnums() {
-        ObjectNode input = mapper.createObjectNode();
-        input.put("intent", "SHIP_IT");
-        input.put("confidence", "certain");
-        input.put("summary", "User seems ready.");
-
-        ValidationResult result = validator.validate(new LongRunStageUpdateTool(), input);
-
-        assertFalse(result.valid());
-        assertTrue(result.errors().stream().anyMatch(error -> error.contains("field 'intent' must be one of")));
-        assertTrue(result.errors().stream().anyMatch(error -> error.contains("field 'confidence' must be one of")));
     }
 
     private final class ComplexTool implements Tool<ObjectNode> {

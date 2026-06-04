@@ -16,10 +16,9 @@ import java.util.UUID;
  * Harness-owned initialization component for long-running tasks.
  *
  * <p>This class is the <em>single authority</em> for creating new tasks and
- * repairing partially-initialised session state. It ensures that planning has
+ * repairing partially-initialized session state. It ensures that planning has
  * durable state as soon as the user provides the long-running request, and
- * that every execution turn has a valid, executable on-disk task store before
- * the model sees the prompt.
+ * that approval initializes durable task state before launcher/worker handoff.
  *
  * <p>Neither the model nor the prompt should ever see initialization logic —
  * it is a code-level harness invariant enforced before every execution turn.
@@ -41,7 +40,7 @@ public final class LongRunningTaskInitializer {
     /**
      * Ensures the session has a durable planning task.
      *
-     * <p>This is intentionally called before the first PLANNING model turn so
+     * <p>This is intentionally called before the first DRAFT model turn so
      * logs, task metadata, and workspace checkpoint files exist even if the
      * model later asks questions or the process is interrupted.
      */
@@ -57,11 +56,11 @@ public final class LongRunningTaskInitializer {
         if (session.longRunningTaskId() != null) {
             return restorePlanningTask(session);
         }
-        return createNewTask(session, expandedInput, "planning", LongRunningStage.PLANNING);
+        return createNewTask(session, expandedInput, "DRAFT", LongRunningStage.DRAFT);
     }
 
     /**
-     * Ensures the session has a valid execution task.
+     * Ensures the session has initialized durable task state for execution handoff.
      *
      * <ul>
      *   <li>If the session already has a {@code taskId}, validates the on-disk
@@ -72,7 +71,7 @@ public final class LongRunningTaskInitializer {
      *       (stale partial state), clears the directory first.</li>
      * </ul>
      *
-     * @param session      the session to initialise (must be LONG_RUNNING mode)
+     * @param session      the session to initialize (must be LONG_RUNNING mode)
      * @param expandedInput the expanded user input for the initial progress entry
      * @return the initialised task context
      * @throws IllegalStateException       if session is not in LONG_RUNNING mode
@@ -92,10 +91,15 @@ public final class LongRunningTaskInitializer {
         }
 
         if (session.longRunningTaskId() != null) {
-            return restoreOrPromoteExecutionTask(session, expandedInput);
+            LongRunningTaskContext context = restoreOrInitializeExecutionTask(session, expandedInput);
+            persistApprovedPlan(session);
+            return context;
         }
 
-        return createNewTask(session, expandedInput, "executing", LongRunningStage.EXECUTING);
+        LongRunningTaskContext context = createNewTask(session, expandedInput, "DRAFT", LongRunningStage.DRAFT);
+        context = restoreOrInitializeExecutionTask(session, expandedInput);
+        persistApprovedPlan(session);
+        return context;
     }
 
     private LongRunningTaskContext restorePlanningTask(ConversationSession session) {
@@ -103,22 +107,23 @@ public final class LongRunningTaskInitializer {
         String previousDirectory = session.longRunningTaskDirectory();
         Path dir = store.validateTaskDirectory(taskId);
         LongRunningTaskMetadata meta = store.loadTask(taskId);
-        if (!"planning".equals(meta.status()) || !LongRunningStage.PLANNING.name().equals(meta.stage())) {
+        if (!"DRAFT".equals(meta.status())) {
             throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " is not a planning task: status="
+                    "Task " + taskId + " is not a draft task: status="
                             + meta.status() + ", stage=" + meta.stage());
         }
         session.setLongRunningTaskDirectory(dir.toString());
         if (session.longRunningTaskTitle() == null) {
             session.setLongRunningTaskTitle(meta.title());
         }
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
+        session.setLongRunningReason(meta.reason());
         if (previousDirectory == null || !previousDirectory.equals(dir.toString())) {
             store.appendEvent(taskId, LongRunningTaskEvent.of(
                     "task_context_repaired",
                     taskId,
                     session.sessionId(),
-                    LongRunningStage.PLANNING.name(),
+                    LongRunningStage.DRAFT.name(),
                     null,
                     true,
                     "Session task directory repaired from validated task store.",
@@ -129,42 +134,42 @@ public final class LongRunningTaskInitializer {
         return new LongRunningTaskContext(meta.id(), dir, meta);
     }
 
-    private LongRunningTaskContext restoreOrPromoteExecutionTask(
+    private LongRunningTaskContext restoreOrInitializeExecutionTask(
             ConversationSession session,
             String expandedInput) {
         String taskId = session.longRunningTaskId();
         String previousDirectory = session.longRunningTaskDirectory();
         Path dir = store.validateTaskDirectory(taskId);
         LongRunningTaskMetadata meta = store.loadTask(taskId);
-        if ("planning".equals(meta.status()) && LongRunningStage.PLANNING.name().equals(meta.stage())) {
+        if ("DRAFT".equals(meta.status())) {
             meta = store.markTaskExecuting(taskId);
-            store.appendProgress(taskId, executionProgressEntry(session, expandedInput));
+            store.appendProgress(taskId, initializedProgressEntry(session, expandedInput));
             store.appendEvent(taskId, LongRunningTaskEvent.of(
-                    "task_execution_started",
+                    "task_execution_initialized",
                     taskId,
                     session.sessionId(),
-                    LongRunningStage.EXECUTING.name(),
+                    LongRunningStage.RUNNING.name(),
                     null,
                     true,
-                    "Long-running task promoted from planning to execution.",
+                    "Long-running task entered RUNNING; awaiting launcher/worker.",
                     Map.of("taskDirectory", dir.toString())));
-        } else if (!"executing".equals(meta.status())
-                || !LongRunningStage.EXECUTING.name().equals(meta.stage())) {
+        } else if (!"RUNNING".equals(meta.status())) {
             throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " is not executable: status="
+                    "Task " + taskId + " is not ready for execution handoff: status="
                             + meta.status() + ", stage=" + meta.stage());
         }
         session.setLongRunningTaskDirectory(dir.toString());
         if (session.longRunningTaskTitle() == null) {
             session.setLongRunningTaskTitle(meta.title());
         }
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningReason(meta.reason());
         if (previousDirectory == null || !previousDirectory.equals(dir.toString())) {
             store.appendEvent(taskId, LongRunningTaskEvent.of(
                     "task_context_repaired",
                     taskId,
                     session.sessionId(),
-                    LongRunningStage.EXECUTING.name(),
+                    LongRunningStage.RUNNING.name(),
                     null,
                     true,
                     "Session task directory repaired from validated task store.",
@@ -269,9 +274,7 @@ public final class LongRunningTaskInitializer {
     }
 
     private static String initialProgressEntry(ConversationSession session, String input) {
-        String stageLine = session.longRunningStage() == LongRunningStage.EXECUTING
-                ? "INITIALIZING -> EXECUTING"
-                : String.valueOf(session.longRunningStage());
+        String stageLine = String.valueOf(session.longRunningStage());
         return """
                 ## %s
                 stage: %s
@@ -287,19 +290,37 @@ public final class LongRunningTaskInitializer {
                 input == null ? "" : input.strip());
     }
 
-    private static String executionProgressEntry(ConversationSession session, String input) {
+    private static String initializedProgressEntry(ConversationSession session, String input) {
         return """
                 ## %s
-                stage: INITIALIZING -> EXECUTING
+                stage: RUNNING
                 session: %s
                 task: %s
                 approval input: %s
+                status: task entered RUNNING; awaiting launcher/worker
 
                 """.formatted(
                 Instant.now(),
                 session.sessionId(),
                 session.longRunningTaskId(),
                 input == null ? "" : input.strip());
+    }
+
+    private void persistApprovedPlan(ConversationSession session) {
+        String taskId = session.longRunningTaskId();
+        if (taskId == null || taskId.isBlank()) {
+            return;
+        }
+        StringBuilder plan = new StringBuilder();
+        if (session.longRunningTaskTitle() != null && !session.longRunningTaskTitle().isBlank()) {
+            plan.append("# ").append(session.longRunningTaskTitle().strip()).append("\n\n");
+        }
+        if (session.longRunningPlanSummary() != null && !session.longRunningPlanSummary().isBlank()) {
+            plan.append(session.longRunningPlanSummary().strip()).append("\n");
+        }
+        if (!plan.isEmpty()) {
+            store.writeApprovedPlan(taskId, plan.toString());
+        }
     }
 
     /**

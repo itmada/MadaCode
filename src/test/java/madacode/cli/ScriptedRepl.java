@@ -7,6 +7,7 @@ import madacode.core.session.ConversationSession;
 import madacode.core.turn.TurnExecutor;
 import madacode.core.session.SessionStorage;
 import madacode.provider.ProviderRegistry;
+import madacode.permission.PermissionGate;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
 import madacode.services.compact.CompactPlanner;
@@ -84,6 +85,8 @@ final class ScriptedRepl extends Repl {
         config.sessionContext = new SessionContext();
         config.sessionContext.syncFrom(session);
         config.modeRouter = modeRouter;
+        config.permissionGate = PermissionGate.permissive();
+        config.workerTurnLogRoot = sessionStorage.transcriptPath(session.sessionId()).getParent();
         return config;
     }
 

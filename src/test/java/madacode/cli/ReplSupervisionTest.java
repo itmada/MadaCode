@@ -50,8 +50,10 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -378,13 +380,13 @@ class ReplSupervisionTest {
         SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-long"));
         ConversationSession session = new ConversationSession(tempDir.resolve("ws-long"));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         AtomicReference<String> seenPrompt = new AtomicReference<>();
         QueryEngine engine = new QueryEngine(
                 (msgs, sys, tools, sink, tok) -> {
                     seenPrompt.set(firstText(msgs.getLast()));
-                    sink.onTextDelta("executing");
-                    return new ApiClient.ApiResponse("executing", List.of());
+                    sink.onTextDelta("RUNNING");
+                    return new ApiClient.ApiResponse("RUNNING", List.of());
                 },
                 new ToolRegistry(), new SystemPromptBuilder(),
                 PermissionGate.permissive());
@@ -448,56 +450,25 @@ class ReplSupervisionTest {
         ConversationSession restored = storage.load(session.sessionId());
         assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
         assertEquals(PermissionMode.BYPASS, restored.permissionMode());
-        assertEquals(LongRunningStage.WAITING_FOR_TASK, restored.longRunningStage());
+        assertEquals(LongRunningStage.DRAFT, restored.longRunningStage());
     }
 
     @Test
-    void longRunContinueStopsWhenAssignmentVerificationFails() {
+    void longRunContinueWithoutTaskShowsNoActiveTask() {
         SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-auto"));
-        Path workingDirectory = tempDir.resolve("ws-auto");
-        ConversationSession session = new ConversationSession(workingDirectory);
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws-auto"));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
-
-        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
-        store.createTask(new CreateTaskRequest(
-                "task-auto", "Auto task", "executing", session.sessionId(), "EXECUTING"));
-        session.setLongRunningTaskId("task-auto");
-        session.setLongRunningTaskDirectory(store.taskDirectoryPath("task-auto").toString());
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        // No taskId set — command should report no active task
 
         QueryEngine engine = new QueryEngine(
                 (msgs, sys, tools, sink, tok) -> {
-                    throw new AssertionError("auto-continue test uses a fake mode router");
+                    throw new AssertionError("/longrun-continue must not run a model turn");
                 },
                 new ToolRegistry(), new SystemPromptBuilder(),
                 PermissionGate.permissive());
         TurnExecutor executor = new TurnExecutor(
                 new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-auto")));
-        AtomicInteger turns = new AtomicInteger();
-        ModeRouter router = new ModeRouter(
-                (line, s) -> {
-                    throw new AssertionError("common handler should not be used");
-                },
-                (line, s) -> {
-                    int turn = turns.incrementAndGet();
-                    TurnHandle handle = new TurnHandle(
-                            "auto-" + turn,
-                            CompletableFuture.completedFuture(new madacode.core.turn.TurnResult(
-                                    "ok", FinishReason.COMPLETED, 1)),
-                            reason -> { });
-                    return ModeExecution.managedTurn(handle, () -> store.appendEvent(
-                            "task-auto",
-                            LongRunningTaskEvent.of(
-                                    "assignment_verified",
-                                    "task-auto",
-                                    s.sessionId(),
-                                    LongRunningStage.EXECUTING.name(),
-                                    "FEATURE",
-                                    turn < 2,
-                                    turn < 2 ? "ok" : "failed",
-                                    Map.of())));
-                });
-
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         ProviderRegistry testRegistry = ProviderRegistry.singleProvider(
                 new Provider("test", "test-token",
@@ -510,6 +481,68 @@ class ReplSupervisionTest {
                 storage,
                 madacode.cli.slash.SlashCommandRegistry.create(null),
                 testRegistry,
+                null);
+
+        try {
+            repl.run();
+        } finally {
+            executor.close();
+        }
+
+        assertTrue(stripAnsi(buf.toString()).contains("No active long-running task"));
+    }
+
+    @Test
+    void approvalDoesNotAutoStartExecutingTurn() {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-chain"));
+        Path workingDirectory = tempDir.resolve("ws-chain");
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
+
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-chain", "Chain test", "DRAFT", session.sessionId(), "DRAFT"));
+        session.setLongRunningTaskId("task-chain");
+        session.setLongRunningTaskDirectory(store.taskDirectoryPath("task-chain").toString());
+
+        List<String> turnInputs = new ArrayList<>();
+        AtomicInteger turnCount = new AtomicInteger();
+
+        ModeRouter router = new ModeRouter(
+                (line, s) -> {
+                    throw new AssertionError("common handler should not be used");
+                },
+                (line, s) -> {
+                    int turn = turnCount.incrementAndGet();
+                    turnInputs.add(line);
+                    TurnHandle handle = new TurnHandle(
+                            "chain-" + turn,
+                            CompletableFuture.completedFuture(new madacode.core.turn.TurnResult(
+                                    "ok", FinishReason.COMPLETED, 1)),
+                            reason -> { });
+                    // Simulate approving execution: enter RUNNING
+                    return ModeExecution.managedTurn(handle, () -> {
+                        s.setLongRunningStage(LongRunningStage.RUNNING);
+                        return Optional.empty();
+                    });
+                });
+
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> {
+                    throw new AssertionError("test uses fake mode router");
+                },
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-chain")));
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("开始\nexit\n")),
+                new PrintStream(buf, true),
+                storage,
+                madacode.cli.slash.SlashCommandRegistry.create(null),
+                null,
                 null,
                 router);
 
@@ -519,10 +552,12 @@ class ReplSupervisionTest {
             executor.close();
         }
 
-        assertEquals(2, turns.get());
-        assertTrue(stripAnsi(buf.toString()).contains("Auto-continue completed 2 turn(s)."));
-        ConversationSession restored = storage.load(session.sessionId());
-        assertEquals(LongRunningStage.EXECUTING, restored.longRunningStage());
+        assertEquals(1, turnCount.get(), "Handler should have been called once for user input");
+        assertEquals("开始", turnInputs.get(0), "First turn input should be user's '开始'");
+        assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
+        assertEquals(SessionMode.LONG_RUNNING, session.workflowMode());
+        assertFalse(session.inputHistory().contains("[auto-start] Begin executing the approved long-running task."),
+                "Auto-start input should not appear in inputHistory");
     }
 
     private static String firstText(Message m) {

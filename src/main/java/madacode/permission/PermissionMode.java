@@ -13,7 +13,7 @@ import java.util.Optional;
  * while PermissionMode controls how their approval flow runs.
  *
  * <p>Hierarchy of permissiveness (least → most):
- * DEFAULT < ACCEPT_EDITS < BYPASS.
+ * DEFAULT < ACCEPT_EDITS < LONG_RUNNING_WORKSPACE < BYPASS.
  */
 public enum PermissionMode {
     /** Every non-readonly tool requires explicit user approval. */
@@ -28,8 +28,10 @@ public enum PermissionMode {
     /** Skip all interactive approval. Safety rules (e.g. dangerous bash)
      *  still apply — BYPASS only suppresses prompting, never overrides
      *  deny rules. */
+    LONG_RUNNING_WORKSPACE("long-running-workspace",
+            "Auto-allow file edits in the workspace; prompt for other writes", 2),
     BYPASS("all-pass",
-            "Suppress interactive approval; structural safety rules still apply", 2);
+            "Suppress interactive approval; structural safety rules still apply", 3);
 
     private final String id;
     private final String description;
