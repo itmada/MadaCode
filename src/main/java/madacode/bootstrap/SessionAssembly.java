@@ -9,6 +9,7 @@ import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
+import madacode.longrunning.LongRunningSessionBootstrap;
 import madacode.tui.WelcomeCard;
 import madacode.tui.inline.InlineChoicePrompt;
 
@@ -29,11 +30,11 @@ final class SessionAssembly {
                     resolveStartupSession(environment, storage, terminal));
         }
         return new SessionRuntime(storage,
-                resolveSession(environment.args(), storage));
+                resolveSession(environment.args(), storage, environment.projectDir()));
     }
 
     private static ConversationSession resolveSession(
-            CliArgs args, SessionStorage storage) {
+            CliArgs args, SessionStorage storage, Path projectDir) {
         return switch (args) {
             case CliArgs.NewSession n -> {
                 ConversationSession session = new ConversationSession();
@@ -76,6 +77,12 @@ final class SessionAssembly {
             }
             case CliArgs.Interactive i -> {
                 ConversationSession session = new ConversationSession();
+                SessionPointer.write(session.sessionId());
+                yield session;
+            }
+            case CliArgs.LongRunningSession l -> {
+                ConversationSession session =
+                        LongRunningSessionBootstrap.createFreshControlSession(projectDir);
                 SessionPointer.write(session.sessionId());
                 yield session;
             }

@@ -29,6 +29,7 @@ public final class LongRunningTaskStore {
     private static final Set<String> ALLOWED_ISSUE_STATUSES = Set.of("open", "resolved", "blocked");
     private static final String TASK_FILE = "task.json";
     private static final String FEATURE_LIST_FILE = "feature_list.json";
+    private static final String APPROVED_PLAN_FILE = "approved_plan.md";
     private static final String PROGRESS_FILE = "progress.txt";
     private static final String KNOWN_ISSUES_FILE = "known-issues.json";
     private static final String INIT_SCRIPT_FILE = "init.sh";
@@ -89,6 +90,7 @@ public final class LongRunningTaskStore {
                 Files.createDirectories(stagingDirectory.resolve(LOGS_DIR));
                 writeJsonAtomically(stagingDirectory.resolve(TASK_FILE), serializeTask(metadata));
                 writeJsonAtomically(stagingDirectory.resolve(FEATURE_LIST_FILE), mapper.createArrayNode());
+                writeStringAtomically(stagingDirectory.resolve(APPROVED_PLAN_FILE), "");
                 writeStringAtomically(stagingDirectory.resolve(PROGRESS_FILE), "");
                 writeJsonAtomically(stagingDirectory.resolve(KNOWN_ISSUES_FILE), mapper.createArrayNode());
                 writeStringAtomically(stagingDirectory.resolve(INIT_SCRIPT_FILE), DEFAULT_INIT_SCRIPT);
@@ -115,6 +117,34 @@ public final class LongRunningTaskStore {
     public synchronized List<FeatureItem> readFeatureList(String taskId) {
         Path directory = validateTaskDirectory(taskId);
         return readFeatures(directory.resolve(FEATURE_LIST_FILE));
+    }
+
+    public synchronized void writeApprovedPlan(String taskId, String plan) {
+        String safeTaskId = validateTaskId(taskId);
+        Path directory = validateTaskDirectory(safeTaskId);
+        String value = plan == null ? "" : plan.strip();
+        try {
+            writeStringAtomically(directory.resolve(APPROVED_PLAN_FILE),
+                    value.isBlank() ? "" : value + System.lineSeparator());
+            updateTaskTimestamp(safeTaskId, Instant.now());
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to write approved plan for " + safeTaskId, exception);
+        }
+    }
+
+    public synchronized Optional<String> readApprovedPlan(String taskId) {
+        String safeTaskId = validateTaskId(taskId);
+        Path directory = validateTaskDirectory(safeTaskId);
+        Path approvedPlan = directory.resolve(APPROVED_PLAN_FILE);
+        if (!Files.isRegularFile(approvedPlan, LinkOption.NOFOLLOW_LINKS)) {
+            return Optional.empty();
+        }
+        try {
+            String value = Files.readString(approvedPlan);
+            return value.isBlank() ? Optional.empty() : Optional.of(value);
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to read approved plan for " + safeTaskId, exception);
+        }
     }
 
     public synchronized void writeInitialFeatureList(String taskId, List<FeatureItem> features) {
@@ -429,15 +459,46 @@ public final class LongRunningTaskStore {
                 && "EXECUTING".equals(metadata.stage())) {
             return metadata;
         }
-        if (!"planning".equals(metadata.status())
-                || (!"PLANNING".equals(metadata.stage())
-                && !"WAITING_FOR_APPROVAL".equals(metadata.stage()))) {
+        if (!isExecutionStartable(metadata)) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot enter execution: status="
                             + metadata.status() + ", stage=" + metadata.stage());
         }
         return writeTaskLifecycle(directory, metadata, "executing", "EXECUTING",
                 "Failed to mark task " + taskId + " as executing");
+    }
+
+    /**
+     * Marks a planned task as initialized after user approval.
+     *
+     * <p>This prepares durable task state for the launcher/worker handoff
+     * without claiming that execution has started in the control session.
+     */
+    public synchronized LongRunningTaskMetadata markTaskInitialized(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if ("initialized".equals(metadata.status())
+                && "INITIALIZING".equals(metadata.stage())) {
+            return metadata;
+        }
+        if (!"planning".equals(metadata.status())
+                || (!"PLANNING".equals(metadata.stage())
+                && !"WAITING_FOR_APPROVAL".equals(metadata.stage()))) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be initialized: status="
+                            + metadata.status() + ", stage=" + metadata.stage());
+        }
+        return writeTaskLifecycle(directory, metadata, "initialized", "INITIALIZING",
+                "Failed to mark task " + taskId + " as initialized");
+    }
+
+    private static boolean isExecutionStartable(LongRunningTaskMetadata metadata) {
+        return ("initialized".equals(metadata.status())
+                && "INITIALIZING".equals(metadata.stage()))
+                || ("planning".equals(metadata.status())
+                && ("PLANNING".equals(metadata.stage())
+                || "WAITING_FOR_APPROVAL".equals(metadata.stage())));
     }
 
     public synchronized LongRunningTaskMetadata markPlanAwaitingApproval(String taskId) {
@@ -506,14 +567,16 @@ public final class LongRunningTaskStore {
      * Cancels a task: updates task.json status and stage.
      *
      * @return the updated metadata
-     * @throws LongRunningTaskStoreException if the task is not in an
-     *         executable state
+     * @throws LongRunningTaskStoreException if the task is already terminal or
+     *         otherwise not in a cancellable lifecycle state
      */
     public synchronized LongRunningTaskMetadata cancelTask(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if (!"executing".equals(metadata.status())) {
+        if (!"planning".equals(metadata.status())
+                && !"initialized".equals(metadata.status())
+                && !"executing".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot be cancelled: current status is " + metadata.status());
         }

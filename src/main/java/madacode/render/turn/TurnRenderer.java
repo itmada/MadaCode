@@ -149,6 +149,10 @@ public final class TurnRenderer implements SessionListener {
 
     @Override
     public synchronized void onMessageAppended(int index, Message message) {
+        if (message.role() == MessageRole.ASSISTANT) {
+            renderStaticAssistantMessage(message);
+            return;
+        }
         if (message.role() != MessageRole.USER) return;
         for (ContentBlock block : message.contentBlocks()) {
             if (block instanceof ContentBlock.ToolResultBlock tr) {
@@ -157,6 +161,18 @@ public final class TurnRenderer implements SessionListener {
                     card.setResultOutput(tr.success(), tr.content());
                     turnView.markDirty();
                 }
+            }
+        }
+    }
+
+    private void renderStaticAssistantMessage(Message message) {
+        for (ContentBlock block : message.contentBlocks()) {
+            if (block instanceof ContentBlock.TextBlock text && !text.text().isBlank()) {
+                dismissStatusLine();
+                AssistantTextRenderable renderable = new AssistantTextRenderable();
+                renderable.append(text.text());
+                renderable.finalizeText();
+                turnView.add(renderable);
             }
         }
     }

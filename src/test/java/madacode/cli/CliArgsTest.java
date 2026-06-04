@@ -21,6 +21,12 @@ public class CliArgsTest {
     }
 
     @Test
+    void longRunningFlag() {
+        CliArgs args = CliArgs.parse(new String[]{"--long-running"});
+        assertTrue(args instanceof CliArgs.LongRunningSession);
+    }
+
+    @Test
     void continueShort() {
         CliArgs args = CliArgs.parse(new String[]{"-c"});
         assertTrue(args instanceof CliArgs.Continue);

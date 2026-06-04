@@ -80,7 +80,7 @@ public final class LongRunningPostTurnVerifier {
     private VerificationResult verifyCompleteTask(String taskId) {
         LongRunningTaskMetadata metadata = store.loadTask(taskId);
         boolean completed = "completed".equals(metadata.status())
-                || LongRunningStage.COMPLETED.name().equals(metadata.stage());
+                || LongRunningStage.DONE.name().equals(metadata.stage());
         return completed
                 ? VerificationResult.success("Task is marked completed.")
                 : VerificationResult.failure("Task completion was assigned but task is not completed.");
@@ -154,7 +154,7 @@ public final class LongRunningPostTurnVerifier {
                 "assignment_verified",
                 taskId,
                 sessionId,
-                LongRunningStage.EXECUTING.name(),
+                LongRunningStage.RUNNING.name(),
                 assignment.kind().name(),
                 result.success(),
                 result.message(),

@@ -1,9 +1,10 @@
 package madacode.cli.slash;
 
-import madacode.core.model.Message;
-import madacode.core.session.LongRunningStage;
+import madacode.cli.session.SessionPointer;
+import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionMode;
-import madacode.permission.PermissionMode;
+import madacode.core.session.SessionStorageException;
+import madacode.longrunning.LongRunningSessionBootstrap;
 
 import java.util.Arrays;
 import java.util.Locale;
@@ -54,36 +55,28 @@ final class ModeCommand implements SlashCommand {
         }
 
         SessionMode mode = parsed.get();
+        if (mode == SessionMode.LONG_RUNNING) {
+            try {
+                ctx.storage().save(ctx.session());
+                SlashFeedback.muted(ctx.screen(), "(saved current session)");
+            } catch (SessionStorageException e) {
+                ctx.screen().scrollback("[warn] Failed to save current session: " + e.getMessage());
+            }
+            ConversationSession fresh = LongRunningSessionBootstrap.createFreshControlSession(
+                    ctx.session().workingDirectory());
+            SessionPointer.write(fresh.sessionId());
+            SlashFeedback.muted(ctx.screen(), "Entered long-running mode in a fresh control session.");
+            SlashFeedback.muted(ctx.screen(),
+                    "State starts in DRAFT with an initialized task shell. Discuss scope here before runtime starts execution.");
+            SlashFeedback.muted(ctx.screen(),
+                    "Current permission is all-pass. Use /permission to change it.");
+            return new SlashAction.SwitchToNewLongRunningSession(fresh);
+        }
+
         mode.applyTo(ctx.session());
         if (ctx.sessionContext() != null) {
             ctx.sessionContext().setWorkflowMode(mode);
         }
-
-        if (mode == SessionMode.LONG_RUNNING) {
-            ctx.session().setPlanMode(false);
-            ctx.session().setLongRunningTaskId(null);
-            ctx.session().setLongRunningTaskDirectory(null);
-            ctx.session().setLongRunningTaskTitle(null);
-            ctx.session().setLongRunningPlanSummary(null);
-            ctx.session().clearLongRunningStageUpdate();
-            ctx.session().setPermissionMode(PermissionMode.BYPASS);
-            ctx.session().setLongRunningStage(LongRunningStage.WAITING_FOR_TASK);
-            if (ctx.sessionContext() != null) {
-                ctx.sessionContext().setPlanMode(false);
-                ctx.sessionContext().setPermissionMode(PermissionMode.BYPASS);
-            }
-            SlashFeedback.muted(ctx.screen(), "Entered long-running mode.");
-            SlashFeedback.muted(ctx.screen(),
-                    "This mode is for larger serial relay tasks. It starts with planning and confirmation, and will not execute immediately.");
-            SlashFeedback.muted(ctx.screen(),
-                    "Current permission is all-pass. Use /permission to change it.");
-            ctx.session().addMessage(Message.system(
-                    "[long-running mode entered] This mode is for larger serial relay tasks. "
-                            + "It starts with planning and confirmation, uses all-pass permission by default, "
-                            + "and waits for the user to provide the task request."));
-            return new SlashAction.Handled(true);
-        }
-
         SlashFeedback.muted(ctx.screen(), "Mode set to: " + mode.id());
         return new SlashAction.Handled(true);
     }

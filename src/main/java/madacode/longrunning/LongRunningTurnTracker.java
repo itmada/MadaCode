@@ -13,10 +13,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Temporary {@link SessionListener} that audits whether an EXECUTING turn
+ * Temporary {@link SessionListener} that audits whether a RUNNING turn
  * produced any observable progress.
  *
- * <p>When the turn ends, if the session is still in EXECUTING mode and no
+ * <p>When the turn ends, if the session is still in RUNNING mode and no
  * {@code longrun_task_update} action was <em>successfully completed</em> during
  * the turn, the tracker appends a harness warning to the task's
  * {@code progress.txt}.
@@ -101,12 +101,12 @@ public final class LongRunningTurnTracker implements SessionListener {
     }
 
     private void auditProgress() {
-        // Only audit EXECUTING turns
+        // Only audit RUNNING turns
         if (session.workflowMode() != SessionMode.LONG_RUNNING) {
             return;
         }
         LongRunningStage stage = session.longRunningStage();
-        if (stage != LongRunningStage.EXECUTING) {
+        if (stage != LongRunningStage.RUNNING) {
             return;
         }
         String taskId = session.longRunningTaskId();
@@ -122,7 +122,7 @@ public final class LongRunningTurnTracker implements SessionListener {
         }
         // Append a harness warning to progress.txt
         try {
-            String warning = "[HARNESS WARNING] EXECUTING turn completed without any "
+            String warning = "[HARNESS WARNING] RUNNING turn completed without any "
                     + "successful longrun_task_update action. No progress was recorded for this turn."
                     + System.lineSeparator();
             store.appendProgress(taskId, warning);

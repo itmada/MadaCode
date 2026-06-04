@@ -65,8 +65,11 @@ public class ConversationSession {
     private volatile String longRunningTaskDirectory;
     private volatile String longRunningTaskTitle;
     private volatile String longRunningPlanSummary;
-    private volatile LongRunningStageUpdate lastLongRunningStageUpdate;
+    private volatile String longRunningReason;
+    private volatile boolean executionStarted;
     private volatile LongRunningTurnAssignment longRunningTurnAssignment;
+    private volatile boolean longRunningWorkerSession;
+    private volatile madacode.longrunning.WorkerReport lastWorkerReport;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
     private final List<SessionListener> listeners = new CopyOnWriteArrayList<>();
@@ -357,8 +360,11 @@ public class ConversationSession {
             this.longRunningTaskDirectory = null;
             this.longRunningTaskTitle = null;
             this.longRunningPlanSummary = null;
-            this.lastLongRunningStageUpdate = null;
+            this.longRunningReason = null;
+            this.executionStarted = false;
             this.longRunningTurnAssignment = null;
+            this.longRunningWorkerSession = false;
+            this.lastWorkerReport = null;
         }
     }
 
@@ -384,11 +390,8 @@ public class ConversationSession {
 
     public void setLongRunningStage(LongRunningStage longRunningStage) {
         requireLongRunningMode("longRunningStage", longRunningStage);
-        if (this.longRunningStage != longRunningStage) {
-            this.lastLongRunningStageUpdate = null;
-        }
-        if (longRunningStage != LongRunningStage.EXECUTING) {
-            this.longRunningTurnAssignment = null;
+        if (longRunningStage == LongRunningStage.RUNNING) {
+            this.executionStarted = true;
         }
         this.longRunningStage = longRunningStage;
     }
@@ -429,38 +432,52 @@ public class ConversationSession {
         this.longRunningPlanSummary = normalizeOptionalLongRunningText(longRunningPlanSummary);
     }
 
-    public Optional<LongRunningStageUpdate> lastLongRunningStageUpdate() {
-        return Optional.ofNullable(lastLongRunningStageUpdate);
+    public String longRunningReason() {
+        return longRunningReason;
     }
 
-    public void recordLongRunningStageUpdate(LongRunningStageUpdate update) {
-        Objects.requireNonNull(update, "update");
-        if (workflowMode != SessionMode.LONG_RUNNING || longRunningStage == null) {
-            throw new IllegalStateException("Cannot record long-running stage update without an active stage");
-        }
-        if (longRunningStage != update.stage()) {
-            throw new IllegalArgumentException(
-                    "Long-running stage update stage mismatch: session=" + longRunningStage
-                            + ", update=" + update.stage());
-        }
-        this.lastLongRunningStageUpdate = update;
+    public void setLongRunningReason(String longRunningReason) {
+        requireLongRunningMode("longRunningReason", longRunningReason);
+        this.longRunningReason = normalizeOptionalLongRunningText(longRunningReason);
     }
 
-    public void clearLongRunningStageUpdate() {
-        this.lastLongRunningStageUpdate = null;
+    public boolean executionStarted() {
+        return executionStarted;
+    }
+
+    public void setExecutionStarted(boolean executionStarted) {
+        requireLongRunningMode("executionStarted", executionStarted);
+        this.executionStarted = executionStarted;
     }
 
     public Optional<LongRunningTurnAssignment> longRunningTurnAssignment() {
         return Optional.ofNullable(longRunningTurnAssignment);
     }
 
+    @Deprecated(forRemoval = false)
     public void setLongRunningTurnAssignment(LongRunningTurnAssignment assignment) {
         requireLongRunningMode("longRunningTurnAssignment", assignment);
-        if (assignment != null && longRunningStage != LongRunningStage.EXECUTING) {
-            throw new IllegalStateException(
-                    "longRunningTurnAssignment requires EXECUTING stage");
-        }
         this.longRunningTurnAssignment = assignment;
+    }
+
+    public boolean isLongRunningWorkerSession() {
+        return longRunningWorkerSession;
+    }
+
+    public void setLongRunningWorkerSession(boolean value) {
+        this.longRunningWorkerSession = value;
+    }
+
+    public Optional<madacode.longrunning.WorkerReport> lastWorkerReport() {
+        return Optional.ofNullable(lastWorkerReport);
+    }
+
+    public void recordWorkerReport(madacode.longrunning.WorkerReport report) {
+        this.lastWorkerReport = report;
+    }
+
+    public void clearWorkerReport() {
+        this.lastWorkerReport = null;
     }
 
     private void requireLongRunningMode(String fieldName, Object value) {
@@ -607,69 +624,6 @@ public class ConversationSession {
         next.addAll(snapshot);
         next.add(element);
         return List.copyOf(next);
-    }
-
-    public enum LongRunningStageUpdateIntent {
-        FINALIZE_PLAN,
-        APPROVE_EXECUTION,
-        REVISE_PLAN,
-        CANCEL;
-
-        public static Optional<LongRunningStageUpdateIntent> fromWire(String value) {
-            if (value == null || value.isBlank()) {
-                return Optional.empty();
-            }
-            try {
-                return Optional.of(LongRunningStageUpdateIntent.valueOf(value.strip().toUpperCase()));
-            } catch (IllegalArgumentException ignored) {
-                return Optional.empty();
-            }
-        }
-    }
-
-    public enum LongRunningConfidence {
-        HIGH("high"),
-        MEDIUM("medium"),
-        LOW("low");
-
-        private final String wireValue;
-
-        LongRunningConfidence(String wireValue) {
-            this.wireValue = wireValue;
-        }
-
-        public String wireValue() {
-            return wireValue;
-        }
-
-        public static Optional<LongRunningConfidence> fromWire(String value) {
-            if (value == null || value.isBlank()) {
-                return Optional.empty();
-            }
-            String normalized = value.strip().toLowerCase();
-            for (LongRunningConfidence confidence : values()) {
-                if (confidence.wireValue.equals(normalized)) {
-                    return Optional.of(confidence);
-                }
-            }
-            return Optional.empty();
-        }
-    }
-
-    public record LongRunningStageUpdate(
-            LongRunningStage stage,
-            LongRunningStageUpdateIntent intent,
-            LongRunningConfidence confidence,
-            String summary,
-            Instant recordedAt) {
-
-        public LongRunningStageUpdate {
-            Objects.requireNonNull(stage, "stage");
-            Objects.requireNonNull(intent, "intent");
-            Objects.requireNonNull(confidence, "confidence");
-            Objects.requireNonNull(recordedAt, "recordedAt");
-            summary = summary == null ? "" : summary.strip();
-        }
     }
 
 }

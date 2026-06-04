@@ -20,24 +20,19 @@ import java.util.Set;
  *
  * <h3>Rules</h3>
  * <ul>
- *   <li>{@code longrun_stage_update} is visible/executable only when the
- *       session is in LONG_RUNNING mode and the stage is
- *       {@code PLANNING} or {@code WAITING_FOR_APPROVAL}.</li>
- *   <li>{@code longrun_task_update} is visible/executable only when the
- *       session is in LONG_RUNNING mode and the stage is
- *       {@code EXECUTING}.</li>
+ *   <li>{@code longrun_task_update} is reserved for worker sessions and
+ *       is never visible/executable in the control session.</li>
+ *   <li>{@code worker_report} is only visible in worker sessions.</li>
  *   <li>Pre-execution stages do not expose ordinary planning write tools such
- *       as {@code plan_create}, {@code plan_update}, or {@code todo_write}.
- *       Long-running planning is represented by the task store and
- *       {@code longrun_stage_update}, not the normal checklist tools.</li>
+ *       as {@code plan_create}, {@code plan_update}, or {@code todo_write}.</li>
  *   <li>Both tools are invisible and non-executable in COMMON mode or when
  *       the session is not in a long-running workflow.</li>
  * </ul>
  */
 public final class LongRunningToolPolicy {
 
-    private static final String STAGE_UPDATE_TOOL = "longrun_stage_update";
     private static final String TASK_UPDATE_TOOL = "longrun_task_update";
+    private static final String WORKER_REPORT_TOOL = "worker_report";
 
     private static final Set<String> ORDINARY_PLAN_MODE_TOOLS = Set.of(
             "enter_plan_mode", "exit_plan_mode",
@@ -45,7 +40,7 @@ public final class LongRunningToolPolicy {
             "todo_write");
 
     private static final Set<String> PRE_EXECUTION_ALLOWED_WRITE_TOOLS = Set.of(
-            "ask_user_question", "longrun_stage_update");
+            "ask_user_question");
 
     private LongRunningToolPolicy() {}
 
@@ -64,10 +59,16 @@ public final class LongRunningToolPolicy {
         if (stage == null) {
             return false;
         }
+        // Worker session: task_update and worker_report visible in EXECUTING
+        if (session.isLongRunningWorkerSession() && stage == LongRunningStage.RUNNING) {
+            return switch (toolName) {
+                case TASK_UPDATE_TOOL, WORKER_REPORT_TOOL -> true;
+                default -> false;
+            };
+        }
+        // Control session
         return switch (toolName) {
-            case STAGE_UPDATE_TOOL -> stage == LongRunningStage.PLANNING
-                    || stage == LongRunningStage.WAITING_FOR_APPROVAL;
-            case TASK_UPDATE_TOOL -> stage == LongRunningStage.EXECUTING;
+            case TASK_UPDATE_TOOL, WORKER_REPORT_TOOL -> false;
             default -> false;
         };
     }
@@ -89,15 +90,24 @@ public final class LongRunningToolPolicy {
         if (stage == null) return !isLongRunningTool(name);
         if (ORDINARY_PLAN_MODE_TOOLS.contains(name)) return false;
 
-        if (stage == LongRunningStage.PLANNING || stage == LongRunningStage.WAITING_FOR_APPROVAL) {
+        // Worker session in EXECUTING: full tool access except stage_update
+        if (session.isLongRunningWorkerSession() && stage == LongRunningStage.RUNNING) {
+            if (WORKER_REPORT_TOOL.equals(name)) return true;
+            if (TASK_UPDATE_TOOL.equals(name)) return true;
+            return true; // All other tools available to worker
+        }
+
+        if (stage == LongRunningStage.DRAFT) {
             if (TASK_UPDATE_TOOL.equals(name)) return false;
-            if (STAGE_UPDATE_TOOL.equals(name)) return true;
+            if (WORKER_REPORT_TOOL.equals(name)) return false;
             return tool.isReadOnly() || PRE_EXECUTION_ALLOWED_WRITE_TOOLS.contains(name);
         }
 
-        if (stage == LongRunningStage.EXECUTING) {
-            if (STAGE_UPDATE_TOOL.equals(name)) return false;
-            return true;
+        if (stage == LongRunningStage.RUNNING || stage == LongRunningStage.DONE) {
+            // Control session: read-only only. No task updates, no worker report.
+            if (TASK_UPDATE_TOOL.equals(name)) return false;
+            if (WORKER_REPORT_TOOL.equals(name)) return false;
+            return tool.isReadOnly();
         }
 
         return !isLongRunningTool(name);
@@ -140,10 +150,10 @@ public final class LongRunningToolPolicy {
             return "No long-running stage is active for this session.";
         }
         return switch (toolName) {
-            case STAGE_UPDATE_TOOL ->
-                "longrun_stage_update is only available in PLANNING and WAITING_FOR_APPROVAL stages. Current stage: " + stage;
             case TASK_UPDATE_TOOL ->
-                "longrun_task_update is only available in the EXECUTING stage. Current stage: " + stage;
+                "longrun_task_update is reserved for the worker session and is not available in the control session. Current stage: " + stage;
+            case WORKER_REPORT_TOOL ->
+                "worker_report is only available in a worker session. Current stage: " + stage;
             default -> "Unknown long-running tool: " + toolName;
         };
     }
@@ -160,16 +170,24 @@ public final class LongRunningToolPolicy {
 
         if (session != null
                 && session.workflowMode() == SessionMode.LONG_RUNNING
-                && (session.longRunningStage() == LongRunningStage.PLANNING
-                    || session.longRunningStage() == LongRunningStage.WAITING_FOR_APPROVAL)) {
-            return "Long-running pre-execution stage uses its own planning flow and only allows read-only investigation tools, ask_user_question, and longrun_stage_update. Current stage: "
-                    + session.longRunningStage();
+                && session.longRunningStage() == LongRunningStage.DRAFT) {
+            return "Current long-running stage is " + session.longRunningStage()
+                    + ". This stage only allows planning, approval, read-only investigation, and ask_user_question. Do not attempt implementation until EXECUTING.";
+        }
+
+        if (session != null
+                && session.workflowMode() == SessionMode.LONG_RUNNING
+                && (session.longRunningStage() == LongRunningStage.RUNNING
+                    || session.longRunningStage() == LongRunningStage.DONE)) {
+            return "Current long-running stage is " + session.longRunningStage()
+                    + ". The control session only allows read-only tools. Implementation is managed by the worker/launcher system.";
         }
 
         return executionDenialReason(tool.name(), session);
     }
 
     private static boolean isLongRunningTool(String toolName) {
-        return STAGE_UPDATE_TOOL.equals(toolName) || TASK_UPDATE_TOOL.equals(toolName);
+        return TASK_UPDATE_TOOL.equals(toolName)
+                || WORKER_REPORT_TOOL.equals(toolName);
     }
 }

@@ -1,7 +1,6 @@
 package madacode.cli;
 
 import madacode.cli.mode.CommonModeHandler;
-import madacode.cli.mode.LongRunningAutoContinueRunner;
 import madacode.cli.mode.LongRunningModeHandler;
 import madacode.cli.mode.ModeExecution;
 import madacode.cli.mode.ModeRouter;
@@ -31,9 +30,15 @@ import madacode.tui.theme.Tk;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
 
+import madacode.longrunning.LongRunningLauncher;
+import madacode.longrunning.LongRunningWorkerRunner;
+import madacode.permission.PermissionGate;
+
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 public abstract class Repl {
 
@@ -52,7 +57,9 @@ public abstract class Repl {
     InterruptController interruptController;
     final TurnExecutor turnExecutor;
     final ModeRouter modeRouter;
-    final LongRunningAutoContinueRunner autoContinueRunner;
+    final LongRunningLauncher launcher;
+    final PermissionGate permissionGate;
+    final Path workerTurnLogRoot;
     private final List<AutoCloseable> shutdownTargets;
 
     Repl(Config config) {
@@ -71,7 +78,9 @@ public abstract class Repl {
                 : new ModeRouter(
                         new CommonModeHandler(turnExecutor),
                         new LongRunningModeHandler(turnExecutor));
-        this.autoContinueRunner = new LongRunningAutoContinueRunner(this.modeRouter);
+        this.launcher = config.launcher;
+        this.permissionGate = config.permissionGate;
+        this.workerTurnLogRoot = config.workerTurnLogRoot;
         this.shutdownTargets = config.shutdownTargets != null
                 ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
@@ -106,17 +115,11 @@ public abstract class Repl {
         return switch (action) {
             case SlashAction.Continue c -> {
                 ModeExecution execution = modeRouter.handle(line, session);
-                runManagedTurn(execution.handle());
-                runAfterTurnHook(execution.afterTurn());
-                persistSession();
+                runExecutionChain(execution, 1);
                 yield true;
             }
             case SlashAction.RunLocalTurn r -> {
                 runManagedTurn(turnExecutor.submitLocal(session, r.label(), r.task()));
-                yield true;
-            }
-            case SlashAction.AutoContinue a -> {
-                runAutoContinue(a.maxTurns());
                 yield true;
             }
             case SlashAction.Handled h -> {
@@ -129,10 +132,18 @@ public abstract class Repl {
                 replaceSession(s.session(), s.fresh());
                 yield true;
             }
+            case SlashAction.SwitchToNewLongRunningSession s -> {
+                replaceSession(s.session(), true);
+                yield true;
+            }
             case SlashAction.ReplayAll r -> {
                 turnRenderer.reset();
                 metaEventRenderer.reset();
                 historyPrinter.printAll(session.messages());
+                yield true;
+            }
+            case SlashAction.LongRunLaunch l -> {
+                runLongRunLaunch(l.maxWorkers());
                 yield true;
             }
             case SlashAction.Exit e -> {
@@ -142,16 +153,51 @@ public abstract class Repl {
         };
     }
 
-    private void runAutoContinue(int maxTurns) {
-        LongRunningAutoContinueRunner.Result result = autoContinueRunner.run(session, maxTurns, execution -> {
-            runManagedTurn(execution.handle());
-            runAfterTurnHook(execution.afterTurn());
-            persistSession();
-        });
-        screen.scrollback(result.message());
-    }
-
     public TurnRenderer turnRenderer() { return turnRenderer; }
+
+    private void runLongRunLaunch(int maxWorkers) {
+        String taskId = session.longRunningTaskId();
+        if (taskId == null || taskId.isBlank()) {
+            screen.scrollback("No active long-running task.");
+            return;
+        }
+
+        screen.scrollback("Launching worker cycles for task: " + taskId + " (max " + maxWorkers + ")...");
+
+        // Construct launcher on demand if not pre-configured
+        LongRunningLauncher effectiveLauncher = launcher;
+        if (effectiveLauncher == null) {
+            if (permissionGate == null) {
+                screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
+                return;
+            }
+            Path effectiveTurnLogRoot = workerTurnLogRoot != null
+                    ? workerTurnLogRoot
+                    : sessionStorage.transcriptPath(session.sessionId()).getParent();
+            LongRunningWorkerRunner.QueryEngineFactory engineFactory = (toolRegistry, promptBuilder) ->
+                    new madacode.core.engine.QueryEngine(
+                            queryEngine.apiClient(), toolRegistry, promptBuilder,
+                            permissionGate);
+            LongRunningWorkerRunner workerRunner = new LongRunningWorkerRunner(
+                    engineFactory, sessionStorage, queryEngine.toolRegistry(), effectiveTurnLogRoot);
+            effectiveLauncher = new LongRunningLauncher(workerRunner);
+        }
+
+        LongRunningLauncher.LaunchResult result = effectiveLauncher.run(
+                taskId, session.workingDirectory(), session, maxWorkers);
+
+        // Display result
+        String statusTag = switch (result.status()) {
+            case COMPLETED -> "[completed]";
+            case BLOCKED -> "[blocked]";
+            case FAILED -> "[failed]";
+            case NEEDS_USER -> "[needs-user]";
+            case MAX_WORKERS_EXHAUSTED -> "[exhausted]";
+        };
+        screen.scrollback(statusTag + " " + result.message()
+                + " (" + result.workersLaunched() + " worker cycle(s) launched)");
+        persistSession();
+    }
 
     private void runManagedTurn(TurnHandle handle) {
         screen.setCursorVisible(false);
@@ -172,11 +218,29 @@ public abstract class Repl {
         persistSession();
     }
 
-    private void runAfterTurnHook(Runnable afterTurn) {
+    private Optional<ModeExecution> runAfterTurnHook(ModeExecution.AfterTurn afterTurn) {
         try {
-            afterTurn.run();
+            return afterTurn.run();
         } catch (RuntimeException exception) {
             renderTurnCrash(exception);
+            return Optional.empty();
+        }
+    }
+
+    private void runExecutionChain(ModeExecution execution, int maxChainedTurns) {
+        ModeExecution current = execution;
+        int chainedTurns = 0;
+        while (current != null) {
+            runManagedTurn(current.handle());
+            Optional<ModeExecution> next = runAfterTurnHook(current.afterTurn());
+            persistSession();
+            if (next.isEmpty()) {
+                break;
+            }
+            if (++chainedTurns > maxChainedTurns) {
+                break;
+            }
+            current = next.get();
         }
     }
 
@@ -335,5 +399,8 @@ public abstract class Repl {
         NotificationCenter notifications;
         List<AutoCloseable> shutdownTargets;
         ModeRouter modeRouter;
+        LongRunningLauncher launcher;
+        PermissionGate permissionGate;
+        Path workerTurnLogRoot;
     }
 }

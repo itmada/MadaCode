@@ -1,7 +1,6 @@
 package madacode.prompt;
 
 import madacode.core.session.ConversationSession;
-import madacode.core.session.LongRunningTurnAssignment;
 import madacode.longrunning.LongRunningToolPolicy;
 import madacode.memory.MemoryLoader;
 import madacode.skill.Skill;
@@ -266,79 +265,65 @@ public class SystemPromptBuilder {
         if (stage == null) {
             return;
         }
-        String body = switch (stage) {
-            case PLANNING -> bullets(
-                    "Long-running stage: PLANNING.",
-                    "Only discuss and refine the task plan in this stage. Do not make code changes, create files, run implementation commands, or claim implementation has started.",
-                    "Do not use normal plan_create, plan_update, or todo_write for the long-running plan; the harness owns long-running task state.",
-                    "Do not choose product scope, technical tradeoffs, or delivery format on the user's behalf when those choices materially affect the build. Ask a focused question or present options.",
-                    "When enough requirements are known, present the proposed execution plan and then call longrun_stage_update with intent=FINALIZE_PLAN and confidence=high.",
-                    "If the user's intent is uncertain, continue discussion or ask a clarifying question instead of calling the tool.");
-            case WAITING_FOR_APPROVAL -> bullets(
-                    "Long-running stage: WAITING_FOR_APPROVAL.",
-                    "Present the final task plan and ask whether execution should begin.",
-                    "Do not make code changes, create files, or call ordinary write tools before explicit approval.",
-                    "When the user clearly authorizes implementation to start, call longrun_stage_update with intent=APPROVE_EXECUTION and confidence=high.",
-                    "When the user asks to revise, discuss more details, change scope, or defer approval, call longrun_stage_update with intent=REVISE_PLAN and confidence=high.",
-                    "If approval is ambiguous, ask for explicit confirmation instead of calling the tool.");
-            case EXECUTING -> {
-                java.util.List<String> items = new java.util.ArrayList<>();
-                items.add("Long-running stage: EXECUTING.");
-
-                String taskId = session.longRunningTaskId();
-                String taskDir = session.longRunningTaskDirectory();
-                if (taskId != null && !taskId.isBlank() && taskDir != null && !taskDir.isBlank()) {
-                    items.add("Active task id: " + taskId);
-                    items.add("Task store directory: " + taskDir);
-                    items.add("Read known-issues.json and feature_list.json from this directory.");
-                } else {
-                    items.add("[HARNESS WARNING] Active task context is missing — this session was not fully initialized.");
-                }
-                session.longRunningTurnAssignment()
-                        .ifPresent(assignment -> addAssignmentItems(items, assignment));
-
-                items.add("Do not call longrun_stage_update in this stage.");
-                items.add("At the start of every execution turn, read the task's known-issues.json before choosing work.");
-                items.add("If known-issues.json contains any open or blocked issue, fix exactly one issue in this turn and do not pick a feature.");
-                items.add("If feature_list.json is empty, create the initial feature list from the approved plan with longrun_task_update action=write_initial_feature_list, append progress, and stop the turn.");
-                items.add("If there are no open or blocked known issues, pick exactly one eligible feature from feature_list.json and work only on that feature.");
-                items.add("Use longrun_task_update to append progress, record or resolve issues, seed the initial feature list, and mark a feature passed.");
-                items.add("Record what changed, files touched, blockers, and the next step in progress.txt before ending the turn.");
-                items.add("Do not edit logs/events.jsonl directly; the harness records structured events automatically.");
-                items.add("Only mark a feature's passes value from false to true after its verification steps pass; do not rewrite feature descriptions opportunistically.");
-                yield bullets(items);
-            }
-            case WAITING_FOR_TASK, INITIALIZING, COMPLETED, CANCELLED -> bullets(
-                    "Long-running stage: " + stage.name() + ".",
-                    "Do not call longrun_stage_update in this stage unless the harness instructions explicitly request it.");
+        String body = longRunningSharedProtocol() + "\n" + switch (stage) {
+            case DRAFT -> draftPrompt(session);
+            case RUNNING -> runningPrompt(session);
+            case DONE -> donePrompt(session);
         };
         appendSection(sb, "Long-Running Workflow", body);
     }
 
-    private static void addAssignmentItems(
-            java.util.List<String> items,
-            LongRunningTurnAssignment assignment) {
-        items.add("Assigned target kind: " + assignment.kind().name() + ".");
-        if (assignment.id() != null) {
-            items.add("Assigned target id: " + assignment.id() + ".");
+    private static String longRunningSharedProtocol() {
+        return bullets(
+                "You are in harness-controlled long-running mode.",
+                "The current stage shown here is the only source of truth for your capabilities.",
+                "Use only the capabilities allowed by the current stage.",
+                "State transitions are requested by the model and confirmed by the runtime; do not assume a transition happened until the session state changes.",
+                "Do not invent hidden approval, finalize, or assignment sub-stages.");
+    }
+
+    private static String draftPrompt(ConversationSession session) {
+        java.util.List<String> items = new java.util.ArrayList<>();
+        items.add("Current stage: DRAFT.");
+        items.add("Current capability: discuss goals, refine scope, inspect lightweight context, and maintain the long-running task store as planning context evolves.");
+        items.add("Allowed: ask focused questions, summarize tradeoffs, update plan/task-store context, and prepare for a future RUNNING request.");
+        items.add("Forbidden: do not create/edit/delete project files, do not run build/package/scaffold/test commands, and do not claim execution has started.");
+        items.add("If the user wants to pause planning, change the request, or continue discussing, stay in DRAFT.");
+        items.add("If the user wants work to begin, request a transition to RUNNING rather than assuming it.");
+        if (session.longRunningTaskId() != null && session.longRunningTaskDirectory() != null) {
+            items.add("Draft task id: " + session.longRunningTaskId());
+            items.add("Task shell directory: " + session.longRunningTaskDirectory());
         }
-        if (assignment.description() != null) {
-            items.add("Assigned target description: " + assignment.description());
+        return bullets(items);
+    }
+
+    private static String runningPrompt(ConversationSession session) {
+        java.util.List<String> items = new java.util.ArrayList<>();
+        items.add("Current stage: RUNNING.");
+        items.add("This control session does not implement project files directly.");
+        items.add("Launcher/worker execution is managed mechanically by the runtime based on worker_report outcomes.");
+        items.add("Allowed: summarize status, answer user questions, and request a state transition if the user asks to pause, revise, or stop.");
+        items.add("Forbidden: do not create/edit/delete project files in this control session, do not run build/test/scaffold commands here, and do not assume you may directly mutate the project.");
+
+        String taskId = session.longRunningTaskId();
+        String taskDir = session.longRunningTaskDirectory();
+        if (taskId != null && !taskId.isBlank() && taskDir != null && !taskDir.isBlank()) {
+            items.add("Active task id: " + taskId);
+            items.add("Task store directory: " + taskDir);
         }
-        if (assignment.reason() != null) {
-            items.add("Assignment reason: " + assignment.reason());
+        if (session.lastWorkerReport().isPresent()) {
+            items.add("Latest worker report: " + session.lastWorkerReport().orElseThrow().summary());
         }
-        if (!assignment.verificationSteps().isEmpty()) {
-            items.add("Assigned verification steps: " + String.join("; ", assignment.verificationSteps()));
-        }
-        items.add("Only work on the assigned target for this execution turn.");
-        switch (assignment.kind()) {
-            case ISSUE -> items.add("Fix or update exactly this known issue before considering feature work.");
-            case FEATURE -> items.add("Implement and verify exactly this feature; do not switch to another feature.");
-            case SEED_FEATURE_LIST -> items.add("Create the initial feature list, append progress, and stop the turn.");
-            case COMPLETE_TASK -> items.add("Use longrun_task_update action=mark_task_complete if completion preconditions still hold.");
-            case BLOCKED -> items.add("Record a known issue or progress explaining why no feature is eligible, then stop.");
-        }
+        return bullets(items);
+    }
+
+    private static String donePrompt(ConversationSession session) {
+        java.util.List<String> items = new java.util.ArrayList<>();
+        items.add("Current stage: DONE.");
+        items.add("This is a terminal control state.");
+        items.add("Allowed: summarize what happened, answer retrospective questions, and point to durable task-store context.");
+        items.add("Forbidden: do not resume execution or mutate project files from this session.");
+        return bullets(items);
     }
 
     private static String bullets(String... items) {

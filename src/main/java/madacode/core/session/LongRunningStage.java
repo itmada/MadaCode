@@ -1,38 +1,40 @@
 package madacode.core.session;
 
-import java.util.EnumSet;
 import java.util.Optional;
 
 public enum LongRunningStage {
-    WAITING_FOR_TASK,
-    PLANNING,
-    WAITING_FOR_APPROVAL,
-    INITIALIZING,
-    EXECUTING,
-    COMPLETED,
-    CANCELLED;
+    DRAFT,
+    RUNNING,
+    DONE;
 
-    public boolean allowsIntent(ConversationSession.LongRunningStageUpdateIntent intent) {
-        return switch (this) {
-            case PLANNING -> EnumSet.of(
-                    ConversationSession.LongRunningStageUpdateIntent.FINALIZE_PLAN,
-                    ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
-            case WAITING_FOR_APPROVAL -> EnumSet.of(
-                    ConversationSession.LongRunningStageUpdateIntent.APPROVE_EXECUTION,
-                    ConversationSession.LongRunningStageUpdateIntent.REVISE_PLAN,
-                    ConversationSession.LongRunningStageUpdateIntent.CANCEL).contains(intent);
-            case WAITING_FOR_TASK, INITIALIZING, EXECUTING, COMPLETED, CANCELLED -> false;
-        };
-    }
+    @Deprecated(forRemoval = false)
+    public static final LongRunningStage WAITING_FOR_TASK = DRAFT;
+    @Deprecated(forRemoval = false)
+    public static final LongRunningStage PLANNING = DRAFT;
+    @Deprecated(forRemoval = false)
+    public static final LongRunningStage WAITING_FOR_APPROVAL = DRAFT;
+    @Deprecated(forRemoval = false)
+    public static final LongRunningStage INITIALIZING = RUNNING;
+    @Deprecated(forRemoval = false)
+    public static final LongRunningStage EXECUTING = RUNNING;
+    @Deprecated(forRemoval = false)
+    public static final LongRunningStage COMPLETED = DONE;
+    @Deprecated(forRemoval = false)
+    public static final LongRunningStage CANCELLED = DONE;
 
     public static Optional<LongRunningStage> fromWire(String value) {
         if (value == null || value.isBlank()) {
             return Optional.empty();
         }
-        try {
-            return Optional.of(LongRunningStage.valueOf(value.strip().toUpperCase()));
-        } catch (IllegalArgumentException ignored) {
-            return Optional.empty();
-        }
+        String normalized = value.strip().toUpperCase();
+        return switch (normalized) {
+            case "DRAFT", "WAITING_FOR_TASK", "PLANNING", "WAITING_FOR_APPROVAL" ->
+                    Optional.of(DRAFT);
+            case "RUNNING", "INITIALIZING", "EXECUTING" ->
+                    Optional.of(RUNNING);
+            case "DONE", "COMPLETED", "CANCELLED" ->
+                    Optional.of(DONE);
+            default -> Optional.empty();
+        };
     }
 }

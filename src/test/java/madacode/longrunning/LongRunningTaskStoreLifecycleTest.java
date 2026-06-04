@@ -129,7 +129,39 @@ class LongRunningTaskStoreLifecycleTest {
     }
 
     @Test
-    void cancelTaskRejectsNonExecutingTask() {
+    void cancelTaskAllowsPlanningTask() {
+        store.createTask(new CreateTaskRequest("task-cancel-planning", "Test", "planning", "s1", "PLANNING"));
+
+        LongRunningTaskMetadata result = store.cancelTask("task-cancel-planning");
+
+        assertEquals("cancelled", result.status());
+        assertEquals("CANCELLED", result.stage());
+    }
+
+    @Test
+    void cancelTaskAllowsPlanAwaitingApproval() {
+        store.createTask(new CreateTaskRequest(
+                "task-cancel-approval", "Test", "planning", "s1", "WAITING_FOR_APPROVAL"));
+
+        LongRunningTaskMetadata result = store.cancelTask("task-cancel-approval");
+
+        assertEquals("cancelled", result.status());
+        assertEquals("CANCELLED", result.stage());
+    }
+
+    @Test
+    void cancelTaskAllowsInitializedTask() {
+        store.createTask(new CreateTaskRequest(
+                "task-cancel-initialized", "Test", "initialized", "s1", "INITIALIZING"));
+
+        LongRunningTaskMetadata result = store.cancelTask("task-cancel-initialized");
+
+        assertEquals("cancelled", result.status());
+        assertEquals("CANCELLED", result.stage());
+    }
+
+    @Test
+    void cancelTaskRejectsAlreadyCancelledTask() {
         store.createTask(new CreateTaskRequest("task-cancel-3", "Test", "executing", "s1", "EXECUTING"));
         store.cancelTask("task-cancel-3");
 

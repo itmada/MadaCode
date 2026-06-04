@@ -6,7 +6,6 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.model.ToolResult;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
-import madacode.core.session.LongRunningTurnAssignment;
 import madacode.core.session.SessionMode;
 import madacode.tool.Tool;
 import org.junit.jupiter.api.Test;
@@ -19,161 +18,159 @@ import java.util.List;
 public class SystemPromptBuilderLongRunningTest {
 
     @Test
-    void longRunningPlanningPromptIsInjectedOnlyWhenStageIsActive() {
+    void longRunningDraftPromptInjectedOnlyWhenStageIsActive() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         String prompt = new SystemPromptBuilder().build(
-                List.of(new StubTool("file_read"), new StubTool("longrun_stage_update")),
+                List.of(new StubTool("file_read")),
                 session.workingDirectory(),
                 session);
 
         assertTrue(prompt.contains("## Long-Running Workflow"));
-        assertTrue(prompt.contains("Long-running stage: PLANNING."));
-        assertTrue(prompt.contains("intent=FINALIZE_PLAN"));
-        assertTrue(prompt.contains("Do not make code changes, create files, run implementation commands"));
-        assertTrue(prompt.contains("Do not use normal plan_create, plan_update, or todo_write"));
+        assertTrue(prompt.contains("Current stage: DRAFT."));
+        assertTrue(prompt.contains("The current stage shown here is the only source of truth"));
+        assertTrue(prompt.contains("State transitions are requested by the model"));
+        assertTrue(prompt.contains("Forbidden"));
+        assertTrue(prompt.contains("discuss goals"));
+        assertTrue(prompt.contains("request a transition to RUNNING"));
     }
 
     @Test
-    void longRunningApprovalPromptMentionsApproveExecution() {
+    void longRunningRunningPromptMentionsControlSessionConstraints() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
 
         String prompt = new SystemPromptBuilder().build(
-                List.of(new StubTool("longrun_stage_update")),
+                List.of(new StubTool("file_read")),
                 session.workingDirectory(),
                 session);
 
-        assertTrue(prompt.contains("Long-running stage: WAITING_FOR_APPROVAL."));
-        assertTrue(prompt.contains("intent=APPROVE_EXECUTION"));
-        assertTrue(prompt.contains("intent=REVISE_PLAN"));
+        assertTrue(prompt.contains("Current stage: RUNNING."));
+        assertTrue(prompt.contains("does not implement project files directly"));
+        assertTrue(prompt.contains("Launcher/worker execution is managed mechanically"));
+        assertTrue(prompt.contains("request a state transition"));
+        assertTrue(prompt.contains("Forbidden"));
     }
 
     @Test
-    void longRunningExecutingPromptEnforcesIssueFirstSingleItemLoop() {
+    void longRunningDonePromptIsSummaryOnly() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.DONE);
 
         String prompt = new SystemPromptBuilder().build(
-                List.of(new StubTool("file_read"), new StubTool("longrun_task_update")),
+                List.of(new StubTool("file_read")),
                 session.workingDirectory(),
                 session);
 
-        assertTrue(prompt.contains("Long-running stage: EXECUTING."));
-        assertTrue(prompt.contains("[HARNESS WARNING]"));
-        assertTrue(prompt.contains("known-issues.json"));
-        assertTrue(prompt.contains("fix exactly one issue"));
-        assertTrue(prompt.contains("do not pick a feature"));
-        assertTrue(prompt.contains("pick exactly one eligible feature"));
-        assertTrue(prompt.contains("progress.txt"));
-        assertTrue(prompt.contains("longrun_task_update"));
-        assertTrue(prompt.contains("passes value from false to true"));
+        assertTrue(prompt.contains("Current stage: DONE."));
+        assertTrue(prompt.contains("terminal control state"));
+        assertTrue(prompt.contains("Allowed: summarize"));
+        assertTrue(prompt.contains("Forbidden"));
+        assertFalse(prompt.contains("Launcher/worker execution is managed mechanically"));
     }
 
     @Test
     void longRunningToolVisibilityTracksStage() {
         ConversationSession planning = new ConversationSession();
         planning.setWorkflowMode(SessionMode.LONG_RUNNING);
-        planning.setLongRunningStage(LongRunningStage.PLANNING);
+        planning.setLongRunningStage(LongRunningStage.DRAFT);
 
         String planningPrompt = new SystemPromptBuilder().build(
-                List.of(new StubTool("longrun_stage_update"), new StubTool("longrun_task_update")),
+                List.of(new StubTool("file_read"), new StubTool("longrun_task_update")),
                 planning.workingDirectory(),
                 planning);
-        assertTrue(planningPrompt.contains("Available tools: longrun_stage_update"));
-        assertFalse(planningPrompt.contains("Available tools: longrun_stage_update, longrun_task_update"));
+        assertTrue(planningPrompt.contains("Available tools: file_read"));
+        assertFalse(planningPrompt.contains("longrun_task_update"));
 
         ConversationSession executing = new ConversationSession();
         executing.setWorkflowMode(SessionMode.LONG_RUNNING);
-        executing.setLongRunningStage(LongRunningStage.EXECUTING);
+        executing.setLongRunningStage(LongRunningStage.RUNNING);
 
         String executingPrompt = new SystemPromptBuilder().build(
-                List.of(new StubTool("longrun_stage_update"), new StubTool("longrun_task_update")),
+                List.of(new StubTool("file_read"), new StubTool("longrun_task_update")),
                 executing.workingDirectory(),
                 executing);
-        assertTrue(executingPrompt.contains("Available tools: longrun_task_update"));
-        assertFalse(executingPrompt.contains("Available tools: longrun_stage_update, longrun_task_update"));
+        assertFalse(extractToolsSection(executingPrompt).contains("longrun_task_update"));
+        assertTrue(extractToolsSection(executingPrompt).contains("file_read"));
     }
 
     @Test
     void commonModePromptDoesNotMentionLongRunningWorkflow() {
         String prompt = new SystemPromptBuilder().build(
-                List.of(new StubTool("file_read"), new StubTool("longrun_stage_update")));
+                List.of(new StubTool("file_read")));
 
         assertFalse(prompt.contains("## Long-Running Workflow"));
-        assertFalse(prompt.contains("Available tools: file_read, longrun_stage_update"));
-        assertFalse(prompt.contains("longrun_stage_update"));
-        assertFalse(prompt.contains("intent=FINALIZE_PLAN"));
-        assertFalse(prompt.contains("intent=APPROVE_EXECUTION"));
     }
 
     @Test
-    void planningStageHidesWriteToolsFromPrompt() {
+    void draftStageHidesWriteToolsFromPrompt() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         String prompt = new SystemPromptBuilder().build(
                 List.of(
                         new StubTool("file_read"),
+                        new StubTool("ask_user_question"),
                         new StubTool("bash", false),
                         new StubTool("write", false),
                         new StubTool("edit", false),
-                        new StubTool("plan_create", false),
-                        new StubTool("plan_get"),
-                        new StubTool("plan_list"),
-                        new StubTool("enter_plan_mode"),
-                        new StubTool("exit_plan_mode"),
-                        new StubTool("longrun_stage_update")),
+                        new StubTool("plan_create", false)),
                 session.workingDirectory(),
                 session);
 
         String toolsSection = extractToolsSection(prompt);
         assertTrue(toolsSection.contains("file_read"));
+        assertTrue(toolsSection.contains("ask_user_question"));
         assertFalse(toolsSection.contains("plan_create"));
-        assertFalse(toolsSection.contains("plan_get"));
-        assertFalse(toolsSection.contains("plan_list"));
-        assertFalse(toolsSection.contains("enter_plan_mode"));
-        assertFalse(toolsSection.contains("exit_plan_mode"));
-        assertTrue(toolsSection.contains("longrun_stage_update"));
         assertFalse(toolsSection.contains("bash"));
         assertFalse(toolsSection.contains("write"));
         assertFalse(toolsSection.contains("edit"));
-        assertTrue(prompt.contains("Do not use normal plan_create, plan_update, or todo_write"));
-        assertTrue(prompt.contains("Do not choose product scope"));
+        assertTrue(prompt.contains("Forbidden"));
+        assertTrue(prompt.contains("do not create/edit/delete project files"));
+        assertTrue(prompt.contains("Current capability: discuss goals"));
     }
 
     @Test
-    void executingPromptShowsTaskContextWhenAvailable() {
+    void runningPromptShowsTaskContext() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningTaskId("task-20260601-120000");
         session.setLongRunningTaskDirectory("/tmp/.mada/long-running/task-20260601-120000");
-        session.setLongRunningTurnAssignment(new LongRunningTurnAssignment(
-                LongRunningTurnAssignment.Kind.FEATURE,
-                "feature-api",
-                "Implement the API",
-                "First eligible feature.",
-                List.of("Run API tests")));
 
         String prompt = new SystemPromptBuilder().build(
-                List.of(new StubTool("file_read"), new StubTool("longrun_task_update")),
+                List.of(new StubTool("file_read")),
                 session.workingDirectory(),
                 session);
 
         assertTrue(prompt.contains("Active task id: task-20260601-120000"));
         assertTrue(prompt.contains("Task store directory: /tmp/.mada/long-running/task-20260601-120000"));
-        assertTrue(prompt.contains("Read known-issues.json and feature_list.json from this directory."));
-        assertTrue(prompt.contains("Assigned target kind: FEATURE."));
-        assertTrue(prompt.contains("Assigned target id: feature-api."));
-        assertTrue(prompt.contains("Only work on the assigned target for this execution turn."));
-        assertTrue(prompt.contains("Assigned verification steps: Run API tests"));
-        assertFalse(prompt.contains("[HARNESS WARNING]"));
+        assertTrue(prompt.contains("This control session does not implement project files directly"));
+        assertFalse(prompt.contains("WAITING_FOR_APPROVAL"));
+        assertFalse(prompt.contains("/longrun-approve"));
+    }
+
+    @Test
+    void draftStageShowsTaskShellContext() {
+        ConversationSession session = new ConversationSession();
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
+        session.setLongRunningTaskId("task-1");
+        session.setLongRunningTaskDirectory("/tmp/.mada/long-running/task-1");
+
+        String prompt = new SystemPromptBuilder().build(
+                List.of(new StubTool("file_read")),
+                session.workingDirectory(),
+                session);
+
+        assertTrue(prompt.contains("Current stage: DRAFT."));
+        assertTrue(prompt.contains("Draft task id: task-1"));
+        assertTrue(prompt.contains("Task shell directory: /tmp/.mada/long-running/task-1"));
     }
 
     private static String extractToolsSection(String prompt) {

@@ -115,8 +115,8 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         if (session.workflowMode() != SessionMode.LONG_RUNNING) {
             return failed("Long-running mode is not active for this session.");
         }
-        if (session.longRunningStage() != LongRunningStage.EXECUTING) {
-            return failed("longrun_task_update is only available in the EXECUTING stage. Current stage: "
+        if (session.longRunningStage() != LongRunningStage.RUNNING) {
+            return failed("longrun_task_update is only available in the RUNNING stage. Current stage: "
                     + session.longRunningStage());
         }
         if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
@@ -233,13 +233,13 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
 
     private ToolResult markTaskComplete(LongRunningTaskStore store, String taskId, ConversationSession session) {
         store.markTaskCompleted(taskId);
-        session.setLongRunningStage(LongRunningStage.COMPLETED);
+        session.setLongRunningStage(LongRunningStage.DONE);
         return succeeded("Task " + taskId + " marked as completed.");
     }
 
     private ToolResult cancelTask(LongRunningTaskStore store, String taskId, ConversationSession session) {
         store.cancelTask(taskId);
-        session.setLongRunningStage(LongRunningStage.CANCELLED);
+        session.setLongRunningStage(LongRunningStage.DONE);
         return succeeded("Task " + taskId + " cancelled.");
     }
 

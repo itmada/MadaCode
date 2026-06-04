@@ -9,7 +9,6 @@ import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.permission.PermissionGate;
-import madacode.tool.LongRunStageUpdateTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -265,9 +264,6 @@ public class QueryEngineTest {
 
         ToolRegistry registry = new ToolRegistry();
         registry.register(new StubTool("file_read"));
-        registry.register(new StubTool("plan_get"));
-        registry.register(new StubTool("plan_list"));
-        registry.register(new StubTool("longrun_stage_update"));
         registry.register(new StubTool("longrun_task_update"));
 
         QueryEngine engine = new QueryEngine(
@@ -281,11 +277,8 @@ public class QueryEngineTest {
 
         engine.runTurn(session, "finish planning");
 
-        assertTrue(fakeApiClient.lastToolNames().contains("longrun_stage_update"));
         assertFalse(fakeApiClient.lastToolNames().contains("longrun_task_update"));
-        assertFalse(fakeApiClient.lastToolNames().contains("plan_get"));
-        assertFalse(fakeApiClient.lastToolNames().contains("plan_list"));
-        assertTrue(fakeApiClient.lastSystemPrompt().contains("Available tools: file_read, longrun_stage_update"));
+        assertTrue(fakeApiClient.lastSystemPrompt().contains("Available tools: file_read"));
 
         FakeApiClient executingClient = new FakeApiClient();
         executingClient.enqueue(new ApiClient.ApiResponse("executing", List.of()));
@@ -300,48 +293,9 @@ public class QueryEngineTest {
 
         executingEngine.runTurn(executing, "continue");
 
-        assertFalse(executingClient.lastToolNames().contains("longrun_stage_update"));
-        assertTrue(executingClient.lastToolNames().contains("longrun_task_update"));
-        assertTrue(executingClient.lastSystemPrompt().contains("Available tools: file_read, longrun_task_update"));
-    }
-
-    @Test
-    void highConfidenceLongRunningStageUpdateStopsCurrentTurn() {
-        FakeApiClient fakeApiClient = new FakeApiClient();
-        ObjectNode input = new ObjectMapper().createObjectNode();
-        input.put("intent", "FINALIZE_PLAN");
-        input.put("confidence", "high");
-        input.put("summary", "User confirmed the plan is ready for execution.");
-        fakeApiClient.enqueue(new ApiClient.ApiResponse(
-                "recording stage update",
-                List.of(new ToolCall("toolu_stage", "longrun_stage_update", input))));
-        fakeApiClient.enqueue(new ApiClient.ApiResponse("should not be requested", List.of()));
-
-        ToolRegistry registry = new ToolRegistry();
-        registry.register(new LongRunStageUpdateTool());
-
-        QueryEngine engine = QueryEngine.builder(
-                fakeApiClient,
-                registry,
-                new SystemPromptBuilder(),
-                PermissionGate.permissive())
-                .maxIterations(15)
-                .build();
-        ConversationSession session = new ConversationSession();
-        session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
-
-        TurnResult result = engine.runTurn(session, "finalize the plan");
-
-        assertEquals(FinishReason.COMPLETED, result.finishReason());
-        assertEquals("Long-running stage transition recorded.", result.finalText());
-        assertEquals(1, result.iterations());
-        assertEquals(1, fakeApiClient.callCount());
-        assertTrue(session.lastLongRunningStageUpdate().isPresent());
-        assertEquals(ConversationSession.LongRunningConfidence.HIGH,
-                session.lastLongRunningStageUpdate().orElseThrow().confidence());
-        assertEquals(MessageRole.ASSISTANT, session.messages().getLast().role());
-        assertDoesNotThrow(() -> session.addMessage(Message.user("还要商讨具体细节")));
+        // Control session EXECUTING hides long-running tools
+        assertFalse(executingClient.lastToolNames().contains("longrun_task_update"));
+        assertTrue(executingClient.lastSystemPrompt().contains("Available tools: file_read"));
     }
 
     @Test

@@ -41,6 +41,7 @@ class LongRunningTaskStoreTest {
         assertTrue(Files.isDirectory(taskDir.resolve("logs")));
         assertTrue(Files.isRegularFile(taskDir.resolve("task.json")));
         assertTrue(Files.isRegularFile(taskDir.resolve("feature_list.json")));
+        assertTrue(Files.isRegularFile(taskDir.resolve("approved_plan.md")));
         assertTrue(Files.isRegularFile(taskDir.resolve("progress.txt")));
         assertTrue(Files.isRegularFile(taskDir.resolve("known-issues.json")));
         assertTrue(Files.isRegularFile(taskDir.resolve("init.sh")));
@@ -54,10 +55,22 @@ class LongRunningTaskStoreTest {
         assertEquals("INITIALIZING", taskJson.path("stage").asText());
         assertEquals(0, mapper.readTree(taskDir.resolve("feature_list.json").toFile()).size());
         assertEquals(0, mapper.readTree(taskDir.resolve("known-issues.json").toFile()).size());
+        assertEquals("", Files.readString(taskDir.resolve("approved_plan.md")));
         assertEquals("", Files.readString(taskDir.resolve("progress.txt")));
         assertEquals("", Files.readString(taskDir.resolve("logs/events.jsonl")));
         assertTrue(Files.readString(taskDir.resolve("init.sh")).contains("Initialization hook"));
         assertEquals(metadata, store.loadTask("task-001"));
+    }
+
+    @Test
+    void writeAndReadApprovedPlan() {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-plan", "Approved plan", "initialized", "session-plan", "INITIALIZING"));
+
+        store.writeApprovedPlan("task-plan", "Build the backend first.");
+
+        assertEquals("Build the backend first.\n", store.readApprovedPlan("task-plan").orElseThrow());
     }
 
     @Test
@@ -193,6 +206,19 @@ class LongRunningTaskStoreTest {
 
         assertEquals("executing", executing.status());
         assertEquals("EXECUTING", executing.stage());
+    }
+
+    @Test
+    void markTaskInitializedAcceptsPlanAwaitingApproval() {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-initialized", "Approved plan", "planning", "session-approved", "PLANNING"));
+
+        store.markPlanAwaitingApproval("task-initialized");
+        LongRunningTaskMetadata initialized = store.markTaskInitialized("task-initialized");
+
+        assertEquals("initialized", initialized.status());
+        assertEquals("INITIALIZING", initialized.stage());
     }
 
     @Test

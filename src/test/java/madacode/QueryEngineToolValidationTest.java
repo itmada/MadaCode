@@ -7,8 +7,6 @@ import madacode.services.api.ApiStreamSink;
 import madacode.core.turn.CancellationToken;
 import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
-import madacode.core.session.LongRunningStage;
-import madacode.core.session.SessionMode;
 import madacode.core.model.FinishReason;
 import madacode.core.model.Message;
 import madacode.core.engine.QueryEngine;
@@ -18,7 +16,6 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.turn.TurnResult;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.permission.PermissionDecision;
-import madacode.tool.LongRunStageUpdateTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
@@ -76,42 +73,6 @@ public class QueryEngineToolValidationTest {
         assertTrue(toolResult.content().contains("Invalid tool input for capture"));
         assertTrue(toolResult.content().contains("missing required field 'value'"));
         assertTrue(toolResult.content().contains("unknown field 'extra'"));
-    }
-
-    @Test
-    void invalidLongRunningEnumReturnsToolResultWithoutExecution() {
-        ObjectNode invalidInput = mapper.createObjectNode();
-        invalidInput.put("intent", "SHIP_IT");
-        invalidInput.put("confidence", "high");
-        invalidInput.put("summary", "The user approved it.");
-
-        FakeApiClient apiClient = new FakeApiClient();
-        apiClient.enqueue(new ApiClient.ApiResponse(
-                "I will call a tool.",
-                List.of(new ToolCall("toolu_stage", "longrun_stage_update", invalidInput))));
-        apiClient.enqueue(new ApiClient.ApiResponse("done", List.of()));
-
-        ToolRegistry registry = new ToolRegistry();
-        registry.register(new LongRunStageUpdateTool());
-
-        QueryEngine queryEngine = new QueryEngine(
-                apiClient,
-                registry,
-                new SystemPromptBuilder(),
-                (requestedTool, input, context) -> PermissionDecision.allow());
-        ConversationSession session = new ConversationSession();
-        session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
-
-        TurnResult result = queryEngine.runTurn(session, "finish planning");
-
-        assertEquals(FinishReason.COMPLETED, result.finishReason());
-        Message toolResultMessage = session.messages().get(3);
-        ContentBlock.ToolResultBlock toolResult = (ContentBlock.ToolResultBlock)
-                toolResultMessage.contentBlocks().getFirst();
-        assertEquals("toolu_stage", toolResult.toolUseId());
-        assertTrue(toolResult.content().contains("Invalid tool input for longrun_stage_update"));
-        assertTrue(toolResult.content().contains("field 'intent' must be one of"));
     }
 
     private final class CapturingTool implements Tool<ObjectNode> {

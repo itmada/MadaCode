@@ -229,7 +229,10 @@ class ToolOrchestratorTest {
         ToolRegistry registry = new ToolRegistry();
         ConversationSession session = longRunningSession(LongRunningStage.EXECUTING);
         AtomicInteger afterTerminalExecutions = new AtomicInteger(0);
-        registry.register(new RecordingTool("complete", false,
+        // complete must be read-only to be visible in control session EXECUTING stage.
+        // after_terminal is NOT read-only (different concurrency group) so it runs
+        // in a separate segment after the terminal check.
+        registry.register(new RecordingTool("complete", true,
                 () -> session.setLongRunningStage(LongRunningStage.COMPLETED)));
         registry.register(new RecordingTool("after_terminal", false,
                 afterTerminalExecutions::incrementAndGet));

@@ -7,6 +7,7 @@ import madacode.core.engine.QueryEngine;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.services.compact.CompactPlanner;
+import madacode.permission.PermissionGate;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
 import madacode.render.BlockSpacing;
@@ -83,6 +84,8 @@ public final class JLineRepl extends Repl {
                                    SlashCommandRegistry slashRegistry,
                                    ProviderRegistry providerRegistry,
                                    CompactPlanner compactPlanner,
+                                   PermissionGate permissionGate,
+                                   Path workerTurnLogRoot,
                                    InterruptController interruptController) {
         NotificationCenter notifications = new NotificationCenter(screen);
         SessionContext ctx = new SessionContext();
@@ -156,6 +159,8 @@ public final class JLineRepl extends Repl {
         config.providerChooser = providerChooser;
         config.notifications = notifications;
         config.expandableHistory = expandableHistory;
+        config.permissionGate = permissionGate;
+        config.workerTurnLogRoot = workerTurnLogRoot;
 
         JLineRepl repl = new JLineRepl(config, terminal, screen, lineReader, sessionHistory, slashComposer);
         repl.interruptController = interruptController;
