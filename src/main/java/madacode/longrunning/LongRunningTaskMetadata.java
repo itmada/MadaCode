@@ -29,10 +29,6 @@ public record LongRunningTaskMetadata(
         return controlSessionId;
     }
 
-    public String stage() {
-        return status;
-    }
-
     private static String requireNonBlank(String value, String field) {
         Objects.requireNonNull(value, field);
         String normalized = value.strip();
@@ -45,7 +41,7 @@ public record LongRunningTaskMetadata(
     private static String requireStatus(String value) {
         String normalized = requireNonBlank(value, "status").toUpperCase();
         return switch (normalized) {
-            case "DRAFT", "RUNNING", "DONE" -> normalized;
+            case "DRAFT", "RUNNING", "INTERRUPT", "DONE" -> normalized;
             default -> throw new IllegalArgumentException("Unsupported task status: " + value);
         };
     }

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Inline slash-command composer with palette-driven completion.
@@ -33,7 +34,7 @@ import java.util.Optional;
 public final class SlashComposer {
 
     private final SlashCommandRegistry registry;
-    private final SlashContext slashContext;
+    private final Supplier<SlashContext> slashContext;
     private final Screen screen;
     private final JLineScreen jlineScreen;
     private final Terminal terminal;
@@ -43,6 +44,14 @@ public final class SlashComposer {
 
     public SlashComposer(SlashCommandRegistry registry,
                          SlashContext slashContext,
+                         Screen screen,
+                         JLineScreen jlineScreen,
+                         Terminal terminal) {
+        this(registry, () -> slashContext, screen, jlineScreen, terminal);
+    }
+
+    public SlashComposer(SlashCommandRegistry registry,
+                         Supplier<SlashContext> slashContext,
                          Screen screen,
                          JLineScreen jlineScreen,
                          Terminal terminal) {
@@ -195,7 +204,7 @@ public final class SlashComposer {
             String partial = spaceIdx >= 0 ? s.input.substring(spaceIdx + 1).stripLeading() : "";
             Optional<SlashCommand> cmd = registry.find(s.matchedCommand);
             if (cmd.isPresent()) {
-                Optional<ArgumentProvider> provider = cmd.get().argumentProvider(slashContext);
+                Optional<ArgumentProvider> provider = cmd.get().argumentProvider(slashContext.get());
                 if (provider.isPresent()) {
                     List<ArgumentProvider.Candidate> args = provider.get().candidates(partial);
                     s.candidates = args.stream()
@@ -265,7 +274,7 @@ public final class SlashComposer {
             // Check if command takes arguments
             String cmdName = pick.startsWith("/") ? pick.substring(1) : pick;
             Optional<SlashCommand> cmd = registry.find(cmdName);
-            if (cmd.isPresent() && cmd.get().argumentProvider(slashContext).isPresent()) {
+            if (cmd.isPresent() && cmd.get().argumentProvider(slashContext.get()).isPresent()) {
                 s.input = pick + " ";
                 s.cursor = s.input.length();
                 s.mode = Mode.ARG;
@@ -295,7 +304,8 @@ public final class SlashComposer {
 
         CommandPalettePanel.View view = new CommandPalettePanel.View(
                 title, s.input, s.cursor,
-                s.candidates, s.selected, footer);
+                s.candidates, s.selected, footer,
+                s.mode == Mode.ARG);
 
         List<org.jline.utils.AttributedString> lines = CommandPalettePanel.render(view, width);
         List<String> result = new ArrayList<>(lines.size());

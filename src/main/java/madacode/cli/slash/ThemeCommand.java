@@ -25,7 +25,8 @@ final class ThemeCommand implements SlashCommand {
         List<String> names = Themes.names();
         if (theme.isBlank()) {
             if (ctx.themeChooser().isPresent()) {
-                Optional<String> selected = ctx.themeChooser().get().chooseTheme(names);
+                Optional<String> selected = ctx.themeChooser().get().chooseTheme(
+                        SlashChoiceModels.choice("Theme", "Active terminal theme", names, "dark"));
                 if (selected.isEmpty()) {
                     SlashFeedback.muted(ctx.screen(), "Theme selection cancelled.");
                     return new SlashAction.Handled();

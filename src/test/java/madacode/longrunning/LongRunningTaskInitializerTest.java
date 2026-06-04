@@ -38,34 +38,22 @@ class LongRunningTaskInitializerTest {
         return session;
     }
 
+    private void seedFeature(String taskId) {
+        store().writeInitialFeatureList(taskId, List.of(
+                new FeatureItem("feature-a", "core", "high", "Feature A", List.of(), List.of("verify"), false)));
+    }
+
     @Test
-    void createsTaskWhenSessionHasNoTaskId() throws Exception {
+    void executionWithoutDraftFeatureListIsRejected() {
         ConversationSession session = session();
         session.setLongRunningStage(LongRunningStage.RUNNING);
 
-        LongRunningTaskContext ctx = initializer().ensureExecutionTask(session, "implement the thing");
+        LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
+                () -> initializer().ensureExecutionTask(session, "implement the thing"));
 
-        assertNotNull(ctx.taskId());
-        assertNotNull(ctx.taskDirectory());
-        assertTrue(Files.isDirectory(ctx.taskDirectory()));
-        assertTrue(Files.isRegularFile(ctx.taskDirectory().resolve("task.json")));
-        assertTrue(Files.isRegularFile(ctx.taskDirectory().resolve("feature_list.json")));
-        assertTrue(Files.isRegularFile(ctx.taskDirectory().resolve("progress.txt")));
-        assertEquals(ctx.taskId(), session.longRunningTaskId());
-        assertEquals(ctx.taskDirectory().toString(), session.longRunningTaskDirectory());
-        assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
-        assertEquals("RUNNING", store().loadTask(ctx.taskId()).status());
-        assertEquals("RUNNING", store().loadTask(ctx.taskId()).stage());
-
-        String progress = Files.readString(ctx.taskDirectory().resolve("progress.txt"));
-        assertTrue(progress.contains("stage: DRAFT") || progress.contains("stage: RUNNING"));
-        assertTrue(progress.contains("implement the thing"));
-
-        List<LongRunningTaskEvent> events = store().readEvents(ctx.taskId());
-        assertTrue(events.stream().anyMatch(event -> "task_created".equals(event.type())
-                && ctx.taskDirectory().toString().equals(event.details().get("taskDirectory"))));
-        assertTrue(events.stream().anyMatch(event -> "workspace_checkpoint_created".equals(event.type())));
-        assertTrue(store().readCheckpoint(ctx.taskId()).isPresent());
+        assertTrue(ex.getMessage().contains("feature list is empty"));
+        assertNotNull(session.longRunningTaskId());
+        assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
     }
 
     @Test
@@ -81,7 +69,7 @@ class LongRunningTaskInitializerTest {
         assertEquals(ctx.taskDirectory().toString(), session.longRunningTaskDirectory());
         assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
         assertEquals("DRAFT", store().loadTask(ctx.taskId()).status());
-        assertEquals("DRAFT", store().loadTask(ctx.taskId()).stage());
+        assertEquals("DRAFT", store().loadTask(ctx.taskId()).status());
         assertTrue(Files.isRegularFile(ctx.taskDirectory().resolve("logs/events.jsonl")));
         assertTrue(store().readEvents(ctx.taskId()).stream()
                 .anyMatch(event -> "task_created".equals(event.type())
@@ -97,6 +85,7 @@ class LongRunningTaskInitializerTest {
 
         LongRunningTaskContext planning = initializer().ensurePlanningTask(session, "plan request");
         String taskId = planning.taskId();
+        seedFeature(taskId);
 
         session.setLongRunningStage(LongRunningStage.RUNNING);
         LongRunningTaskContext initialized = initializer().ensureExecutionTask(session, "approved");
@@ -105,7 +94,7 @@ class LongRunningTaskInitializerTest {
         assertEquals(taskId, session.longRunningTaskId());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals("RUNNING", store().loadTask(taskId).status());
-        assertEquals("RUNNING", store().loadTask(taskId).stage());
+        assertEquals("RUNNING", store().loadTask(taskId).status());
         String taskJson = Files.readString(initialized.taskDirectory().resolve("task.json"));
         assertTrue(taskJson.contains("Build marketplace"));
         assertTrue(taskJson.contains("Spring Boot and React"));
@@ -122,6 +111,7 @@ class LongRunningTaskInitializerTest {
 
         LongRunningTaskContext planning = initializer().ensurePlanningTask(session, "plan request");
         String taskId = planning.taskId();
+        seedFeature(taskId);
 
         session.setLongRunningStage(LongRunningStage.RUNNING);
         LongRunningTaskContext initialized = initializer().ensureExecutionTask(session, "confirmed");
@@ -130,7 +120,7 @@ class LongRunningTaskInitializerTest {
         assertEquals(taskId, session.longRunningTaskId());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals("RUNNING", store().loadTask(taskId).status());
-        assertEquals("RUNNING", store().loadTask(taskId).stage());
+        assertEquals("RUNNING", store().loadTask(taskId).status());
         String progress = Files.readString(initialized.taskDirectory().resolve("progress.txt"));
         assertTrue(progress
                 .contains("transition input: confirmed"));
@@ -145,6 +135,7 @@ class LongRunningTaskInitializerTest {
         LongRunningTaskStore store = store();
         LongRunningTaskMetadata meta = store.createTask(new CreateTaskRequest(
                 "task-repair-test", "Repair test", "DRAFT", null, "session-r", null));
+        seedFeature("task-repair-test");
         Path realDir = store.taskDirectoryPath("task-repair-test");
 
         // Set up session with taskId but no taskDirectory
@@ -170,6 +161,7 @@ class LongRunningTaskInitializerTest {
         LongRunningTaskStore store = store();
         store.createTask(new CreateTaskRequest(
                 "task-dir-fix", "Dir fix test", "DRAFT", null, "session-d", null));
+        seedFeature("task-dir-fix");
         Path realDir = store.taskDirectoryPath("task-dir-fix");
 
         // Set up session with taskId and a wrong taskDirectory
@@ -214,14 +206,14 @@ class LongRunningTaskInitializerTest {
     }
 
     @Test
-    void retriesTaskIdCollisions() throws Exception {
+    void retriesTaskIdCollisionsForPlanningTasks() throws Exception {
         // Pre-create a task with the id that would be generated first
         LongRunningTaskStore store = store();
         store.createTask(new CreateTaskRequest(
                 "task-collide", "Collision", "DRAFT", null, "session-c", null));
 
         ConversationSession session = session();
-        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         // Generator returns "task-collide" on attempt 0, "task-collide-1" on attempt 1
         LongRunningTaskInitializer.TaskIdGenerator collidingGen = attempt -> {
@@ -230,7 +222,7 @@ class LongRunningTaskInitializerTest {
         };
         LongRunningTaskInitializer init = new LongRunningTaskInitializer(store, collidingGen);
 
-        LongRunningTaskContext ctx = init.ensureExecutionTask(session, "collision test");
+        LongRunningTaskContext ctx = init.ensurePlanningTask(session, "collision test");
 
         assertEquals("task-collide-1", ctx.taskId());
         assertEquals("task-collide-1", session.longRunningTaskId());

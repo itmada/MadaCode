@@ -143,11 +143,10 @@ class WorkerReportToolTest {
         assertTrue(events.stream().anyMatch(e -> "worker_report".equals(e.type())
                 && "PROGRESS_MADE".equals(e.action())));
 
-        // worker_report is structured control flow only; business progress is
-        // written by longrun_task_update.
         String progress = Files.readString(workingDirectory.resolve(".mada/long-running/task-report/progress.txt"));
-        assertFalse(progress.contains("Implemented feature X"));
-        assertFalse(progress.contains("progress_made"));
+        assertTrue(progress.contains("Implemented feature X"));
+        assertTrue(progress.contains("progress_made"));
+        assertTrue(progress.contains("files_changed: src/Main.java, src/Utils.java"));
     }
 
     @Test

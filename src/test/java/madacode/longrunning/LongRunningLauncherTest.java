@@ -51,8 +51,12 @@ class LongRunningLauncherTest {
         LongRunningLauncher launcher = new LongRunningLauncher(fakeRunner);
         ConversationSession controlSession = controlSession(workingDirectory);
 
-        LongRunningLauncher.LaunchResult result = launcher.run(
-                "task-1", workingDirectory, controlSession, 5);
+        LongRunningLauncher.LaunchResult result;
+        try {
+            result = launcher.run("task-1", workingDirectory, controlSession, 5);
+        } finally {
+            Thread.interrupted();
+        }
 
         assertEquals(LongRunningLauncher.LaunchStatus.COMPLETED, result.status());
         assertEquals(2, result.workersLaunched());
@@ -86,8 +90,7 @@ class LongRunningLauncherTest {
         assertEquals(1, result.workersLaunched());
         LongRunningTaskMetadata meta = store.loadTask("task-1");
         assertEquals("DONE", meta.status());
-        assertEquals("DONE", meta.stage());
-        assertEquals(LongRunningStage.DONE, controlSession.longRunningStage());
+        assertEquals(LongRunningStage.RUNNING, controlSession.longRunningStage());
     }
 
     @Test
@@ -96,6 +99,7 @@ class LongRunningLauncherTest {
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
                 "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+        seedFeature(store, "task-1");
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -120,6 +124,7 @@ class LongRunningLauncherTest {
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
                 "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+        seedFeature(store, "task-1");
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -143,6 +148,7 @@ class LongRunningLauncherTest {
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
                 "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+        seedFeature(store, "task-1");
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -166,6 +172,7 @@ class LongRunningLauncherTest {
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
                 "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+        seedFeature(store, "task-1");
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -254,6 +261,52 @@ class LongRunningLauncherTest {
         assertEquals(2, result.workersLaunched());
     }
 
+    @Test
+    void interruptedLauncherMarksTaskInterrupted() {
+        Path workingDirectory = tempDir.resolve("ws-interrupted");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+        seedFeature(store, "task-1");
+
+        LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId -> {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("worker interrupted", new InterruptedException("stop"));
+        });
+        LongRunningLauncher launcher = new LongRunningLauncher(fakeRunner);
+        ConversationSession controlSession = controlSession(workingDirectory);
+
+        LongRunningLauncher.LaunchResult result = launcher.run(
+                "task-1", workingDirectory, controlSession, 5);
+
+        assertEquals(LongRunningLauncher.LaunchStatus.INTERRUPTED, result.status());
+        LongRunningTaskMetadata meta = store.loadTask("task-1");
+        assertEquals("INTERRUPT", meta.status());
+        assertEquals("user_interrupted", meta.reason());
+    }
+
+    @Test
+    void executionStartFailureMarksTaskInterrupted() {
+        Path workingDirectory = tempDir.resolve("ws-start-failure");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-1", "Test task", "DRAFT", null, "session-ctrl", null));
+
+        LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId -> {
+            throw new AssertionError("worker must not start when execution initialization fails");
+        });
+        LongRunningLauncher launcher = new LongRunningLauncher(fakeRunner);
+        ConversationSession controlSession = controlSession(workingDirectory);
+
+        LongRunningLauncher.LaunchResult result = launcher.run(
+                "task-1", workingDirectory, controlSession, 5);
+
+        assertEquals(LongRunningLauncher.LaunchStatus.FAILED, result.status());
+        LongRunningTaskMetadata meta = store.loadTask("task-1");
+        assertEquals("INTERRUPT", meta.status());
+        assertEquals("execution_start_failed", meta.reason());
+    }
+
     private ConversationSession controlSession(Path workingDirectory) {
         ConversationSession session = new ConversationSession(workingDirectory);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
@@ -266,6 +319,11 @@ class LongRunningLauncherTest {
         return new WorkerReport(
                 "task-1", "worker-session", status, summary,
                 null, null, List.of(), List.of(), null);
+    }
+
+    private void seedFeature(LongRunningTaskStore store, String taskId) {
+        store.writeInitialFeatureList(taskId, List.of(
+                new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false)));
     }
 
     @FunctionalInterface

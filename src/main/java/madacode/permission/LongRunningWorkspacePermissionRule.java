@@ -15,11 +15,19 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
     public static final String SOURCE = "long_running_workspace";
     private static final Pattern ABSOLUTE_OR_HOME_TOKEN =
             Pattern.compile("(?<![\\w.-])(/[^\\s'\";|&<>`$]+|~/?[^\\s'\";|&<>`]*)");
+    private static final Pattern RELATIVE_ESCAPE_TOKEN =
+            Pattern.compile("(^|[\\s;|&<>])(?:\\.\\./|\\.\\.|git\\s+-C\\s+\\.\\.?/|git\\s+-C\\s+\\.\\.)(?=$|[\\s;|&<>])");
+    private static final Pattern CD_COMMAND =
+            Pattern.compile("(^|[;|&])\\s*cd\\s+([^;|&]+)");
 
     @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
         if (!applies(context)) {
             return Optional.empty();
+        }
+
+        if (tool.isReadOnly()) {
+            return Optional.of(PermissionDecision.allow(SOURCE));
         }
 
         if ("bash".equals(tool.name())) {
@@ -31,23 +39,33 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
             return Optional.of(PermissionDecision.allow(SOURCE));
         }
 
-        if (!tool.isFileEdit()) {
-            return Optional.empty();
+        if (isWorkerTaskStoreTool(tool)) {
+            return Optional.of(PermissionDecision.allow(SOURCE));
         }
 
-        List<String> targets = tool.permissionTargets(input);
-        if (targets.isEmpty()) {
-            return Optional.empty();
-        }
-
-        Path workingDir = context.workingDirectory();
-        for (String target : targets) {
-            if (!FilesystemScope.withinRoots(target, workingDir, List.of())) {
-                return Optional.empty();
+        if (tool.isFileEdit()) {
+            List<String> targets = tool.permissionTargets(input);
+            if (targets.isEmpty()) {
+                return Optional.of(PermissionDecision.deny(
+                        "Long-running worker file edits must declare a workspace target.",
+                        SOURCE));
             }
+
+            Path workingDir = context.workingDirectory();
+            for (String target : targets) {
+                if (!FilesystemScope.withinRoots(target, workingDir, List.of())) {
+                    return Optional.of(PermissionDecision.deny(
+                            "Long-running worker file edits must stay inside the workspace.",
+                            SOURCE));
+                }
+            }
+
+            return Optional.of(PermissionDecision.allow(SOURCE));
         }
 
-        return Optional.of(PermissionDecision.allow(SOURCE));
+        return Optional.of(PermissionDecision.deny(
+                "Long-running worker cannot request interactive approval for tool: " + tool.name(),
+                SOURCE));
     }
 
     private static boolean applies(ToolUseContext context) {
@@ -55,9 +73,29 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
                 && context.session().permissionMode() == PermissionMode.LONG_RUNNING_WORKSPACE;
     }
 
+    private static boolean isWorkerTaskStoreTool(Tool<?> tool) {
+        return "longrun_task_update".equals(tool.name())
+                || "worker_report".equals(tool.name());
+    }
+
     private static boolean bashStaysInWorkspace(String command, Path workingDir) {
         if (command == null || command.isBlank()) {
             return true;
+        }
+        if (RELATIVE_ESCAPE_TOKEN.matcher(command).find()) {
+            return false;
+        }
+        Matcher cdMatcher = CD_COMMAND.matcher(command);
+        while (cdMatcher.find()) {
+            String target = stripShellQuotes(cdMatcher.group(2).strip());
+            if (target.equals("..") || target.startsWith("../") || target.startsWith("~/")) {
+                return false;
+            }
+            if (target.startsWith("/")) {
+                if (!FilesystemScope.withinRoots(target, workingDir, List.of())) {
+                    return false;
+                }
+            }
         }
         Matcher matcher = ABSOLUTE_OR_HOME_TOKEN.matcher(command);
         while (matcher.find()) {
@@ -70,5 +108,13 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
             }
         }
         return true;
+    }
+
+    private static String stripShellQuotes(String value) {
+        if ((value.startsWith("'") && value.endsWith("'"))
+                || (value.startsWith("\"") && value.endsWith("\""))) {
+            return value.substring(1, value.length() - 1);
+        }
+        return value;
     }
 }

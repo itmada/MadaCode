@@ -53,7 +53,7 @@ class LongRunningModeHandlerTest {
     }
 
     @Test
-    void acceptsExplicitExecutingStage() {
+    void runningStageReturnsLocalMonitorNotice() {
         AtomicReference<String> seenInput = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
             seenInput.set(turn.userInput());
@@ -71,7 +71,7 @@ class LongRunningModeHandlerTest {
             executor.close();
         }
 
-        assertEquals("continue", seenInput.get());
+        assertNull(seenInput.get());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
     }
 
@@ -103,7 +103,7 @@ class LongRunningModeHandlerTest {
     }
 
     @Test
-    void waitingForTaskMovesToPlanningBeforeTurn() {
+    void draftStageCreatesPlanningTaskBeforeTurn() {
         AtomicReference<LongRunningStage> stageDuringTurn = new AtomicReference<>();
         AtomicReference<String> taskIdDuringTurn = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
@@ -135,7 +135,7 @@ class LongRunningModeHandlerTest {
     }
 
     @Test
-    void executingStageRunsConversationalTurnWithoutCreatingTask() {
+    void runningStageDoesNotRunConversationalTurnWithoutTask() {
         AtomicReference<String> seenInput = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
             seenInput.set(turn.userInput());
@@ -153,13 +153,13 @@ class LongRunningModeHandlerTest {
             executor.close();
         }
 
-        assertEquals("status update", seenInput.get());
+        assertNull(seenInput.get());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertNull(session.longRunningTaskId());
     }
 
     @Test
-    void executingStageRunsConversationalTurnEvenWithExistingTaskId() {
+    void runningStageDoesNotRunConversationalTurnEvenWithExistingTaskId() {
         AtomicReference<String> seenInput = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
             seenInput.set(turn.userInput());
@@ -178,13 +178,13 @@ class LongRunningModeHandlerTest {
             executor.close();
         }
 
-        assertEquals("check status", seenInput.get());
+        assertNull(seenInput.get());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals("task-repair", session.longRunningTaskId());
     }
 
     @Test
-    void executingControlSessionDoesNotVerifyAssignment() {
+    void runningControlSessionDoesNotVerifyAssignment() {
         TurnExecutor executor = executor((turn, session, token) ->
                 new TurnResult("ok", FinishReason.COMPLETED, 1));
         ConversationSession session = new ConversationSession(tempDir.resolve("ws-verify"));

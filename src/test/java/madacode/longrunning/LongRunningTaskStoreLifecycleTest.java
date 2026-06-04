@@ -27,13 +27,12 @@ class LongRunningTaskStoreLifecycleTest {
     // ---- markTaskCompleted ----
 
     @Test
-    void markTaskCompletedUpdatesStatusAndStage() {
+    void markTaskCompletedUpdatesStatus() {
         createTaskReadyToComplete("task-comp-1");
 
         LongRunningTaskMetadata result = store.markTaskCompleted("task-comp-1");
 
         assertEquals("DONE", result.status());
-        assertEquals("DONE", result.stage());
     }
 
     @Test
@@ -43,7 +42,6 @@ class LongRunningTaskStoreLifecycleTest {
 
         LongRunningTaskMetadata reloaded = store.loadTask("task-comp-2");
         assertEquals("DONE", reloaded.status());
-        assertEquals("DONE", reloaded.stage());
     }
 
     @Test
@@ -109,13 +107,12 @@ class LongRunningTaskStoreLifecycleTest {
     // ---- cancelTask ----
 
     @Test
-    void cancelTaskUpdatesStatusAndStage() {
+    void cancelTaskUpdatesStatus() {
         store.createTask(new CreateTaskRequest("task-cancel-1", "Test", "RUNNING", null, "s1", null));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-1");
 
         assertEquals("DONE", result.status());
-        assertEquals("DONE", result.stage());
     }
 
     @Test
@@ -125,7 +122,6 @@ class LongRunningTaskStoreLifecycleTest {
 
         LongRunningTaskMetadata reloaded = store.loadTask("task-cancel-2");
         assertEquals("DONE", reloaded.status());
-        assertEquals("DONE", reloaded.stage());
     }
 
     @Test
@@ -135,7 +131,6 @@ class LongRunningTaskStoreLifecycleTest {
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-planning");
 
         assertEquals("DONE", result.status());
-        assertEquals("DONE", result.stage());
     }
 
     @Test
@@ -146,7 +141,7 @@ class LongRunningTaskStoreLifecycleTest {
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-approval");
 
         assertEquals("DONE", result.status());
-        assertEquals("DONE", result.stage());
+        assertEquals("DONE", result.status());
     }
 
     @Test
@@ -157,7 +152,7 @@ class LongRunningTaskStoreLifecycleTest {
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-initialized");
 
         assertEquals("DONE", result.status());
-        assertEquals("DONE", result.stage());
+        assertEquals("DONE", result.status());
     }
 
     @Test

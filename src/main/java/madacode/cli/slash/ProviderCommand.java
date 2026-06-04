@@ -4,12 +4,36 @@ import madacode.provider.ActiveState;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
 
+import java.util.Locale;
 import java.util.Optional;
 
 final class ProviderCommand implements SlashCommand {
     @Override public String name() { return "provider"; }
     @Override public String description() { return "Show or switch the active provider"; }
     @Override public String usage() { return "/provider [name|reset]"; }
+
+    @Override
+    public Optional<ArgumentProvider> argumentProvider(SlashContext ctx) {
+        return Optional.of(partial -> {
+            ProviderRegistry registry = ctx.providerRegistry();
+            ActiveState active = registry.active();
+            String activeName = active.provider().name();
+            String needle = partial == null ? "" : partial.toLowerCase(Locale.ROOT);
+            java.util.ArrayList<ArgumentProvider.Candidate> candidates = registry.all().stream()
+                    .filter(provider -> provider.name().toLowerCase(Locale.ROOT).contains(needle))
+                    .map(provider -> {
+                        String description = provider.name().equals(activeName)
+                                ? "current: " + active.currentModel().name()
+                                : "default: " + provider.defaultModel();
+                        return new ArgumentProvider.Candidate(provider.name(), description);
+                    })
+                    .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+            if ("reset".contains(needle)) {
+                candidates.add(new ArgumentProvider.Candidate("reset", "restore default provider"));
+            }
+            return candidates;
+        });
+    }
 
     @Override
     public SlashAction execute(SlashContext ctx, String args) {
@@ -19,7 +43,11 @@ final class ProviderCommand implements SlashCommand {
         if (target.isBlank()) {
             if (ctx.providerChooser().isPresent()) {
                 Optional<String> selected = ctx.providerChooser().get()
-                        .chooseProvider(registry.names());
+                        .chooseProvider(SlashChoiceModels.choice(
+                                "Provider",
+                                "Active provider",
+                                registry.names(),
+                                registry.active().provider().name()));
                 if (selected.isEmpty()) {
                     SlashFeedback.muted(ctx.screen(), "Provider selection cancelled.");
                     return new SlashAction.Handled();

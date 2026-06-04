@@ -11,6 +11,7 @@ import madacode.longrunning.LongRunningTaskEvent;
 import madacode.longrunning.LongRunningTaskStore;
 import madacode.longrunning.WorkerReport;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -19,9 +20,8 @@ import java.util.Objects;
 /**
  * Tool for worker agents to report the outcome of a bounded work cycle.
  *
- * <p>This tool writes a structured report event and records the report in the
- * session for the launcher to read. Business progress belongs in
- * {@code longrun_task_update}.
+ * <p>This tool writes a structured report event, appends a handoff entry to
+ * progress.txt, and records the report in the session for the launcher to read.
  */
 public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
 
@@ -133,6 +133,7 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
         try {
             LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
             store.validateTaskDirectory(sessionTaskId);
+            store.requireRunning(sessionTaskId);
 
             // Write event
             store.appendEvent(sessionTaskId, LongRunningTaskEvent.of(
@@ -150,6 +151,7 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
                             "filesChanged", String.join(", ", report.filesChanged()),
                             "verification", String.join("; ", report.verification()),
                             "next", report.next() == null ? "" : report.next())));
+            store.appendProgress(sessionTaskId, progressEntry(report));
 
             // Record in session for launcher to read
             session.recordWorkerReport(report);
@@ -164,5 +166,35 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
 
     private static ToolResult failed(String message) {
         return new ToolResult("worker_report", false, message);
+    }
+
+    private static String progressEntry(WorkerReport report) {
+        StringBuilder entry = new StringBuilder();
+        entry.append("## ").append(Instant.now()).append(System.lineSeparator());
+        entry.append("worker_report: ")
+                .append(report.status().name().toLowerCase(Locale.ROOT))
+                .append(System.lineSeparator());
+        if (report.featureId() != null && !report.featureId().isBlank()) {
+            entry.append("feature: ").append(report.featureId()).append(System.lineSeparator());
+        }
+        if (report.issueId() != null && !report.issueId().isBlank()) {
+            entry.append("issue: ").append(report.issueId()).append(System.lineSeparator());
+        }
+        entry.append("summary: ").append(report.summary()).append(System.lineSeparator());
+        if (!report.filesChanged().isEmpty()) {
+            entry.append("files_changed: ")
+                    .append(String.join(", ", report.filesChanged()))
+                    .append(System.lineSeparator());
+        }
+        if (!report.verification().isEmpty()) {
+            entry.append("verification: ")
+                    .append(String.join("; ", report.verification()))
+                    .append(System.lineSeparator());
+        }
+        if (report.next() != null && !report.next().isBlank()) {
+            entry.append("next: ").append(report.next()).append(System.lineSeparator());
+        }
+        entry.append(System.lineSeparator());
+        return entry.toString();
     }
 }

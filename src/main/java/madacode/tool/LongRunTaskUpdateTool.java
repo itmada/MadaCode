@@ -133,6 +133,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
             storeForEvent = store;
             taskIdForEvent = taskId;
             store.validateTaskDirectory(taskId);
+            store.requireRunning(taskId);
             session.setLongRunningTaskDirectory(store.taskDirectoryPath(taskId).toString());
 
             ToolResult result = switch (action) {

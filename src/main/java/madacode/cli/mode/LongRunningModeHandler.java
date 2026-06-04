@@ -45,13 +45,21 @@ public final class LongRunningModeHandler implements ModeHandler {
     @Override
     public ModeExecution handle(String line, ConversationSession session) {
         ensureLongRunningSession(session);
-        session.addInput(line);
-        String expanded = AtFileCompleter.expandMentions(line, session);
         LongRunningStage stage = stage(session);
         if (stage == LongRunningStage.DRAFT && session.longRunningTaskId() == null) {
             initializePlanningTask(session, "");
         }
+        if (stage == LongRunningStage.RUNNING) {
+            return ModeExecution.managedTurn(turnExecutor.submitLocal(session,
+                    "long-running monitor active",
+                    (s, token) -> new madacode.core.turn.TurnResult(
+                            "Long-running workers are running in the monitor. Press ESC in the monitor to interrupt before sending controller instructions.",
+                            madacode.core.model.FinishReason.COMPLETED,
+                            0)));
+        }
 
+        session.addInput(line);
+        String expanded = AtFileCompleter.expandMentions(line, session);
         return runConversationalTurn(session, expanded);
     }
 

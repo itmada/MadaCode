@@ -28,11 +28,16 @@ final class ModelCommand implements SlashCommand {
         String model = args.strip();
         ProviderRegistry registry = ctx.providerRegistry();
         Provider current = registry.active().provider();
+        String currentModel = registry.active().currentModel().name();
 
         if (model.isBlank()) {
             if (ctx.modelChooser().isPresent()) {
                 Optional<String> selected = ctx.modelChooser().get().chooseModel(
-                        current.models().stream().map(Model::name).toList());
+                        SlashChoiceModels.choice(
+                                "Model",
+                                "Active provider: " + current.name(),
+                                current.models().stream().map(Model::name).toList(),
+                                currentModel));
                 if (selected.isEmpty()) {
                     SlashFeedback.muted(ctx.screen(), "Model selection cancelled.");
                     return new SlashAction.Handled();
@@ -40,7 +45,10 @@ final class ModelCommand implements SlashCommand {
                 model = selected.get();
             } else {
                 ctx.screen().scrollback("Models in provider '" + current.name() + "':");
-                current.models().forEach(m -> ctx.screen().scrollback("  " + m.name()));
+                current.models().forEach(m -> {
+                    String marker = m.name().equals(currentModel) ? "*" : " ";
+                    ctx.screen().scrollback("  " + marker + " " + m.name());
+                });
                 return new SlashAction.Handled();
             }
         }

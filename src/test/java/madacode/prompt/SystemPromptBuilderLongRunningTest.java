@@ -27,22 +27,33 @@ public class SystemPromptBuilderLongRunningTest {
         assertTrue(prompt.contains("Current stage: DRAFT."));
         assertTrue(prompt.contains("longrun_plan_update"));
         assertTrue(prompt.contains("longrun_state_transition_request"));
-        assertTrue(prompt.contains("Top-level long-running stages are DRAFT, RUNNING, and DONE"));
+        assertTrue(prompt.contains("Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, and DONE"));
         assertFalse(prompt.contains("WAITING_FOR_APPROVAL"));
         assertFalse(prompt.contains("approved_plan.md"));
     }
 
     @Test
-    void runningPromptIsControlSessionOnly() {
+    void runningPromptIsMonitorOwned() {
         ConversationSession session = longRunning(LongRunningStage.RUNNING);
 
         String prompt = prompt(session, new StubTool("file_read"));
 
         assertTrue(prompt.contains("Current stage: RUNNING."));
-        assertTrue(prompt.contains("This control session does not implement project files directly"));
-        assertTrue(prompt.contains("fresh worker sessions"));
+        assertTrue(prompt.contains("This stage is owned by the runtime monitor"));
+        assertTrue(prompt.contains("controller input loop is suspended"));
         assertTrue(prompt.contains("do not call longrun_task_update or worker_report"));
         assertFalse(prompt.contains("EXECUTING"));
+    }
+
+    @Test
+    void interruptPromptAllowsRevisionAndResume() {
+        ConversationSession session = longRunning(LongRunningStage.INTERRUPT);
+
+        String prompt = prompt(session, new StubTool("file_read"));
+
+        assertTrue(prompt.contains("Current stage: INTERRUPT."));
+        assertTrue(prompt.contains("longrun_plan_update"));
+        assertTrue(prompt.contains("reason=resume_after_interrupt"));
     }
 
     @Test
@@ -52,7 +63,8 @@ public class SystemPromptBuilderLongRunningTest {
         String prompt = prompt(session, new StubTool("file_read"));
 
         assertTrue(prompt.contains("Long-running stage: DONE."));
-        assertTrue(prompt.contains("terminal"));
+        assertTrue(prompt.contains("worker lifecycle is terminal"));
+        assertTrue(prompt.contains("ordinary tools"));
     }
 
     @Test
@@ -80,10 +92,24 @@ public class SystemPromptBuilderLongRunningTest {
                 new StubTool("worker_report", false));
         String runningTools = extractToolsSection(runningPrompt);
         assertTrue(runningTools.contains("file_read"));
-        assertTrue(runningTools.contains("longrun_state_transition_request"));
+        assertFalse(runningTools.contains("longrun_state_transition_request"));
         assertFalse(runningTools.contains("longrun_plan_update"));
         assertFalse(runningTools.contains("longrun_task_update"));
         assertFalse(runningTools.contains("worker_report"));
+
+        ConversationSession interruptControl = longRunning(LongRunningStage.INTERRUPT);
+        String interruptPrompt = prompt(interruptControl,
+                new StubTool("file_read"),
+                new StubTool("longrun_plan_update", false),
+                new StubTool("longrun_state_transition_request", false),
+                new StubTool("longrun_task_update", false),
+                new StubTool("worker_report", false));
+        String interruptTools = extractToolsSection(interruptPrompt);
+        assertTrue(interruptTools.contains("file_read"));
+        assertTrue(interruptTools.contains("longrun_plan_update"));
+        assertTrue(interruptTools.contains("longrun_state_transition_request"));
+        assertFalse(interruptTools.contains("longrun_task_update"));
+        assertFalse(interruptTools.contains("worker_report"));
     }
 
     @Test

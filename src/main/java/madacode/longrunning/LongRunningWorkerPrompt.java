@@ -27,8 +27,8 @@ public final class LongRunningWorkerPrompt {
                 - checkpoint.json — workspace state at task start
 
                 Pick exactly one bounded work item:
-                - If feature_list.json is empty, create the initial feature list from task.json planSummary using longrun_task_update action=write_initial_feature_list, then call worker_report with status=progress_made.
-                - Else if known_issues.json has any open or blocked issue, fix exactly one issue.
+                - If feature_list.json is empty, call worker_report with status=blocked; the control session must draft the feature list before execution.
+                - If known_issues.json has any open or blocked issue, fix exactly one issue.
                 - Else pick exactly one eligible feature whose dependencies have passed and which is not already passed.
                 - If every feature has passed and there are no open or blocked issues, call worker_report with status=task_completed.
                 - If there is no safe bounded work item, report blocked or needs_user instead of wandering.

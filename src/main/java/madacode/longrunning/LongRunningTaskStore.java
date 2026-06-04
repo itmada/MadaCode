@@ -27,7 +27,7 @@ public final class LongRunningTaskStore {
 
     private static final Pattern SAFE_TASK_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
     private static final Set<String> ALLOWED_ISSUE_STATUSES = Set.of("open", "resolved", "blocked");
-    private static final Set<String> ALLOWED_TASK_STATUSES = Set.of("DRAFT", "RUNNING", "DONE");
+    private static final Set<String> ALLOWED_TASK_STATUSES = Set.of("DRAFT", "RUNNING", "INTERRUPT", "DONE");
     private static final String TASK_FILE = "task.json";
     private static final String FEATURE_LIST_FILE = "feature_list.json";
     private static final String PROGRESS_FILE = "progress.txt";
@@ -283,11 +283,20 @@ public final class LongRunningTaskStore {
         Path eventsFile = directory.resolve(LOGS_DIR).resolve(EVENTS_FILE);
         try {
             List<LongRunningTaskEvent> events = new ArrayList<>();
-            for (String line : Files.readAllLines(eventsFile)) {
+            List<String> lines = Files.readAllLines(eventsFile);
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
                 if (line.isBlank()) {
                     continue;
                 }
-                events.add(deserializeEvent(mapper.readTree(line), safeTaskId));
+                try {
+                    events.add(deserializeEvent(mapper.readTree(line), safeTaskId));
+                } catch (IOException exception) {
+                    if (i == lines.size() - 1) {
+                        continue;
+                    }
+                    throw exception;
+                }
             }
             return List.copyOf(events);
         } catch (IOException exception) {
@@ -464,30 +473,50 @@ public final class LongRunningTaskStore {
         if ("RUNNING".equals(metadata.status())) {
             return metadata;
         }
-        if (!"DRAFT".equals(metadata.status())) {
+        if (!"DRAFT".equals(metadata.status()) && !"INTERRUPT".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot enter execution: status="
-                            + metadata.status() + ", stage=" + metadata.stage());
+                            + metadata.status());
         }
+        requireReadyForExecution(taskId, directory);
         return writeTaskLifecycle(directory, metadata, "RUNNING", "RUNNING",
                 "Failed to mark task " + taskId + " as executing");
     }
 
-    public synchronized LongRunningTaskMetadata markPlanRevision(String taskId) {
+    public synchronized LongRunningTaskMetadata markTaskInterrupted(String taskId) {
+        return markInterruptState(taskId, "user_interrupted");
+    }
+
+    public synchronized LongRunningTaskMetadata markTaskInterrupted(String taskId, String reason) {
+        return markInterruptState(taskId, reason);
+    }
+
+    private LongRunningTaskMetadata markInterruptState(String taskId, String reason) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("DRAFT".equals(metadata.status())
-                && metadata.reason() == null) {
+        String effectiveReason = reason == null || reason.isBlank() ? "user_interrupted" : reason.strip();
+        if ("INTERRUPT".equals(metadata.status())
+                && effectiveReason.equals(metadata.reason())) {
             return metadata;
         }
-        if (!"DRAFT".equals(metadata.status())) {
+        if (!"DRAFT".equals(metadata.status())
+                && !"RUNNING".equals(metadata.status())
+                && !"INTERRUPT".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot return to planning: status="
-                            + metadata.status() + ", stage=" + metadata.stage());
+                    "Task " + taskId + " cannot enter interrupt state: status="
+                            + metadata.status());
         }
-        return writeTaskLifecycle(directory, metadata, "DRAFT", "DRAFT",
-                "Failed to return task " + taskId + " to planning");
+        return writeTaskLifecycle(directory, metadata, "INTERRUPT", effectiveReason,
+                "Failed to mark task " + taskId + " as interrupted");
+    }
+
+    public synchronized void requireRunning(String taskId) {
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if (!"RUNNING".equals(metadata.status())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " is not running: current status is " + metadata.status());
+        }
     }
 
     public synchronized LongRunningTaskMetadata cancelTask(String taskId) {
@@ -513,6 +542,33 @@ public final class LongRunningTaskStore {
         } catch (IOException exception) {
             throw new LongRunningTaskStoreException(
                     "Failed to cancel task " + taskId, exception);
+        }
+        return updated;
+    }
+
+    public synchronized LongRunningTaskMetadata markTaskFailed(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if ("DONE".equals(metadata.status())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot fail: current status is " + metadata.status());
+        }
+        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
+                metadata.id(),
+                metadata.title(),
+                "DONE",
+                "failure",
+                metadata.executionStarted(),
+                metadata.createdAt(),
+                Instant.now(),
+                metadata.controlSessionId(),
+                metadata.planSummary());
+        try {
+            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(
+                    "Failed to mark task " + taskId + " as failed", exception);
         }
         return updated;
     }
@@ -570,6 +626,13 @@ public final class LongRunningTaskStore {
         }
     }
 
+    private void requireReadyForExecution(String taskId, Path directory) {
+        if (readFeatures(directory.resolve(FEATURE_LIST_FILE)).isEmpty()) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot enter execution: feature list is empty");
+        }
+    }
+
     private void updateTaskTimestamp(String taskId, Instant updatedAt) {
         updateTaskMetadata(taskId, metadata -> new LongRunningTaskMetadata(
                 metadata.id(),
@@ -598,13 +661,13 @@ public final class LongRunningTaskStore {
             Path directory,
             LongRunningTaskMetadata metadata,
             String status,
-            String stage,
+            String reason,
             String failureMessage) {
         LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
                 metadata.id(),
                 metadata.title(),
                 mapLifecycleStatus(status),
-                mapLifecycleReason(status, stage),
+                mapLifecycleReason(status, reason),
                 determineExecutionStarted(metadata, status),
                 metadata.createdAt(),
                 Instant.now(),
@@ -621,17 +684,20 @@ public final class LongRunningTaskStore {
     private static String mapLifecycleStatus(String status) {
         String normalized = requireNonBlank(status, "status").toUpperCase();
         return switch (normalized) {
-            case "DRAFT", "RUNNING", "DONE" -> normalized;
+            case "DRAFT", "RUNNING", "INTERRUPT", "DONE" -> normalized;
             default -> throw new LongRunningTaskStoreException("Unsupported lifecycle status: " + status);
         };
     }
 
-    private static String mapLifecycleReason(String status, String stage) {
+    private static String mapLifecycleReason(String status, String reason) {
         String normalizedStatus = requireNonBlank(status, "status").toUpperCase();
         if ("DONE".equals(normalizedStatus)) {
             return "task_completed";
         }
-        return null;
+        if ("INTERRUPT".equals(normalizedStatus)) {
+            return reason == null || reason.isBlank() ? "user_interrupted" : reason.strip();
+        }
+        return reason == null || reason.isBlank() ? null : reason.strip();
     }
 
     private static Instant determineExecutionStarted(LongRunningTaskMetadata metadata, String status) {

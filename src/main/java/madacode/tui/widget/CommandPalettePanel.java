@@ -38,7 +38,18 @@ public final class CommandPalettePanel {
             int cursor,
             List<PaletteCandidate> candidates,
             int selected,
-            String footer) {
+            String footer,
+            boolean showSecondary) {
+
+        public View(
+                String title,
+                String input,
+                int cursor,
+                List<PaletteCandidate> candidates,
+                int selected,
+                String footer) {
+            this(title, input, cursor, candidates, selected, footer, false);
+        }
 
         public View {
             title = Objects.requireNonNullElse(title, "");
@@ -74,7 +85,7 @@ public final class CommandPalettePanel {
         for (int i = 0; i < view.candidates().size(); i++) {
             PaletteCandidate c = view.candidates().get(i);
             boolean sel = i == view.selected();
-            lines.add(candidateLine(c.primary(), c.secondary(), sel, w));
+            lines.add(candidateLine(c.primary(), c.secondary(), sel, view.showSecondary(), w));
         }
 
         if (!view.footer().isBlank()) {
@@ -149,13 +160,16 @@ public final class CommandPalettePanel {
     }
 
     private static AttributedString candidateLine(String primary, String secondary,
-                                                   boolean selected, int width) {
+                                                   boolean selected, boolean showSecondary, int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
         String prefix = selected ? "› " : "  ";
         style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
         b.append(prefix);
         int budget = Math.max(0, width - TerminalText.displayWidth(prefix));
         b.append(fitEnd(primary, budget));
+        if (showSecondary) {
+            appendSecondary(b, primary, secondary, budget);
+        }
         if (width == 1) {
             return new AttributedString(selected ? "›" : " ");
         }
@@ -292,6 +306,24 @@ public final class CommandPalettePanel {
             return b.toAttributedString();
         }
         return new AttributedString(TerminalText.fitEnd(plain, width));
+    }
+
+    private static void appendSecondary(
+            AttributedStringBuilder b,
+            String primary,
+            String secondary,
+            int lineBudget) {
+        if (secondary == null || secondary.isBlank()) {
+            return;
+        }
+        int remaining = lineBudget - TerminalText.displayWidth(primary)
+                - TerminalText.displayWidth("   ");
+        if (remaining <= 0) {
+            return;
+        }
+        style(b, secondary.startsWith("current:") ? Token.SUCCESS : Token.MUTED);
+        b.append("   ");
+        b.append(fitEnd(secondary, remaining));
     }
 
     private static void style(AttributedStringBuilder b, Token token) {

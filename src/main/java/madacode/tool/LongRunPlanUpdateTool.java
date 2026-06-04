@@ -55,7 +55,7 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
 
     @Override
     public String description() {
-        return "Maintain the long-running task draft in DRAFT control sessions by updating plan summary, "
+        return "Maintain the long-running task draft in DRAFT or INTERRUPT control sessions by updating plan summary, "
                 + "feature_list.json, known_issues.json, progress.txt, and events.";
     }
 
@@ -110,7 +110,7 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
             return failed("longrun_plan_update is only available in the control session.");
         }
         if (!isDraftStage(session.longRunningStage())) {
-            return failed("longrun_plan_update is only available while the task is in DRAFT. Current stage: "
+            return failed("longrun_plan_update is only available while the task is in DRAFT or INTERRUPT. Current stage: "
                     + session.longRunningStage());
         }
         if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
@@ -153,12 +153,14 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
                 ? LongRunTaskUpdateToolSupport.deriveTaskTitle(summary, session.longRunningTaskTitle())
                 : input.title().strip();
         String reason = normalizeOptional(input.reason());
+        LongRunningTaskMetadata current = store.loadTask(taskId);
+        String status = session.longRunningStage() == LongRunningStage.INTERRUPT ? "INTERRUPT" : "DRAFT";
         LongRunningTaskMetadata updated = store.updateTaskShell(
                 taskId,
                 title,
-                "DRAFT",
+                status,
                 reason,
-                null,
+                current.executionStarted(),
                 session.sessionId(),
                 summary);
         session.setLongRunningTaskTitle(updated.title());
@@ -169,6 +171,12 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
 
     private ToolResult replaceFeatureList(LongRunningTaskStore store, String taskId, Input input) {
         List<FeatureInput> featureInputs = input.features() == null ? List.of() : input.features();
+        Map<String, Boolean> existingPasses = store.readFeatureList(taskId).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        FeatureItem::id,
+                        FeatureItem::passes,
+                        (left, right) -> left,
+                        java.util.LinkedHashMap::new));
         List<FeatureItem> features = featureInputs.stream()
                 .map(feature -> new FeatureItem(
                         feature.id(),
@@ -177,7 +185,9 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
                         feature.description(),
                         feature.depends_on(),
                         feature.verification_steps(),
-                        Boolean.TRUE.equals(feature.passes())))
+                        feature.passes() == null
+                                ? existingPasses.getOrDefault(feature.id(), false)
+                                : Boolean.TRUE.equals(feature.passes())))
                 .toList();
         store.replaceFeatureList(taskId, features);
         return succeeded("Replaced feature list for " + taskId + " (" + features.size() + " feature(s)).");
@@ -253,7 +263,7 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
     }
 
     private static boolean isDraftStage(LongRunningStage stage) {
-        return stage == LongRunningStage.DRAFT;
+        return stage == LongRunningStage.DRAFT || stage == LongRunningStage.INTERRUPT;
     }
 
     private static String activeTaskId(Input input, ConversationSession session) {

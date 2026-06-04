@@ -9,9 +9,7 @@ import madacode.core.model.ToolCall;
 import madacode.core.model.ToolResult;
 import madacode.core.session.AssistantTurnWriter;
 import madacode.core.session.ConversationSession;
-import madacode.core.session.LongRunningStage;
 import madacode.core.session.Subscription;
-import madacode.core.session.SessionMode;
 import madacode.core.turn.CancellationException;
 import madacode.core.turn.CancellationToken;
 import madacode.core.turn.Turn;
@@ -58,10 +56,6 @@ public final class ToolOrchestrator {
         List<ToolResult> results = new ArrayList<>(Collections.nCopies(toolCalls.size(), null));
         int i = 0;
         while (i < toolCalls.size()) {
-            if (longRunningTerminalStageReached(context.session())) {
-                fillSkippedAfterTerminalStage(toolCalls, results, i, context);
-                return results;
-            }
             int segmentStart = i;
             boolean safe = isConcurrencySafe(toolCalls.get(i));
             i++;
@@ -77,15 +71,7 @@ public final class ToolOrchestrator {
                         break;
                     }
                     results.set(k, toolExecutor.execute(toolCalls.get(k), context));
-                    if (longRunningTerminalStageReached(context.session())) {
-                        fillSkippedAfterTerminalStage(toolCalls, results, k + 1, context);
-                        return results;
-                    }
                 }
-            }
-            if (longRunningTerminalStageReached(context.session()) && i < toolCalls.size()) {
-                fillSkippedAfterTerminalStage(toolCalls, results, i, context);
-                return results;
             }
             if (context.cancellationToken().isCancelled() && i < toolCalls.size()) {
                 String reason = reasonOrDefault(context);
@@ -97,26 +83,6 @@ public final class ToolOrchestrator {
             }
         }
         return results;
-    }
-
-    private static boolean longRunningTerminalStageReached(ConversationSession session) {
-        return session.workflowMode() == SessionMode.LONG_RUNNING
-                && session.longRunningStage() == LongRunningStage.DONE;
-    }
-
-    private static void fillSkippedAfterTerminalStage(
-            List<ToolCall> toolCalls,
-            List<ToolResult> results,
-            int start,
-            ToolUseContext context) {
-        for (int slot = start; slot < toolCalls.size(); slot++) {
-            if (results.get(slot) == null) {
-                results.set(slot, errorResult(toolCalls.get(slot),
-                        "Skipped: long-running task reached terminal stage "
-                                + context.session().longRunningStage(),
-                        context));
-            }
-        }
     }
 
     private void runConcurrentSegment(List<ToolCall> toolCalls,

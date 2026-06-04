@@ -268,9 +268,12 @@ public class SystemPromptBuilder {
         String body = longRunningSharedProtocol() + "\n" + switch (stage) {
             case DRAFT -> draftPrompt(session);
             case RUNNING -> runningPrompt(session);
+            case INTERRUPT -> interruptPrompt(session);
             case DONE -> bullets(
                     "Long-running stage: " + stage.name() + ".",
-                    "The long-running task is terminal. Summarize status if asked, but do not attempt further task-store or project changes.");
+                    "The long-running worker lifecycle is terminal, but you remain the controller agent and may use ordinary tools for inspection, cleanup, and user-requested project changes subject to normal permissions.",
+                    "Do not call worker_report or longrun_task_update from the control session.",
+                    "DONE/cancelled means the task lifecycle was cancelled or completed; it does not delete the task-store directory.");
         };
         appendSection(sb, "Long-Running Workflow", body);
     }
@@ -278,10 +281,12 @@ public class SystemPromptBuilder {
     private static String longRunningSharedProtocol() {
         return bullets(
                 "You are in harness-controlled long-running mode.",
-                "The current stage shown here is the only source of truth for your capabilities.",
-                "Top-level long-running stages are DRAFT, RUNNING, and DONE.",
-                "Use longrun_state_transition_request to request stage changes; runtime asks the user before applying them.",
-                "Do not claim a state transition happened until runtime confirms it.");
+                "You are the controller agent and remain the main agent. Ordinary tools such as file reads, bash, write, and edit remain available subject to the normal permission gate.",
+                "Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, and DONE.",
+                "RUNNING is monitor-owned: the controller input loop is suspended while workers execute.",
+                "Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING or DONE; runtime asks the user before applying model-requested transitions.",
+                "Do not claim a state transition happened until runtime confirms it.",
+                "Never use DONE/cancelled to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.");
     }
 
     private static String draftPrompt(ConversationSession session) {
@@ -289,9 +294,10 @@ public class SystemPromptBuilder {
         items.add("Current stage: DRAFT.");
         items.add("Maintain the task store draft with longrun_plan_update: task.json plan summary, feature_list.json, known_issues.json, and progress.txt.");
         items.add("Clarify requirements, refine scope, and keep the draft plan durable as it changes.");
+        items.add("You may also perform ordinary controller-agent work requested by the user, including inspecting files, running commands, editing files, or deleting files with normal permission approval.");
         items.add("When the draft is ready to run, call longrun_state_transition_request target_status=RUNNING with a concise summary; runtime will ask the user to confirm.");
-        items.add("If the user wants to cancel, request target_status=DONE with reason=user_requested_cancel.");
-        items.add("Forbidden: do not create/edit/delete project files in this control session, do not call longrun_task_update, and do not run build/test/scaffold commands.");
+        items.add("If the user wants to cancel the long-running lifecycle, request target_status=DONE with reason=user_requested_cancel.");
+        items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
 
         String taskId = session.longRunningTaskId();
         String taskDir = session.longRunningTaskDirectory();
@@ -305,18 +311,36 @@ public class SystemPromptBuilder {
     private static String runningPrompt(ConversationSession session) {
         java.util.List<String> items = new java.util.ArrayList<>();
         items.add("Current stage: RUNNING.");
-        items.add("This control session does not implement project files directly.");
-        items.add("The launcher starts fresh worker sessions. Workers read the task store, choose one bounded work item, use longrun_task_update for business progress, and finish with worker_report.");
-        items.add("You may summarize status, answer user questions, or request DRAFT/DONE transitions with longrun_state_transition_request.");
-        items.add("Forbidden: do not create/edit/delete project files in this control session, do not call longrun_task_update or worker_report, and do not run build/test/scaffold commands.");
+        items.add("This stage is owned by the runtime monitor. The controller agent should not receive normal user turns while RUNNING.");
+        items.add("Workers run in fresh sessions, update task progress, and finish with worker_report.");
+        items.add("If this prompt appears in a controller turn, do not perform controller work; explain that runtime should return to the monitor or enter INTERRUPT first.");
+        items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
 
+        appendTaskIdentity(items, session);
+        return bullets(items);
+    }
+
+    private static String interruptPrompt(ConversationSession session) {
+        java.util.List<String> items = new java.util.ArrayList<>();
+        items.add("Current stage: INTERRUPT.");
+        items.add("Worker execution is stopped or waiting for controller/user intervention.");
+        items.add("Inspect the task store, progress.txt, known_issues.json, and logs/events.jsonl as needed before revising the plan.");
+        items.add("Use longrun_plan_update to record corrections, added constraints, feature changes, known issues, and progress notes.");
+        items.add("When the task is ready to resume, call longrun_state_transition_request target_status=RUNNING reason=resume_after_interrupt with a concise summary; runtime will ask the user to confirm.");
+        items.add("If the user wants to cancel the lifecycle, request target_status=DONE with reason=user_requested_cancel.");
+        items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
+
+        appendTaskIdentity(items, session);
+        return bullets(items);
+    }
+
+    private static void appendTaskIdentity(java.util.List<String> items, ConversationSession session) {
         String taskId = session.longRunningTaskId();
         String taskDir = session.longRunningTaskDirectory();
         if (taskId != null && !taskId.isBlank() && taskDir != null && !taskDir.isBlank()) {
             items.add("Active task id: " + taskId);
             items.add("Task store directory: " + taskDir);
         }
-        return bullets(items);
     }
 
     private static String bullets(String... items) {

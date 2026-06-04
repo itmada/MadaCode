@@ -72,8 +72,8 @@ class TuiSnapshotTest {
         var view = new ChoicePanel.ChoiceView(
                 "Model", "Choose model for subsequent turns",
                 List.of(
-                        new ChoicePanel.ChoiceOption("claude-sonnet-4-6", "", ""),
-                        new ChoicePanel.ChoiceOption("claude-opus-4-7", "", "")),
+                        new ChoicePanel.ChoiceOption("claude-sonnet-4-6", "", "current"),
+                        new ChoicePanel.ChoiceOption("claude-opus-4-7", "default", "")),
                 0, "↑/↓ select   Enter confirm   Esc cancel");
 
         List<AttributedString> lines = ChoicePanel.render(view, 80);
@@ -86,6 +86,8 @@ class TuiSnapshotTest {
         assertTrue(output.contains("Choose model"));
         assertTrue(output.contains("claude-sonnet-4-6"));
         assertTrue(output.contains("claude-opus-4-7"));
+        assertTrue(output.contains("current"));
+        assertTrue(output.contains("default"));
         assertTrue(output.contains("› claude-sonnet-4-6"));
         assertTrue(output.contains("  claude-opus-4-7"));
         assertTrue(output.contains("Enter confirm"));
@@ -135,6 +137,28 @@ class TuiSnapshotTest {
         assertFalse(output.contains("╰"));
         assertFalse(output.contains("────\n────"));
         assertFalse(output.contains("Choose model"));
+    }
+
+    @Test
+    void commandPaletteArgumentModeShowsCandidateDescriptions() {
+        var view = new CommandPalettePanel.View(
+                "/provider",
+                "/provider ",
+                10,
+                List.of(
+                        new CommandPalettePanel.PaletteCandidate("openai", "current: gpt-5"),
+                        new CommandPalettePanel.PaletteCandidate("anthropic", "default: claude")),
+                0,
+                "Enter submit   Esc cancel",
+                true);
+
+        List<AttributedString> lines = CommandPalettePanel.render(view, 80);
+        assertAllLinesFit(lines, 80);
+        String output = plain(lines);
+
+        assertTrue(output.contains("openai"));
+        assertTrue(output.contains("current: gpt-5"));
+        assertTrue(output.contains("default: claude"));
     }
 
     // ---- tool activity cards -------------------------------------------

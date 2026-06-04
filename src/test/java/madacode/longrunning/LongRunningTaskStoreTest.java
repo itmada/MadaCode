@@ -105,6 +105,30 @@ class LongRunningTaskStoreTest {
     }
 
     @Test
+    void readEventsIgnoresPartialTrailingJsonlLine() throws Exception {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-partial-events", "Structured events", "RUNNING", null, "session-events", null));
+
+        store.appendEvent("task-partial-events", LongRunningTaskEvent.of(
+                "launcher_started",
+                "task-partial-events",
+                "session-events",
+                "RUNNING",
+                null,
+                true,
+                "Launcher started.",
+                Map.of()));
+        Path eventsFile = tempDir.resolve(".mada/long-running/task-partial-events/logs/events.jsonl");
+        Files.writeString(eventsFile, "{\"timestamp\":\"partial\"", java.nio.file.StandardOpenOption.APPEND);
+
+        List<LongRunningTaskEvent> events = store.readEvents("task-partial-events");
+
+        assertEquals(1, events.size());
+        assertEquals("launcher_started", events.getFirst().type());
+    }
+
+    @Test
     void validateTaskDirectoryCreatesMissingEventLogForLegacyTasks() throws Exception {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
@@ -180,27 +204,17 @@ class LongRunningTaskStoreTest {
     }
 
     @Test
-    void planRevisionKeepsDraftState() {
-        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest(
-                "task-plan-lifecycle", "Plan lifecycle", "DRAFT", "revision", "session-plan", null));
-
-        LongRunningTaskMetadata backToPlanning = store.markPlanRevision("task-plan-lifecycle");
-
-        assertEquals("DRAFT", backToPlanning.status());
-        assertEquals("DRAFT", backToPlanning.stage());
-    }
-
-    @Test
     void markTaskExecutingAcceptsDraft() {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
                 "task-executing", "Draft plan", "DRAFT", null, "session-run", null));
+        store.writeInitialFeatureList("task-executing", List.of(
+                new FeatureItem("feature-a", "core", "high", "Feature A", List.of(), List.of("verify"), false)));
 
         LongRunningTaskMetadata executing = store.markTaskExecuting("task-executing");
 
         assertEquals("RUNNING", executing.status());
-        assertEquals("RUNNING", executing.stage());
+        assertEquals("RUNNING", executing.status());
     }
 
     @Test

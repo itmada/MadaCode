@@ -10,7 +10,7 @@ final class PermissionCommand implements SlashCommand {
 
     @Override public String name() { return "permission"; }
     @Override public String description() { return "Show or switch the active permission mode"; }
-    @Override public String usage() { return "/permission [strict|normal|all-pass]"; }
+    @Override public String usage() { return "/permission [strict|normal|long-running-workspace|all-pass]"; }
 
     @Override
     public Optional<ArgumentProvider> argumentProvider(SlashContext ctx) {
@@ -29,9 +29,13 @@ final class PermissionCommand implements SlashCommand {
         if (requested.isBlank()) {
             if (ctx.permissionChooser().isPresent()) {
                 Optional<String> selected = ctx.permissionChooser().get().choosePermission(
-                        Arrays.stream(PermissionMode.values())
-                                .map(PermissionMode::id)
-                                .toList());
+                        SlashChoiceModels.choice(
+                                "Permission",
+                                "Active permission policy",
+                                Arrays.stream(PermissionMode.values())
+                                        .map(PermissionMode::id)
+                                        .toList(),
+                                ctx.session().permissionMode().id()));
                 if (selected.isEmpty()) {
                     SlashFeedback.muted(ctx.screen(), "Permission selection cancelled.");
                     return new SlashAction.Handled();

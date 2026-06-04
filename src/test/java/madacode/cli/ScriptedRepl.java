@@ -7,6 +7,8 @@ import madacode.core.session.ConversationSession;
 import madacode.core.turn.TurnExecutor;
 import madacode.core.session.SessionStorage;
 import madacode.provider.ProviderRegistry;
+import madacode.longrunning.LongRunningLauncher;
+import madacode.longrunning.LongRunningRuntime;
 import madacode.permission.PermissionGate;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
@@ -57,7 +59,62 @@ final class ScriptedRepl extends Repl {
                  CompactPlanner compactPlanner,
                  ModeRouter modeRouter) {
         super(buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
-                slashRegistry, providerRegistry, compactPlanner, modeRouter));
+                slashRegistry, providerRegistry, compactPlanner, modeRouter, null));
+        this.reader = Objects.requireNonNull(reader, "reader");
+    }
+
+    static ScriptedRepl withoutLongRunningRuntime(QueryEngine queryEngine,
+                                                  TurnExecutor turnExecutor,
+                                                  ConversationSession session,
+                                                  BufferedReader reader,
+                                                  PrintStream output,
+                                                  SessionStorage sessionStorage) {
+        return new ScriptedRepl(buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
+                SlashCommandRegistry.create(null), null, null, null, null, null,
+                null, null, false), reader);
+    }
+
+    private ScriptedRepl(Config config, BufferedReader reader) {
+        super(config);
+        this.reader = Objects.requireNonNull(reader, "reader");
+    }
+
+    ScriptedRepl(QueryEngine queryEngine,
+                 TurnExecutor turnExecutor,
+                 ConversationSession session,
+                 BufferedReader reader,
+                 PrintStream output,
+                 SessionStorage sessionStorage,
+                 LongRunningLauncher launcher,
+                 PermissionGate permissionGate) {
+        super(buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
+                SlashCommandRegistry.create(null), null, null, null, null, null,
+                launcher, permissionGate, true));
+        this.reader = Objects.requireNonNull(reader, "reader");
+    }
+
+    ScriptedRepl(QueryEngine queryEngine,
+                 TurnExecutor turnExecutor,
+                 ConversationSession session,
+                 BufferedReader reader,
+                 PrintStream output,
+                 SessionStorage sessionStorage,
+                 LongRunningRuntime longRunningRuntime) {
+        super(buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
+                SlashCommandRegistry.create(null), null, null, null, longRunningRuntime, null));
+        this.reader = Objects.requireNonNull(reader, "reader");
+    }
+
+    ScriptedRepl(QueryEngine queryEngine,
+                 TurnExecutor turnExecutor,
+                 ConversationSession session,
+                 BufferedReader reader,
+                 PrintStream output,
+                 SessionStorage sessionStorage,
+                 LongRunningRuntime longRunningRuntime,
+                 UserPromptChannel promptChannel) {
+        super(buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
+                SlashCommandRegistry.create(null), null, null, null, longRunningRuntime, promptChannel));
         this.reader = Objects.requireNonNull(reader, "reader");
     }
 
@@ -69,7 +126,43 @@ final class ScriptedRepl extends Repl {
                                       SlashCommandRegistry slashRegistry,
                                       ProviderRegistry providerRegistry,
                                       CompactPlanner compactPlanner,
-                                      ModeRouter modeRouter) {
+                                      ModeRouter modeRouter,
+                                      LongRunningRuntime longRunningRuntime) {
+        return buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
+                slashRegistry, providerRegistry, compactPlanner, modeRouter, longRunningRuntime, null,
+                null, null, true);
+    }
+
+    private static Config buildConfig(QueryEngine queryEngine,
+                                      TurnExecutor turnExecutor,
+                                      ConversationSession session,
+                                      PrintStream output,
+                                      SessionStorage sessionStorage,
+                                      SlashCommandRegistry slashRegistry,
+                                      ProviderRegistry providerRegistry,
+                                      CompactPlanner compactPlanner,
+                                      ModeRouter modeRouter,
+                                      LongRunningRuntime longRunningRuntime,
+                                      UserPromptChannel promptChannel) {
+        return buildConfig(queryEngine, turnExecutor, session, output, sessionStorage,
+                slashRegistry, providerRegistry, compactPlanner, modeRouter, longRunningRuntime, promptChannel,
+                null, null, true);
+    }
+
+    private static Config buildConfig(QueryEngine queryEngine,
+                                      TurnExecutor turnExecutor,
+                                      ConversationSession session,
+                                      PrintStream output,
+                                      SessionStorage sessionStorage,
+                                      SlashCommandRegistry slashRegistry,
+                                      ProviderRegistry providerRegistry,
+                                      CompactPlanner compactPlanner,
+                                      ModeRouter modeRouter,
+                                      LongRunningRuntime longRunningRuntime,
+                                      UserPromptChannel promptChannel,
+                                      LongRunningLauncher launcher,
+                                      PermissionGate permissionGate,
+                                      boolean defaultPermissionGate) {
         TextScreen screen = new TextScreen(Objects.requireNonNull(output, "output"));
         TurnView turnView = new TurnView(screen);
         Config config = new Config();
@@ -85,7 +178,12 @@ final class ScriptedRepl extends Repl {
         config.sessionContext = new SessionContext();
         config.sessionContext.syncFrom(session);
         config.modeRouter = modeRouter;
-        config.permissionGate = PermissionGate.permissive();
+        config.launcher = launcher;
+        config.longRunningRuntime = longRunningRuntime;
+        config.promptChannel = promptChannel;
+        config.permissionGate = permissionGate == null && defaultPermissionGate
+                ? PermissionGate.permissive()
+                : permissionGate;
         config.workerTurnLogRoot = sessionStorage.transcriptPath(session.sessionId()).getParent();
         return config;
     }
@@ -95,6 +193,7 @@ final class ScriptedRepl extends Repl {
         try {
             persistSession();
             while (true) {
+                drainLongRunningRuntimeCompletions();
                 String line;
                 try {
                     line = reader.readLine();
@@ -106,9 +205,14 @@ final class ScriptedRepl extends Repl {
                 if (line.isBlank()) continue;
                 if (!handleLine(line)) return;
             }
+            drainLongRunningRuntimeCompletions();
             persistSession();
         } finally {
             closeResources();
         }
+    }
+
+    boolean startLongRunningRuntimeForTest() {
+        return startLongRunningRuntime();
     }
 }

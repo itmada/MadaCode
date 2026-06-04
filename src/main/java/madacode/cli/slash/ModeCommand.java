@@ -33,9 +33,13 @@ final class ModeCommand implements SlashCommand {
         if (requested.isBlank()) {
             if (ctx.modeChooser().isPresent()) {
                 Optional<String> selected = ctx.modeChooser().get().chooseMode(
-                        Arrays.stream(SessionMode.values())
-                                .map(SessionMode::id)
-                                .toList());
+                        SlashChoiceModels.choice(
+                                "Mode",
+                                "Active workflow mode",
+                                Arrays.stream(SessionMode.values())
+                                        .map(SessionMode::id)
+                                        .toList(),
+                                SessionMode.from(ctx.session()).id()));
                 if (selected.isEmpty()) {
                     SlashFeedback.muted(ctx.screen(), "Mode selection cancelled.");
                     return new SlashAction.Handled();

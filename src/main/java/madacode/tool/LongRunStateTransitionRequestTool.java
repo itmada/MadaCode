@@ -58,17 +58,14 @@ public final class LongRunStateTransitionRequestTool
         properties.set("target_status", ToolSchemas.stringEnumProperty(
                 mapper,
                 "Requested target status for the control session",
-                "DRAFT", "RUNNING", "DONE"));
+                "RUNNING", "DONE"));
         properties.set("reason", ToolSchemas.stringEnumProperty(
                 mapper,
                 "Why this transition is being requested",
                 "user_confirmed_start",
-                "user_requested_interrupt",
                 "user_requested_cancel",
-                "resume_after_revision",
-                "task_completed",
-                "failure",
-                "plan_ready_for_confirmation"));
+                "resume_after_interrupt",
+                "failure"));
         properties.set("summary", ToolSchemas.stringProperty(
                 mapper, "Brief user-facing summary for the requested transition."));
         properties.set("plan_delta", ToolSchemas.stringProperty(

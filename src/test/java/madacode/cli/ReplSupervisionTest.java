@@ -30,8 +30,13 @@ import madacode.services.compact.TokenEstimator;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
 import madacode.longrunning.CreateTaskRequest;
+import madacode.longrunning.FeatureItem;
+import madacode.longrunning.LongRunningLauncher;
+import madacode.longrunning.LongRunningRuntime;
 import madacode.longrunning.LongRunningTaskEvent;
 import madacode.longrunning.LongRunningTaskStore;
+import madacode.longrunning.LongRunningWorkerRunner;
+import madacode.tool.FileWriteTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 
@@ -48,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.ArrayList;
@@ -376,17 +382,16 @@ class ReplSupervisionTest {
     }
 
     @Test
-    void longRunningModeRoutesPlainInputThroughManagedTurnAndPersists() throws Exception {
+    void longRunningRunningInputDoesNotInvokeControllerModelTurn() throws Exception {
         SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-long"));
         ConversationSession session = new ConversationSession(tempDir.resolve("ws-long"));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.RUNNING);
-        AtomicReference<String> seenPrompt = new AtomicReference<>();
+        AtomicInteger modelCalls = new AtomicInteger();
         QueryEngine engine = new QueryEngine(
                 (msgs, sys, tools, sink, tok) -> {
-                    seenPrompt.set(firstText(msgs.getLast()));
-                    sink.onTextDelta("RUNNING");
-                    return new ApiClient.ApiResponse("RUNNING", List.of());
+                    modelCalls.incrementAndGet();
+                    throw new AssertionError("RUNNING controller input must not reach the model turn runner");
                 },
                 new ToolRegistry(), new SystemPromptBuilder(),
                 PermissionGate.permissive());
@@ -406,11 +411,11 @@ class ReplSupervisionTest {
 
         repl.run();
 
-        assertEquals("continue work", seenPrompt.get());
-        assertEquals(List.of("continue work"), session.inputHistory());
+        assertEquals(0, modelCalls.get());
+        assertEquals(List.of(), session.inputHistory());
         ConversationSession restored = storage.load(session.sessionId());
-        assertEquals(List.of("continue work"), restored.inputHistory());
-        assertTrue(restored.messages().stream()
+        assertEquals(List.of(), restored.inputHistory());
+        assertFalse(restored.messages().stream()
                 .anyMatch(m -> m.role() == MessageRole.USER
                         && firstText(m).equals("continue work")));
     }
@@ -454,6 +459,270 @@ class ReplSupervisionTest {
         assertTrue(restored.longRunningTaskId() != null && !restored.longRunningTaskId().isBlank());
     }
 
+    @Test
+    void replConstructsDefaultLongRunningRuntimeWhenPermissionGateIsConfigured() {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-runtime"));
+        ConversationSession session = new ConversationSession(tempDir.resolve("ws-runtime"));
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> new ApiClient.ApiResponse("", List.of()),
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-runtime")));
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(new ByteArrayOutputStream(), true),
+                storage);
+
+        try {
+            assertTrue(repl.longRunningRuntime != null);
+        } finally {
+            repl.closeResources();
+            executor.close();
+        }
+    }
+
+    @Test
+    void longRunningWorkerPermissionGateNeverPromptsInteractively() {
+        Path workingDirectory = tempDir.resolve("ws-worker-gate");
+        ConversationSession worker = new ConversationSession(workingDirectory);
+        worker.setWorkflowMode(SessionMode.LONG_RUNNING);
+        worker.setLongRunningStage(LongRunningStage.RUNNING);
+        worker.setLongRunningWorkerSession(true);
+        worker.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
+
+        com.fasterxml.jackson.databind.node.ObjectNode input =
+                new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        input.put("file_path", workingDirectory.getParent().resolve("outside.txt").toString());
+        input.put("content", "outside");
+
+        var decision = Repl.longRunningWorkerPermissionGate()
+                .check(new FileWriteTool(), input,
+                        new madacode.core.engine.ToolUseContext(workingDirectory, worker));
+
+        assertEquals("long_running_workspace", decision.source());
+        assertEquals(false, decision.isAllowed());
+    }
+
+    @Test
+    void launcherCompletionUsesTaskStoreStatusInsteadOfStaleResultStage() throws Exception {
+        Path workingDirectory = tempDir.resolve("ws-stale-completion");
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-stale"));
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningTaskId("task-stale");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-stale", "Task", "DRAFT", null, session.sessionId(), "plan"));
+        store.writeInitialFeatureList("task-stale", List.of(
+                new FeatureItem("feature-a", "core", "high", "Feature A", List.of(), List.of("verify"), false)));
+
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> new ApiClient.ApiResponse("", List.of()),
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-stale")));
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(new ByteArrayOutputStream(), true),
+                storage);
+
+        store.cancelTask("task-stale");
+        repl.applyLongRunningRuntimeCompletion(new LongRunningRuntime.Completion(
+                "task-stale",
+                new LongRunningLauncher.LaunchResult(
+                        LongRunningLauncher.LaunchStatus.INTERRUPTED,
+                        1,
+                        "stale interrupted result"),
+                null));
+
+        assertEquals(LongRunningStage.DONE, session.longRunningStage());
+    }
+
+    @Test
+    void launcherCompletionForDifferentTaskDoesNotMutateCurrentControlSession() throws Exception {
+        Path workingDirectory = tempDir.resolve("ws-stale-task");
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-stale-task"));
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningTaskId("task-current");
+
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> new ApiClient.ApiResponse("", List.of()),
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-stale-task")));
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(buf, true),
+                storage);
+
+        repl.applyLongRunningRuntimeCompletion(new LongRunningRuntime.Completion(
+                "task-old",
+                new LongRunningLauncher.LaunchResult(
+                        LongRunningLauncher.LaunchStatus.COMPLETED,
+                        1,
+                        "old task completed"),
+                null));
+
+        assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
+        assertEquals(1, session.messages().size());
+        assertTrue(stripAnsi(buf.toString()).contains("Ignored long-running launcher completion for task task-old"));
+    }
+
+    @Test
+    void launcherInterruptCompletionMovesSessionToInterrupt() throws Exception {
+        Path workingDirectory = tempDir.resolve("ws-interrupt-completion");
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-interrupt-completion"));
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningTaskId("task-interrupt-runtime");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-interrupt-runtime", "Task", "DRAFT", null, session.sessionId(), "plan"));
+        store.writeInitialFeatureList("task-interrupt-runtime", List.of(
+                new FeatureItem("feature-a", "core", "high", "Feature A", List.of(), List.of("verify"), false)));
+        store.markTaskExecuting("task-interrupt-runtime");
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> new ApiClient.ApiResponse("", List.of()),
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-interrupt-completion")));
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(buf, true),
+                storage);
+
+        repl.applyLongRunningRuntimeCompletion(new LongRunningRuntime.Completion(
+                "task-interrupt-runtime",
+                new LongRunningLauncher.LaunchResult(
+                        LongRunningLauncher.LaunchStatus.INTERRUPTED,
+                        1,
+                        "launcher interrupted"),
+                null));
+
+        assertFalse(session.pendingLongRunningTransitionRequest().isPresent());
+        assertEquals(LongRunningStage.INTERRUPT, session.longRunningStage());
+        assertEquals("INTERRUPT", store.loadTask("task-interrupt-runtime").status());
+        assertEquals("user_interrupted", store.loadTask("task-interrupt-runtime").reason());
+    }
+
+    @Test
+    void interruptCompletionMarksStillRunningTaskInterrupted() throws Exception {
+        Path workingDirectory = tempDir.resolve("ws-immediate-interrupt-completion");
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-immediate-interrupt"));
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningTaskId("task-immediate-interrupt");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-immediate-interrupt", "Task", "DRAFT", null, session.sessionId(), "plan"));
+        store.writeInitialFeatureList("task-immediate-interrupt", List.of(
+                new FeatureItem("feature-a", "core", "high", "Feature A", List.of(), List.of("verify"), false)));
+        store.markTaskExecuting("task-immediate-interrupt");
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> new ApiClient.ApiResponse("", List.of()),
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-immediate-interrupt")));
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(new ByteArrayOutputStream(), true),
+                storage);
+
+        repl.applyLongRunningRuntimeCompletion(new LongRunningRuntime.Completion(
+                "task-immediate-interrupt",
+                new LongRunningLauncher.LaunchResult(
+                        LongRunningLauncher.LaunchStatus.INTERRUPTED,
+                        0,
+                        "Launcher interrupted before starting."),
+                null));
+
+        assertEquals(LongRunningStage.INTERRUPT, session.longRunningStage());
+        assertEquals("INTERRUPT", store.loadTask("task-immediate-interrupt").status());
+        assertEquals("user_interrupted", store.loadTask("task-immediate-interrupt").reason());
+    }
+
+    @Test
+    void runtimeErrorCompletionMarksSessionAndTaskInterrupted() throws Exception {
+        Path workingDirectory = tempDir.resolve("ws-runtime-error");
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-runtime-error"));
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningTaskId("task-runtime-error");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-runtime-error", "Task", "DRAFT", null, session.sessionId(), "plan"));
+        store.writeInitialFeatureList("task-runtime-error", List.of(
+                new FeatureItem("feature-a", "core", "high", "Feature A", List.of(), List.of("verify"), false)));
+        store.markTaskExecuting("task-runtime-error");
+
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> new ApiClient.ApiResponse("", List.of()),
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-runtime-error")));
+        ScriptedRepl repl = new ScriptedRepl(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(new ByteArrayOutputStream(), true),
+                storage);
+
+        repl.applyLongRunningRuntimeCompletion(new LongRunningRuntime.Completion(
+                "task-runtime-error",
+                null,
+                new IllegalStateException("runtime exploded")));
+
+        assertEquals(LongRunningStage.INTERRUPT, session.longRunningStage());
+        assertEquals("runtime_failed", session.longRunningReason());
+        assertEquals("INTERRUPT", store.loadTask("task-runtime-error").status());
+        assertEquals("runtime_failed", store.loadTask("task-runtime-error").reason());
+    }
+
+    @Test
+    void runtimeUnavailableStartReturnsSessionAndTaskToInterrupt() throws Exception {
+        Path workingDirectory = tempDir.resolve("ws-start-runtime-failure");
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-start-runtime-failure"));
+        ConversationSession session = new ConversationSession(workingDirectory);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.INTERRUPT);
+        session.setLongRunningTaskId("task-start-runtime-failure");
+        LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
+        store.createTask(new CreateTaskRequest(
+                "task-start-runtime-failure", "Task", "INTERRUPT", "user_interrupted", session.sessionId(), "plan"));
+        store.writeInitialFeatureList("task-start-runtime-failure", List.of(
+                new FeatureItem("feature-a", "core", "high", "Feature A", List.of(), List.of("verify"), false)));
+
+        QueryEngine engine = new QueryEngine(
+                (msgs, sys, tools, sink, tok) -> new ApiClient.ApiResponse("", List.of()),
+                new ToolRegistry(), new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        TurnExecutor executor = new TurnExecutor(
+                new QueryEngineTurnRunner(engine), new TurnLog(tempDir.resolve("turns-start-runtime-failure")));
+        ScriptedRepl repl = ScriptedRepl.withoutLongRunningRuntime(engine, executor, session,
+                new BufferedReader(new StringReader("exit\n")),
+                new PrintStream(new ByteArrayOutputStream(), true),
+                storage);
+
+        assertFalse(repl.startLongRunningRuntimeForTest());
+
+        assertEquals(LongRunningStage.INTERRUPT, session.longRunningStage());
+        assertEquals("runtime_start_failed", session.longRunningReason());
+        assertEquals("INTERRUPT", store.loadTask("task-start-runtime-failure").status());
+        assertEquals("runtime_start_failed", store.loadTask("task-start-runtime-failure").reason());
+    }
+
     private static String firstText(Message m) {
         if (m.contentBlocks().isEmpty()) return "";
         ContentBlock first = m.contentBlocks().getFirst();
@@ -463,4 +732,5 @@ class ReplSupervisionTest {
     private static String stripAnsi(String text) {
         return text.replaceAll("\\u001B\\[[;?0-9]*[ -/]*[@-~]", "");
     }
+
 }

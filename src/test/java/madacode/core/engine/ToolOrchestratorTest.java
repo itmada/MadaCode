@@ -225,13 +225,10 @@ class ToolOrchestratorTest {
     }
 
     @Test
-    void terminalLongRunningStageSkipsRemainingToolsInBatch() {
+    void terminalLongRunningStageDoesNotSkipRemainingControllerToolsInBatch() {
         ToolRegistry registry = new ToolRegistry();
         ConversationSession session = longRunningSession(LongRunningStage.RUNNING);
         AtomicInteger afterTerminalExecutions = new AtomicInteger(0);
-        // complete must be read-only to be visible in control session RUNNING stage.
-        // after_terminal is NOT read-only (different concurrency group) so it runs
-        // in a separate segment after the terminal check.
         registry.register(new RecordingTool("complete", true,
                 () -> session.setLongRunningStage(LongRunningStage.DONE)));
         registry.register(new RecordingTool("after_terminal", false,
@@ -244,13 +241,12 @@ class ToolOrchestratorTest {
 
         assertEquals(2, results.size());
         assertTrue(results.get(0).success());
-        assertFalse(results.get(1).success());
-        assertTrue(results.get(1).output().contains("terminal stage DONE"));
-        assertEquals(0, afterTerminalExecutions.get());
+        assertTrue(results.get(1).success());
+        assertEquals(1, afterTerminalExecutions.get());
     }
 
     @Test
-    void alreadyTerminalLongRunningStageSkipsEntireBatch() {
+    void alreadyTerminalLongRunningStageStillRunsOrdinaryControllerTools() {
         ToolRegistry registry = new ToolRegistry();
         AtomicInteger executions = new AtomicInteger(0);
         registry.register(new RecordingTool("unsafe", false, executions::incrementAndGet));
@@ -263,11 +259,9 @@ class ToolOrchestratorTest {
                         longRunningSession(LongRunningStage.DONE)));
 
         assertEquals(2, results.size());
-        assertFalse(results.get(0).success());
-        assertFalse(results.get(1).success());
-        assertTrue(results.get(0).output().contains("terminal stage DONE"));
-        assertTrue(results.get(1).output().contains("terminal stage DONE"));
-        assertEquals(0, executions.get());
+        assertTrue(results.get(0).success());
+        assertTrue(results.get(1).success());
+        assertEquals(2, executions.get());
     }
 
     // -- helpers ------------------------------------------------------------

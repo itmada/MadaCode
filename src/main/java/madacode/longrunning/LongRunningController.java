@@ -53,10 +53,10 @@ public final class LongRunningController {
                 summary,
                 planDelta,
                 requestedBy);
-        validateRequest(session, request);
         if (session.longRunningTaskId() == null) {
             ensureDraftTask(session, firstNonBlank(summary, session.longRunningTaskTitle(), ""));
         }
+        validateRequest(session, request);
         session.setPendingLongRunningTransitionRequest(request);
         appendEvent(session, "transition_request_pending", request, true,
                 "Pending transition request: " + request.sourceStage() + " -> " + request.targetStage() + ".",
@@ -114,29 +114,34 @@ public final class LongRunningController {
         LongRunningStage target = request.targetStage().normalized();
 
         switch (target) {
-            case DRAFT -> {
-                if (previous == LongRunningStage.RUNNING) {
-                    interruptRunningWork(interruptController);
-                }
-                store.markPlanRevision(taskId);
-                session.setLongRunningStage(LongRunningStage.DRAFT);
-                session.setLongRunningReason(request.reason());
-            }
             case RUNNING -> {
                 ensureExecutionTask(session, request.summary());
                 store.markTaskExecuting(taskId);
                 session.setLongRunningStage(LongRunningStage.RUNNING);
                 session.setLongRunningReason(request.reason());
             }
+            case INTERRUPT -> {
+                store.markTaskInterrupted(taskId, request.reason());
+                session.setLongRunningStage(LongRunningStage.INTERRUPT);
+                session.setLongRunningReason(request.reason());
+            }
             case DONE -> {
                 if ("task_completed".equals(request.reason())) {
                     store.markTaskCompleted(taskId);
-                } else {
+                } else if ("user_requested_cancel".equals(request.reason())) {
                     store.cancelTask(taskId);
+                } else if ("failure".equals(request.reason())) {
+                    store.markTaskFailed(taskId);
+                } else {
+                    throw new IllegalStateException(
+                            "DONE transition reason is not mechanically applicable by the control session: "
+                                    + request.reason());
                 }
                 session.setLongRunningStage(LongRunningStage.DONE);
                 session.setLongRunningReason(request.reason());
             }
+            case DRAFT -> throw new IllegalStateException(
+                    "Long-running tasks do not transition back to DRAFT after creation.");
         }
 
         appendProgress(store, taskId, request, true);
@@ -158,16 +163,70 @@ public final class LongRunningController {
             throw new IllegalStateException("Long-running task is already DONE.");
         }
         if (source == LongRunningStage.DRAFT
-                && target != LongRunningStage.DRAFT
                 && target != LongRunningStage.RUNNING
                 && target != LongRunningStage.DONE) {
-            throw new IllegalStateException("DRAFT sessions may only request DRAFT, RUNNING, or DONE.");
+            throw new IllegalStateException("DRAFT sessions may only request RUNNING or DONE.");
         }
         if (source == LongRunningStage.RUNNING
-                && target != LongRunningStage.DRAFT
+                && target != LongRunningStage.INTERRUPT
+                && target != LongRunningStage.DONE) {
+            throw new IllegalStateException("RUNNING sessions may only transition mechanically to INTERRUPT or DONE.");
+        }
+        if (source == LongRunningStage.INTERRUPT
                 && target != LongRunningStage.RUNNING
                 && target != LongRunningStage.DONE) {
-            throw new IllegalStateException("RUNNING sessions may only request DRAFT, RUNNING, or DONE.");
+            throw new IllegalStateException("INTERRUPT sessions may only request RUNNING or DONE.");
+        }
+        validateReasonMatrix(source, target, request.reason());
+        if ((source == LongRunningStage.DRAFT || source == LongRunningStage.INTERRUPT)
+                && target == LongRunningStage.RUNNING) {
+            LongRunningTaskStore store = taskStore(session);
+            String taskId = requireTaskId(session);
+            if (store.readFeatureList(taskId).isEmpty()) {
+                throw new IllegalStateException(
+                        "Cannot start long-running workers until feature_list.json is non-empty.");
+            }
+        }
+    }
+
+    private static void validateReasonMatrix(
+            LongRunningStage source,
+            LongRunningStage target,
+            String reason) {
+        boolean allowed = switch (source) {
+            case DRAFT -> switch (target) {
+                case DRAFT -> false;
+                case RUNNING -> "user_confirmed_start".equals(reason);
+                case INTERRUPT -> false;
+                case DONE -> "user_requested_cancel".equals(reason);
+            };
+            case RUNNING -> switch (target) {
+                case DRAFT, RUNNING -> false;
+                case INTERRUPT -> "user_interrupted".equals(reason)
+                        || "needs_user".equals(reason)
+                        || "worker_blocked".equals(reason)
+                        || "worker_failed".equals(reason)
+                        || "worker_cycle_budget_exhausted".equals(reason)
+                        || "no_report".equals(reason)
+                        || "worker_crash".equals(reason)
+                        || "completion_failed".equals(reason)
+                        || "failure".equals(reason);
+                case DONE -> "user_requested_cancel".equals(reason)
+                        || "task_completed".equals(reason)
+                        || "failure".equals(reason);
+            };
+            case INTERRUPT -> switch (target) {
+                case DRAFT, INTERRUPT -> false;
+                case RUNNING -> "resume_after_interrupt".equals(reason);
+                case DONE -> "user_requested_cancel".equals(reason)
+                        || "failure".equals(reason);
+            };
+            case DONE -> false;
+        };
+        if (!allowed) {
+            throw new IllegalStateException(
+                    "Invalid long-running transition reason: "
+                            + source + " -> " + target + " cannot use reason=" + reason);
         }
     }
 
@@ -183,12 +242,6 @@ public final class LongRunningController {
                 new LongRunningTaskInitializer(taskStore(session), taskIdGenerator);
         initializer.ensureExecutionTask(session, expandedInput == null ? "" : expandedInput);
         session.setLongRunningStage(LongRunningStage.RUNNING);
-    }
-
-    private static void interruptRunningWork(InterruptController interruptController) {
-        if (interruptController != null && interruptController.hasActiveTurn()) {
-            interruptController.interrupt("longrun-transition");
-        }
     }
 
     private void appendEvent(

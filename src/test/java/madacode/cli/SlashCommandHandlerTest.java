@@ -22,6 +22,7 @@ import madacode.skill.SkillRegistry;
 import madacode.skill.SkillSource;
 import madacode.skill.SkillStateStore;
 import madacode.tui.TextScreen;
+import madacode.tui.widget.ChoicePrompt;
 import madacode.tui.widget.SessionContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +37,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -281,6 +283,8 @@ public class SlashCommandHandlerTest {
         assertInstanceOf(SlashAction.Handled.class, action);
         assertTrue(outBytes.toString().contains("claude-opus-4-7"),
                 "expected claude-opus-4-7 in output but got: " + outBytes.toString());
+        assertTrue(outBytes.toString().contains("* claude-opus-4-7"),
+                "expected current model marker in output but got: " + outBytes.toString());
     }
 
     @Test
@@ -327,10 +331,15 @@ public class SlashCommandHandlerTest {
     @Test
     void modeCommandUsesChooserWhenAvailable() {
         SessionContext sessionContext = new SessionContext();
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
+        AtomicReference<ChoicePrompt.Model<String>> captured = new AtomicReference<>();
         handler = SlashCommandHandler.builder(storage, new TextScreen(out))
                 .providerRegistry(createTestRegistry())
                 .sessionContext(sessionContext)
-                .modeChooser(modes -> Optional.of("common"))
+                .modeChooser(model -> {
+                    captured.set(model);
+                    return Optional.of("common");
+                })
                 .registry(SlashCommandRegistry.create(null))
                 .build();
 
@@ -339,6 +348,9 @@ public class SlashCommandHandlerTest {
         assertInstanceOf(SlashAction.Handled.class, action);
         assertEquals(PermissionMode.DEFAULT, current.permissionMode());
         assertEquals(SessionMode.COMMON, sessionContext.mode());
+        assertEquals(1, captured.get().initialIndex());
+        assertEquals("long-running", captured.get().options().get(1).value());
+        assertEquals("current", captured.get().options().get(1).meta());
         assertTrue(stripAnsi(outBytes.toString()).contains("Mode set to: common"));
     }
 
@@ -468,10 +480,15 @@ public class SlashCommandHandlerTest {
     @Test
     void permissionCommandUsesChooserWhenAvailable() {
         SessionContext sessionContext = new SessionContext();
+        current.setPermissionMode(PermissionMode.BYPASS);
+        AtomicReference<ChoicePrompt.Model<String>> captured = new AtomicReference<>();
         handler = SlashCommandHandler.builder(storage, new TextScreen(out))
                 .providerRegistry(createTestRegistry())
                 .sessionContext(sessionContext)
-                .permissionChooser(modes -> Optional.of("normal"))
+                .permissionChooser(model -> {
+                    captured.set(model);
+                    return Optional.of("normal");
+                })
                 .registry(SlashCommandRegistry.create(null))
                 .build();
 
@@ -480,6 +497,9 @@ public class SlashCommandHandlerTest {
         assertInstanceOf(SlashAction.Handled.class, action);
         assertEquals(PermissionMode.ACCEPT_EDITS, current.permissionMode());
         assertEquals(PermissionMode.ACCEPT_EDITS, sessionContext.permissionMode());
+        assertEquals(3, captured.get().initialIndex());
+        assertEquals("all-pass", captured.get().options().get(3).value());
+        assertEquals("current", captured.get().options().get(3).meta());
         assertTrue(stripAnsi(outBytes.toString()).contains("Permission set to: normal"));
     }
 
@@ -554,6 +574,58 @@ public class SlashCommandHandlerTest {
         assertTrue(output.startsWith(System.lineSeparator()), "expected leading blank line: " + output);
         assertTrue(stripAnsi(output).contains("Provider selection cancelled."));
         assertTrue(output.contains("\u001B["), "expected styled output: " + output);
+    }
+
+    @Test
+    void modelCommandChooserMarksCurrentGlobalModel() {
+        ProviderRegistry registry = createTestRegistry();
+        registry.setActiveModel("claude-sonnet-4-6");
+        AtomicReference<ChoicePrompt.Model<String>> captured = new AtomicReference<>();
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(registry)
+                .modelChooser(model -> {
+                    captured.set(model);
+                    return Optional.empty();
+                })
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/model", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        ChoicePrompt.Model<String> model = captured.get();
+        assertEquals(1, model.initialIndex());
+        assertEquals("claude-sonnet-4-6", model.options().get(1).value());
+        assertEquals("current", model.options().get(1).meta());
+    }
+
+    @Test
+    void providerCommandChooserMarksCurrentGlobalProvider() {
+        ProviderRegistry registry = new ProviderRegistry(
+                List.of(
+                        new Provider("alpha", "token", URI.create("https://alpha.example"), "a1",
+                                List.of(new Model("a1", 1000))),
+                        new Provider("beta", "token", URI.create("https://beta.example"), "b1",
+                                List.of(new Model("b1", 1000)))),
+                madacode.provider.ProviderStateStore.inMemory());
+        registry.setActiveProvider("beta");
+        AtomicReference<ChoicePrompt.Model<String>> captured = new AtomicReference<>();
+        handler = SlashCommandHandler.builder(storage, new TextScreen(out))
+                .providerRegistry(registry)
+                .providerChooser(model -> {
+                    captured.set(model);
+                    return Optional.empty();
+                })
+                .registry(SlashCommandRegistry.create(null))
+                .build();
+
+        var action = handler.handle("/provider", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        ChoicePrompt.Model<String> model = captured.get();
+        assertEquals(1, model.initialIndex());
+        assertEquals("beta", model.options().get(1).value());
+        assertEquals("current", model.options().get(1).meta());
     }
 
     @Test

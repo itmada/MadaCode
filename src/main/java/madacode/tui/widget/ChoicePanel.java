@@ -101,6 +101,8 @@ public final class ChoicePanel {
         int budget = Math.max(0, width - TerminalText.displayWidth(prefix));
         String hotkey = option.hotkey().isBlank() ? "" : "[" + option.hotkey() + "] ";
         b.append(fit(hotkey + option.primary(), budget));
+        appendOptionDetail(b, option, budget,
+                TerminalText.displayWidth(hotkey + option.primary()));
         if (width == 1) {
             return new AttributedString(selected ? "›" : " ");
         }
@@ -130,6 +132,9 @@ public final class ChoicePanel {
             style(b, sel ? Token.STATUS_MODE_PLAN : Token.MUTED);
             b.append(sel ? "› " : "  ");
             b.append(hotkey + opt.primary());
+            int used = TerminalText.displayWidth(b.toAttributedString().toString());
+            appendOptionDetail(b, opt, Math.max(0, width - used),
+                    0);
         }
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
@@ -152,6 +157,24 @@ public final class ChoicePanel {
             return b.toAttributedString();
         }
         return new AttributedString(TerminalText.fitEnd(plain, width));
+    }
+
+    private static void appendOptionDetail(
+            AttributedStringBuilder b,
+            ChoiceOption option,
+            int lineBudget,
+            int usedAfterPrefix) {
+        String detail = option.meta().isBlank() ? option.secondary() : option.meta();
+        if (detail.isBlank()) {
+            return;
+        }
+        int remaining = lineBudget - usedAfterPrefix - TerminalText.displayWidth("   ");
+        if (remaining <= 0) {
+            return;
+        }
+        style(b, "current".equalsIgnoreCase(detail) ? Token.SUCCESS : Token.MUTED);
+        b.append("   ");
+        b.append(fit(detail, remaining));
     }
 
     private static void style(AttributedStringBuilder b, Token token) {

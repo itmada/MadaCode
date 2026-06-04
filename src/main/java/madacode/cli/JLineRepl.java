@@ -4,6 +4,7 @@ import madacode.cli.editor.SessionHistory;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
 import madacode.core.engine.QueryEngine;
+import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.services.compact.CompactPlanner;
@@ -19,8 +20,11 @@ import madacode.cli.session.SessionSelectModels;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashComposer;
 import madacode.cli.slash.SlashContext;
+import madacode.longrunning.LongRunningMonitorReader;
+import madacode.longrunning.LongRunningMonitorRenderer;
 import madacode.tui.JLineScreen;
 import madacode.tui.Screen;
+import madacode.tui.TerminalKeys;
 import madacode.tui.inline.InlineChoicePrompt;
 import madacode.tui.theme.Tk;
 import madacode.tui.widget.ChoicePrompt;
@@ -33,6 +37,7 @@ import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.Reference;
 import org.jline.reader.UserInterruptException;
+import org.jline.terminal.Attributes;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 
@@ -42,14 +47,21 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class JLineRepl extends Repl {
+
+    private final LongRunningMonitorReader longRunningMonitorReader = new LongRunningMonitorReader();
+    private final LongRunningMonitorRenderer longRunningMonitorRenderer = new LongRunningMonitorRenderer();
+    private final AtomicBoolean longRunningMonitorInterruptRequested = new AtomicBoolean();
 
     private final Terminal terminal;
     private final JLineScreen jlineScreen;
     private final LineReader lineReader;
     private final SessionHistory sessionHistory;
     private final SlashComposer slashComposer;
+    private AtomicReference<ConversationSession> currentSessionRef;
 
     private JLineRepl(Config config,
                       Terminal terminal,
@@ -110,14 +122,15 @@ public final class JLineRepl extends Repl {
         SlashContext.ProviderChooser providerChooser = inlineProviderChooser(screen, terminal);
         SessionChooser sessionChooser = inlineSessionChooser(sessionStorage, screen, terminal);
 
-        // Slash compose: triggered when buffer contains only "/"
-        SlashContext slashCtx = new SlashContext(
-                session, screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
-                compactPlanner, ctx, Optional.ofNullable(sessionChooser),
-                Optional.of(modelChooser), Optional.of(modeChooser), Optional.of(permissionChooser),
-                Optional.of(themeChooser), Optional.of(providerChooser));
+        AtomicReference<ConversationSession> currentSessionRef = new AtomicReference<>(session);
         SlashComposer slashComposer = new SlashComposer(
-                slashRegistry, slashCtx, screen, screen, terminal);
+                slashRegistry,
+                () -> new SlashContext(
+                        currentSessionRef.get(), screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
+                        compactPlanner, ctx, Optional.ofNullable(sessionChooser),
+                        Optional.of(modelChooser), Optional.of(modeChooser), Optional.of(permissionChooser),
+                        Optional.of(themeChooser), Optional.of(providerChooser)),
+                screen, screen, terminal);
 
         // Widget: at empty buffer, insert '/' and accept the line so the REPL
         // loop routes to SlashComposer.compose("/"). Intentional UX: a leading
@@ -165,6 +178,7 @@ public final class JLineRepl extends Repl {
         config.promptChannel = promptChannel;
 
         JLineRepl repl = new JLineRepl(config, terminal, screen, lineReader, sessionHistory, slashComposer);
+        repl.currentSessionRef = currentSessionRef;
         repl.interruptController = interruptController;
         return repl;
     }
@@ -177,6 +191,12 @@ public final class JLineRepl extends Repl {
             replayRecentSession();
 
             while (true) {
+                drainLongRunningRuntimeCompletions();
+                if (isLongRunningMonitorActive()) {
+                    runLongRunningMonitorLoop();
+                    loadHistory();
+                    continue;
+                }
                 jlineScreen.enterIdlePhase();
                 screen.scrollback("");
                 String line;
@@ -236,8 +256,10 @@ public final class JLineRepl extends Repl {
                 }
 
                 if (!handleLine(line)) return;
+                drainLongRunningRuntimeCompletions();
                 loadHistory();
             }
+            drainLongRunningRuntimeCompletions();
             persistSession();
         } finally {
             session.removeListener(turnRenderer);
@@ -253,8 +275,108 @@ public final class JLineRepl extends Repl {
         }
     }
 
+    private boolean isLongRunningMonitorActive() {
+        return session.workflowMode() == madacode.core.session.SessionMode.LONG_RUNNING
+                && session.longRunningStage() == LongRunningStage.RUNNING;
+    }
+
+    private void runLongRunningMonitorLoop() {
+        jlineScreen.enterTurnPhase();
+        screen.setCursorVisible(false);
+        longRunningMonitorInterruptRequested.set(false);
+        Attributes previousAttributes = null;
+        SignalCancellationBridge.Registration sigintRegistration = null;
+        if (interruptController != null) {
+            interruptController.pause();
+        }
+        try {
+            previousAttributes = terminal.enterRawMode();
+            sigintRegistration = new SignalCancellationBridge()
+                    .activate(this::requestLongRunningMonitorInterrupt);
+            if (longRunningRuntime == null || !longRunningRuntime.isRunning()) {
+                if (!startLongRunningRuntime()) {
+                    persistSession();
+                    return;
+                }
+            }
+            while (isLongRunningMonitorActive()) {
+                drainLongRunningRuntimeCompletions();
+                if (!isLongRunningMonitorActive()) {
+                    break;
+                }
+                if (longRunningMonitorInterruptRequested.get()) {
+                    applyLongRunningMonitorInterrupt();
+                    break;
+                }
+                screen.setLiveStatus(longRunningMonitorLines(false));
+                try {
+                    Optional<TerminalKeys.KeyPress> key = TerminalKeys.pollKey(terminal.reader(), 150);
+                    if (key.isPresent()) {
+                        TerminalKeys.Key pressed = key.get().key();
+                        if (pressed == TerminalKeys.Key.ESCAPE || pressed == TerminalKeys.Key.CTRL_C) {
+                            requestLongRunningMonitorInterrupt();
+                            continue;
+                        }
+                        if (pressed == TerminalKeys.Key.EOF) {
+                            break;
+                        }
+                    }
+                } catch (IOException exception) {
+                    screen.scrollback(Tk.errorTag("monitor") + " " + exception.getMessage());
+                    requestLongRunningMonitorInterrupt();
+                    break;
+                }
+            }
+            while (longRunningRuntime != null && longRunningRuntime.isRunning()) {
+                drainLongRunningRuntimeCompletions();
+                screen.setLiveStatus(longRunningMonitorLines(true));
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            drainLongRunningRuntimeCompletions();
+        } finally {
+            if (sigintRegistration != null) {
+                sigintRegistration.close();
+            }
+            if (previousAttributes != null) {
+                terminal.setAttributes(previousAttributes);
+            }
+            screen.clearLiveStatus();
+            screen.setCursorVisible(true);
+            if (interruptController != null) {
+                interruptController.resume();
+            }
+            jlineScreen.enterIdlePhase();
+        }
+    }
+
+    private List<String> longRunningMonitorLines(boolean interrupting) {
+        return longRunningMonitorRenderer.render(longRunningMonitorReader.read(
+                session.workingDirectory(),
+                session.longRunningTaskId(),
+                interrupting));
+    }
+
+    private void requestLongRunningMonitorInterrupt() {
+        longRunningMonitorInterruptRequested.set(true);
+    }
+
+    private void applyLongRunningMonitorInterrupt() {
+        screen.setLiveStatus(longRunningMonitorLines(true));
+        if (longRunningRuntime != null && longRunningRuntime.isRunning()) {
+            longRunningRuntime.interrupt("user_interrupted");
+        }
+    }
+
     @Override
     protected void onSessionReplaced(ConversationSession newSession, boolean fresh) {
+        if (currentSessionRef != null) {
+            currentSessionRef.set(newSession);
+        }
         sessionContext.batch(() -> {
             sessionContext.setCwd(newSession.workingDirectory());
             sessionContext.setSessionId(newSession.sessionId());
@@ -334,32 +456,27 @@ public final class JLineRepl extends Repl {
 
     private static SlashContext.ModelChooser inlineModelChooser(
             JLineScreen screen, Terminal terminal) {
-        return models -> chooseFromList(screen, terminal,
-                "Model", "", models);
+        return model -> chooseFromModel(screen, terminal, model);
     }
 
     private static SlashContext.ModeChooser inlineModeChooser(
             JLineScreen screen, Terminal terminal) {
-        return modes -> chooseFromList(screen, terminal,
-                "Mode", "", modes);
+        return model -> chooseFromModel(screen, terminal, model);
     }
 
     private static SlashContext.PermissionChooser inlinePermissionChooser(
             JLineScreen screen, Terminal terminal) {
-        return permissions -> chooseFromList(screen, terminal,
-                "Permission", "", permissions);
+        return model -> chooseFromModel(screen, terminal, model);
     }
 
     private static SlashContext.ThemeChooser inlineThemeChooser(
             JLineScreen screen, Terminal terminal) {
-        return themes -> chooseFromList(screen, terminal,
-                "Theme", "", themes);
+        return model -> chooseFromModel(screen, terminal, model);
     }
 
     private static SlashContext.ProviderChooser inlineProviderChooser(
             JLineScreen screen, Terminal terminal) {
-        return providers -> chooseFromList(screen, terminal,
-                "Provider", "", providers);
+        return model -> chooseFromModel(screen, terminal, model);
     }
 
     private static SessionChooser inlineSessionChooser(
@@ -376,16 +493,11 @@ public final class JLineRepl extends Repl {
         };
     }
 
-    private static Optional<String> chooseFromList(
+    private static Optional<String> chooseFromModel(
             JLineScreen screen, Terminal terminal,
-            String title, String subtitle, List<String> items) {
-        List<ChoicePrompt.Option<String>> options = items.stream()
-                .map(s -> new ChoicePrompt.Option<>(s, s, "", ""))
-                .toList();
+            ChoicePrompt.Model<String> model) {
         try {
-            return new InlineChoicePrompt<String>(screen, terminal, null).choose(
-                    new ChoicePrompt.Model<>(title, subtitle, options,
-                            "↑/↓ select   Enter confirm   Esc cancel", 0));
+            return new InlineChoicePrompt<String>(screen, terminal, null).choose(model);
         } catch (IOException e) {
             return Optional.empty();
         }

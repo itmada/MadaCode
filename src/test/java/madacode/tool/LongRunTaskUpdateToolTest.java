@@ -400,6 +400,27 @@ class LongRunTaskUpdateToolTest {
         assertNull(session.longRunningTaskDirectory());
     }
 
+    @Test
+    void rejectsWorkerMutationWhenTaskStoreReturnedToDraft() {
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        store.createTask(new CreateTaskRequest(
+                "task-paused", "Paused", "DRAFT", null, "session-ctrl", null));
+
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningTaskId("task-paused");
+
+        var result = tool.execute(new LongRunTaskUpdateTool.Input(
+                "append_progress",
+                null, null, null, null, null, null, null, null, null, null,
+                "late write"),
+                context(session));
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("is not running"));
+    }
+
     private ConversationSession initializedSession(String taskId) {
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(

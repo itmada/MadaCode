@@ -7,9 +7,9 @@ import madacode.core.session.SessionStorage;
 import madacode.provider.ProviderRegistry;
 import madacode.services.compact.CompactPlanner;
 import madacode.tui.Screen;
+import madacode.tui.widget.ChoicePrompt;
 import madacode.tui.widget.SessionContext;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -41,26 +41,26 @@ public record SlashContext(
 
     @FunctionalInterface
     public interface ModelChooser {
-        Optional<String> chooseModel(List<String> models);
+        Optional<String> chooseModel(ChoicePrompt.Model<String> model);
     }
 
     @FunctionalInterface
     public interface ModeChooser {
-        Optional<String> chooseMode(List<String> modes);
+        Optional<String> chooseMode(ChoicePrompt.Model<String> model);
     }
 
     @FunctionalInterface
     public interface PermissionChooser {
-        Optional<String> choosePermission(List<String> permissions);
+        Optional<String> choosePermission(ChoicePrompt.Model<String> model);
     }
 
     @FunctionalInterface
     public interface ThemeChooser {
-        Optional<String> chooseTheme(List<String> themes);
+        Optional<String> chooseTheme(ChoicePrompt.Model<String> model);
     }
 
     @FunctionalInterface
     public interface ProviderChooser {
-        Optional<String> chooseProvider(List<String> providers);
+        Optional<String> chooseProvider(ChoicePrompt.Model<String> model);
     }
 }

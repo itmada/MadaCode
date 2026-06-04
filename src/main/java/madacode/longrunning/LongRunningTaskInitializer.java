@@ -110,7 +110,7 @@ public final class LongRunningTaskInitializer {
         if (!"DRAFT".equals(meta.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " is not a draft task: status="
-                            + meta.status() + ", stage=" + meta.stage());
+                            + meta.status());
         }
         session.setLongRunningTaskDirectory(dir.toString());
         if (session.longRunningTaskTitle() == null) {
@@ -141,7 +141,7 @@ public final class LongRunningTaskInitializer {
         String previousDirectory = session.longRunningTaskDirectory();
         Path dir = store.validateTaskDirectory(taskId);
         LongRunningTaskMetadata meta = store.loadTask(taskId);
-        if ("DRAFT".equals(meta.status())) {
+        if ("DRAFT".equals(meta.status()) || "INTERRUPT".equals(meta.status())) {
             meta = store.markTaskExecuting(taskId);
             store.appendProgress(taskId, initializedProgressEntry(session, expandedInput));
             store.appendEvent(taskId, LongRunningTaskEvent.of(
@@ -156,7 +156,7 @@ public final class LongRunningTaskInitializer {
         } else if (!"RUNNING".equals(meta.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " is not ready for execution handoff: status="
-                            + meta.status() + ", stage=" + meta.stage());
+                            + meta.status());
         }
         session.setLongRunningTaskDirectory(dir.toString());
         if (session.longRunningTaskTitle() == null) {

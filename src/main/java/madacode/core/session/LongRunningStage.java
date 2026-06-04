@@ -5,6 +5,7 @@ import java.util.Optional;
 public enum LongRunningStage {
     DRAFT,
     RUNNING,
+    INTERRUPT,
     DONE;
 
     public LongRunningStage normalized() {
@@ -18,6 +19,7 @@ public enum LongRunningStage {
         return switch (value.strip().toUpperCase()) {
             case "DRAFT" -> Optional.of(DRAFT);
             case "RUNNING" -> Optional.of(RUNNING);
+            case "INTERRUPT" -> Optional.of(INTERRUPT);
             case "DONE" -> Optional.of(DONE);
             default -> Optional.empty();
         };

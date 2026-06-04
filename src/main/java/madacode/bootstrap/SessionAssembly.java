@@ -12,6 +12,7 @@ import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.longrunning.LongRunningControlSessionFactory;
+import madacode.longrunning.LongRunningTaskStore;
 import madacode.tui.WelcomeCard;
 import madacode.tui.inline.InlineChoicePrompt;
 
@@ -51,6 +52,7 @@ final class SessionAssembly {
                             "No session found matching: " + r.sessionId(), 1);
                 }
                 ConversationSession session = found.get();
+                recoverLongRunningSession(session);
                 SessionPointer.write(session.sessionId());
                 yield session;
             }
@@ -58,7 +60,9 @@ final class SessionAssembly {
                 Optional<ConversationSession> byPointer =
                         SessionPointer.read().flatMap(storage::loadIfExists);
                 if (byPointer.isPresent()) {
-                    yield byPointer.get();
+                    ConversationSession session = byPointer.get();
+                    recoverLongRunningSession(session);
+                    yield session;
                 }
                 Optional<SessionSummary> recent = storage.findMostRecent();
                 if (recent.isPresent()) {
@@ -67,6 +71,7 @@ final class SessionAssembly {
                             "(no previous session pointer — loading most recent)"));
                     ConversationSession session = storage.load(
                             recent.get().sessionId());
+                    recoverLongRunningSession(session);
                     SessionPointer.write(session.sessionId());
                     yield session;
                 }
@@ -112,6 +117,7 @@ final class SessionAssembly {
         return switch (choice) {
             case StartupSessionLauncher.Choice.Resume r -> {
                 ConversationSession session = storage.load(r.sessionId());
+                recoverLongRunningSession(session);
                 SessionPointer.write(session.sessionId());
                 yield session;
             }
@@ -154,5 +160,27 @@ final class SessionAssembly {
             }
         }
         return Optional.empty();
+    }
+
+    static void recoverLongRunningSession(ConversationSession session) {
+        if (session == null
+                || session.workflowMode() != SessionMode.LONG_RUNNING
+                || session.isLongRunningWorkerSession()
+                || session.longRunningStage() != LongRunningStage.RUNNING
+                || session.longRunningTaskId() == null
+                || session.longRunningTaskId().isBlank()) {
+            return;
+        }
+        try {
+            LongRunningTaskStore store = new LongRunningTaskStore(session.workingDirectory());
+            if ("RUNNING".equals(store.loadTask(session.longRunningTaskId()).status())) {
+                store.markTaskInterrupted(session.longRunningTaskId());
+            }
+            session.setLongRunningStage(LongRunningStage.INTERRUPT);
+            session.setLongRunningReason("user_interrupted");
+        } catch (RuntimeException ignored) {
+            session.setLongRunningStage(LongRunningStage.INTERRUPT);
+            session.setLongRunningReason("recovery_failed");
+        }
     }
 }

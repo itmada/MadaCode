@@ -31,7 +31,7 @@ public record CreateTaskRequest(
     private static String normalizeStatus(String value) {
         String normalized = requireNonBlank(value, "status").toUpperCase();
         return switch (normalized) {
-            case "DRAFT", "RUNNING", "DONE" -> normalized;
+            case "DRAFT", "RUNNING", "INTERRUPT", "DONE" -> normalized;
             default -> throw new IllegalArgumentException("Unsupported task status: " + value);
         };
     }

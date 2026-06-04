@@ -39,11 +39,11 @@ public final class LongRunningRuntime implements AutoCloseable {
             String taskId,
             Path projectDir,
             ConversationSession controlSession,
-            Consumer<LongRunningLauncher.LaunchResult> onComplete,
-            Consumer<Throwable> onError) {
+            Consumer<Completion> onComplete) {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(projectDir, "projectDir");
         Objects.requireNonNull(controlSession, "controlSession");
+        Objects.requireNonNull(onComplete, "onComplete");
         if (!running.compareAndSet(false, true)) {
             return false;
         }
@@ -51,30 +51,32 @@ public final class LongRunningRuntime implements AutoCloseable {
         CompletableFuture<LongRunningLauncher.LaunchResult> completion = new CompletableFuture<>();
         current = completion.whenComplete((result, error) -> {
             running.set(false);
-            if (error != null) {
-                onError.accept(error);
-            } else {
-                onComplete.accept(result);
-            }
+            onComplete.accept(new Completion(taskId, result, error));
         });
-        executor.execute(() -> {
-            if (interruptRequested.get()) {
-                completion.complete(new LongRunningLauncher.LaunchResult(
-                        LongRunningLauncher.LaunchStatus.INTERRUPTED,
-                        0,
-                        "Launcher interrupted before starting."));
-                return;
-            }
-            launcherThread.set(Thread.currentThread());
-            try {
-                completion.complete(launcher.run(
-                        taskId, projectDir, controlSession, DEFAULT_MAX_WORKER_CYCLES));
-            } catch (Throwable throwable) {
-                completion.completeExceptionally(throwable);
-            } finally {
-                launcherThread.compareAndSet(Thread.currentThread(), null);
-            }
-        });
+        try {
+            executor.execute(() -> {
+                if (interruptRequested.get()) {
+                    completion.complete(new LongRunningLauncher.LaunchResult(
+                            LongRunningLauncher.LaunchStatus.INTERRUPTED,
+                            0,
+                            "Launcher interrupted before starting."));
+                    return;
+                }
+                launcherThread.set(Thread.currentThread());
+                try {
+                    completion.complete(launcher.run(
+                            taskId, projectDir, controlSession, DEFAULT_MAX_WORKER_CYCLES));
+                } catch (Throwable throwable) {
+                    completion.completeExceptionally(throwable);
+                } finally {
+                    launcherThread.compareAndSet(Thread.currentThread(), null);
+                }
+            });
+        } catch (RuntimeException exception) {
+            current = null;
+            running.set(false);
+            throw exception;
+        }
         return true;
     }
 
@@ -99,4 +101,9 @@ public final class LongRunningRuntime implements AutoCloseable {
     public void close() {
         executor.shutdownNow();
     }
+
+    public record Completion(
+            String taskId,
+            LongRunningLauncher.LaunchResult result,
+            Throwable error) {}
 }
