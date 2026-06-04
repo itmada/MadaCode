@@ -401,7 +401,7 @@ public class SlashCommandHandlerTest {
     @Test
     void modeCommandLongRunningStartsFreshTaskState() {
         current.setWorkflowMode(SessionMode.LONG_RUNNING);
-        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
         current.setLongRunningTaskId("task-old");
         current.setLongRunningTaskDirectory(tempDir.resolve("old").toString());
         current.setLongRunningTaskTitle("Old task");
@@ -412,7 +412,7 @@ public class SlashCommandHandlerTest {
 
         assertInstanceOf(SlashAction.Handled.class, action);
         assertEquals(SessionMode.LONG_RUNNING, current.workflowMode());
-        assertEquals(madacode.core.session.LongRunningStage.WAITING_FOR_TASK,
+        assertEquals(madacode.core.session.LongRunningStage.DRAFT,
                 current.longRunningStage());
         assertEquals(false, current.isPlanMode());
         assertEquals(null, current.longRunningTaskId());
@@ -422,36 +422,51 @@ public class SlashCommandHandlerTest {
     }
 
     @Test
-    void longRunContinueCommandReturnsAutoContinueAction() {
+    void longRunContinueCommandReturnsLaunchWhenTaskActive() {
         current.setWorkflowMode(SessionMode.LONG_RUNNING);
-        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
+        current.setLongRunningTaskId("task-test");
 
         var action = handler.handle("/longrun-continue 3", current);
 
-        SlashAction.AutoContinue auto = assertInstanceOf(SlashAction.AutoContinue.class, action);
-        assertEquals(3, auto.maxTurns());
+        assertInstanceOf(SlashAction.LongRunLaunch.class, action);
+        assertEquals(3, ((SlashAction.LongRunLaunch) action).maxWorkers());
     }
 
     @Test
-    void longRunContinueCommandDefaultsMaxTurns() {
+    void longRunContinueCommandDefaultsMaxWorkers() {
         current.setWorkflowMode(SessionMode.LONG_RUNNING);
-        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
+        current.setLongRunningTaskId("task-test");
 
         var action = handler.handle("/longrun-continue", current);
 
-        SlashAction.AutoContinue auto = assertInstanceOf(SlashAction.AutoContinue.class, action);
-        assertEquals(5, auto.maxTurns());
+        assertInstanceOf(SlashAction.LongRunLaunch.class, action);
+        assertEquals(5, ((SlashAction.LongRunLaunch) action).maxWorkers());
     }
 
     @Test
-    void longRunContinueCommandRejectsInvalidMaxTurns() {
+    void longRunContinueCommandRejectsInvalidMaxWorkers() {
         current.setWorkflowMode(SessionMode.LONG_RUNNING);
-        current.setLongRunningStage(madacode.core.session.LongRunningStage.EXECUTING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
+        current.setLongRunningTaskId("task-test");
 
         var action = handler.handle("/longrun-continue 0", current);
 
         assertInstanceOf(SlashAction.Handled.class, action);
-        assertTrue(stripAnsi(outBytes.toString()).contains("max-turns"));
+        assertTrue(stripAnsi(outBytes.toString()).contains("max-workers"));
+    }
+
+    @Test
+    void longRunContinueCommandRejectsWhenNoTaskId() {
+        current.setWorkflowMode(SessionMode.LONG_RUNNING);
+        current.setLongRunningStage(madacode.core.session.LongRunningStage.RUNNING);
+        // No taskId set
+
+        var action = handler.handle("/longrun-continue 3", current);
+
+        assertInstanceOf(SlashAction.Handled.class, action);
+        assertTrue(stripAnsi(outBytes.toString()).contains("No active long-running task"));
     }
 
     @Test

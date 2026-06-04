@@ -1,6 +1,7 @@
 package madacode.render.turn;
 
 import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
 import madacode.core.model.MetaEvent;
 import madacode.tui.Screen;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -141,6 +142,21 @@ class TurnRendererTest {
 
         assertEquals(1, turnView.items().size());
         assertInstanceOf(AssistantTextRenderable.class, turnView.items().getFirst());
+    }
+
+    @Test
+    void staticAssistantMessageIsRenderedDuringTurn() {
+        renderer.onMetaEvent(new MetaEvent.ModelRequestStarted());
+
+        renderer.onMessageAppended(1, Message.assistant("方案已记录，回复“开始执行”。"));
+
+        assertEquals(1, turnView.items().size());
+        AssistantTextRenderable text = assertInstanceOf(
+                AssistantTextRenderable.class, turnView.items().getFirst());
+        String rendered = String.join("\n", text.drainCommittedLines(120))
+                .replaceAll("\\[[0-9;]*[a-zA-Z]", "");
+        assertTrue(rendered.contains("方案已记录"), rendered);
+        assertTrue(rendered.contains("开始执行"), rendered);
     }
 
     @Test

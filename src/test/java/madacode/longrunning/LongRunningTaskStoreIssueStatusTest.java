@@ -26,7 +26,7 @@ class LongRunningTaskStoreIssueStatusTest {
     }
 
     private String createTaskWithFeatures(String taskId) {
-        store.createTask(new CreateTaskRequest(taskId, "Test task", "executing", "session-1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest(taskId, "Test task", "RUNNING", "session-1", "RUNNING"));
         store.writeInitialFeatureList(taskId, List.of(
                 new FeatureItem("f1", "cat", "high", "desc", List.of(), List.of("v"), false)));
         return taskId;
@@ -38,7 +38,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void openToBlockedTransition() {
         String taskId = createTaskWithFeatures("task-ob");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "open", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "open", "RUNNING", List.of(), Instant.now(), null));
 
         KnownIssue updated = store.updateIssueStatus(taskId, "i1", "blocked");
         assertEquals("blocked", updated.status());
@@ -51,7 +51,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void blockedToOpenTransition() {
         String taskId = createTaskWithFeatures("task-bo");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "blocked", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "blocked", "RUNNING", List.of(), Instant.now(), null));
 
         KnownIssue updated = store.updateIssueStatus(taskId, "i1", "open");
         assertEquals("open", updated.status());
@@ -64,7 +64,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void openToResolvedTransition() {
         String taskId = createTaskWithFeatures("task-or");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "open", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "open", "RUNNING", List.of(), Instant.now(), null));
 
         KnownIssue updated = store.updateIssueStatus(taskId, "i1", "resolved");
         assertEquals("resolved", updated.status());
@@ -77,7 +77,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void blockedToResolvedTransition() {
         String taskId = createTaskWithFeatures("task-br");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "blocked", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "blocked", "RUNNING", List.of(), Instant.now(), null));
 
         KnownIssue updated = store.updateIssueStatus(taskId, "i1", "resolved");
         assertEquals("resolved", updated.status());
@@ -90,7 +90,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void resolvedToOpenTransitionRejected() {
         String taskId = createTaskWithFeatures("task-ro");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "open", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "open", "RUNNING", List.of(), Instant.now(), null));
         store.updateIssueStatus(taskId, "i1", "resolved");
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
@@ -104,7 +104,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void resolvedToBlockedTransitionRejected() {
         String taskId = createTaskWithFeatures("task-rb");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "open", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "open", "RUNNING", List.of(), Instant.now(), null));
         store.updateIssueStatus(taskId, "i1", "resolved");
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
@@ -118,7 +118,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void sameStatusIsNoOp() {
         String taskId = createTaskWithFeatures("task-same");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "open", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "open", "RUNNING", List.of(), Instant.now(), null));
 
         KnownIssue updated = store.updateIssueStatus(taskId, "i1", "open");
         assertEquals("open", updated.status());
@@ -131,7 +131,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void resolvedAtSetOnResolveClearedOnReopen() {
         String taskId = createTaskWithFeatures("task-rat");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "open", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "open", "RUNNING", List.of(), Instant.now(), null));
 
         // open -> blocked: no resolvedAt
         KnownIssue blocked = store.updateIssueStatus(taskId, "i1", "blocked");
@@ -159,7 +159,7 @@ class LongRunningTaskStoreIssueStatusTest {
     void updateStatusRejectsInvalidStatus() {
         String taskId = createTaskWithFeatures("task-invalid");
         store.recordIssue(taskId, new KnownIssue(
-                "i1", "desc", "high", "open", "EXECUTING", List.of(), Instant.now(), null));
+                "i1", "desc", "high", "open", "RUNNING", List.of(), Instant.now(), null));
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
                 () -> store.updateIssueStatus(taskId, "i1", "invalid_status"));

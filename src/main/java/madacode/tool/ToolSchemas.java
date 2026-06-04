@@ -69,4 +69,16 @@ final class ToolSchemas {
         property.set("enum", enumValues);
         return property;
     }
+
+    static ObjectNode stringItem(ObjectMapper mapper) {
+        ObjectNode item = mapper.createObjectNode();
+        item.put("type", "string");
+        return item;
+    }
+
+    static ObjectNode objectItem(ObjectMapper mapper) {
+        ObjectNode item = mapper.createObjectNode();
+        item.put("type", "object");
+        return item;
+    }
 }

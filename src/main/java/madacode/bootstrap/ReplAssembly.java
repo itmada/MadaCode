@@ -26,6 +26,9 @@ final class ReplAssembly {
                 interaction.slashRegistry(),
                 environment.providerRegistry(),
                 engine.compaction(),
+                engine.permission(),
+                environment.homeDir().resolve(".mada/sessions"),
+                interaction.channel(),
                 terminal.interrupts());
         terminal.approval().setTurnRenderer(repl.turnRenderer());
         return repl;

@@ -25,7 +25,7 @@ class LongRunningTaskStoreFeatureDependencyTest {
     }
 
     private String createTask(String taskId) {
-        store.createTask(new CreateTaskRequest(taskId, "Test task", "executing", "session-1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest(taskId, "Test task", "RUNNING", "session-1", "RUNNING"));
         return taskId;
     }
 
@@ -118,7 +118,7 @@ class LongRunningTaskStoreFeatureDependencyTest {
         store.writeInitialFeatureList(taskId, features);
 
         store.recordIssue(taskId, new KnownIssue(
-                "issue-1", "bug", "high", "open", "EXECUTING", List.of("v"),
+                "issue-1", "bug", "high", "open", "RUNNING", List.of("v"),
                 java.time.Instant.now(), null));
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,

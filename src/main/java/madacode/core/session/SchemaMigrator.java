@@ -19,14 +19,15 @@ import java.util.function.UnaryOperator;
  */
 final class SchemaMigrator {
 
-    static final int CURRENT = 6;
+    static final int CURRENT = 7;
 
     private static final Map<Integer, UnaryOperator<ObjectNode>> STEPS = Map.of(
             1, SchemaMigrator::v1ToV2,
             2, SchemaMigrator::v2ToV3,
             3, SchemaMigrator::v3ToV4,
             4, SchemaMigrator::v4ToV5,
-            5, SchemaMigrator::v5ToV6
+            5, SchemaMigrator::v5ToV6,
+            6, SchemaMigrator::v6ToV7
     );
 
     private SchemaMigrator() {}
@@ -108,6 +109,16 @@ final class SchemaMigrator {
         }
         if (!root.has("permissionMode")) {
             root.put("permissionMode", "strict");
+        }
+        return root;
+    }
+
+    // ---- v6 → v7: converge long-running state to DRAFT/RUNNING/DONE ----
+    private static ObjectNode v6ToV7(ObjectNode root) {
+        JsonNode stageNode = root.get("longRunningStage");
+        if (stageNode != null && stageNode.isTextual()) {
+            LongRunningStage.fromWire(stageNode.asText())
+                    .ifPresent(stage -> root.put("longRunningStage", stage.name()));
         }
         return root;
     }
