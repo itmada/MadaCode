@@ -14,9 +14,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -27,11 +27,11 @@ public final class LongRunningTaskStore {
 
     private static final Pattern SAFE_TASK_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
     private static final Set<String> ALLOWED_ISSUE_STATUSES = Set.of("open", "resolved", "blocked");
+    private static final Set<String> ALLOWED_TASK_STATUSES = Set.of("DRAFT", "RUNNING", "DONE");
     private static final String TASK_FILE = "task.json";
     private static final String FEATURE_LIST_FILE = "feature_list.json";
-    private static final String APPROVED_PLAN_FILE = "approved_plan.md";
     private static final String PROGRESS_FILE = "progress.txt";
-    private static final String KNOWN_ISSUES_FILE = "known-issues.json";
+    private static final String KNOWN_ISSUES_FILE = "known_issues.json";
     private static final String INIT_SCRIPT_FILE = "init.sh";
     private static final String CHECKPOINT_FILE = "checkpoint.json";
     private static final String LOGS_DIR = "logs";
@@ -77,10 +77,12 @@ public final class LongRunningTaskStore {
                 taskId,
                 request.title(),
                 request.status(),
+                request.reason(),
+                "RUNNING".equals(request.status()) ? now : null,
                 now,
                 now,
-                request.sessionId(),
-                request.stage());
+                request.controlSessionId(),
+                request.planSummary());
 
         try {
             Files.createDirectories(rootDirectory);
@@ -90,9 +92,9 @@ public final class LongRunningTaskStore {
                 Files.createDirectories(stagingDirectory.resolve(LOGS_DIR));
                 writeJsonAtomically(stagingDirectory.resolve(TASK_FILE), serializeTask(metadata));
                 writeJsonAtomically(stagingDirectory.resolve(FEATURE_LIST_FILE), mapper.createArrayNode());
-                writeStringAtomically(stagingDirectory.resolve(APPROVED_PLAN_FILE), "");
                 writeStringAtomically(stagingDirectory.resolve(PROGRESS_FILE), "");
                 writeJsonAtomically(stagingDirectory.resolve(KNOWN_ISSUES_FILE), mapper.createArrayNode());
+                writeJsonAtomically(stagingDirectory.resolve(CHECKPOINT_FILE), mapper.createObjectNode());
                 writeStringAtomically(stagingDirectory.resolve(INIT_SCRIPT_FILE), DEFAULT_INIT_SCRIPT);
                 writeStringAtomically(stagingDirectory.resolve(LOGS_DIR).resolve(EVENTS_FILE), "");
                 moveIntoPlace(stagingDirectory, taskDirectory);
@@ -110,8 +112,37 @@ public final class LongRunningTaskStore {
 
     public synchronized LongRunningTaskMetadata loadTask(String taskId) {
         Path directory = validateTaskDirectory(taskId);
-        Path taskFile = directory.resolve(TASK_FILE);
-        return readTaskMetadata(taskFile, validateTaskId(taskId));
+        return readTaskMetadata(directory.resolve(TASK_FILE), validateTaskId(taskId));
+    }
+
+    public synchronized LongRunningTaskMetadata updateTaskShell(
+            String taskId,
+            String title,
+            String status,
+            String reason,
+            Instant executionStarted,
+            String controlSessionId,
+            String planSummary) {
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
+                metadata.id(),
+                title == null || title.isBlank() ? metadata.title() : title.strip(),
+                status == null || status.isBlank() ? metadata.status() : status.strip().toUpperCase(),
+                reason,
+                executionStarted,
+                metadata.createdAt(),
+                Instant.now(),
+                controlSessionId == null || controlSessionId.isBlank()
+                        ? metadata.controlSessionId()
+                        : controlSessionId.strip(),
+                planSummary);
+        try {
+            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException("Failed to update task shell for " + taskId, exception);
+        }
+        return updated;
     }
 
     public synchronized List<FeatureItem> readFeatureList(String taskId) {
@@ -119,32 +150,28 @@ public final class LongRunningTaskStore {
         return readFeatures(directory.resolve(FEATURE_LIST_FILE));
     }
 
-    public synchronized void writeApprovedPlan(String taskId, String plan) {
-        String safeTaskId = validateTaskId(taskId);
-        Path directory = validateTaskDirectory(safeTaskId);
-        String value = plan == null ? "" : plan.strip();
-        try {
-            writeStringAtomically(directory.resolve(APPROVED_PLAN_FILE),
-                    value.isBlank() ? "" : value + System.lineSeparator());
-            updateTaskTimestamp(safeTaskId, Instant.now());
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException("Failed to write approved plan for " + safeTaskId, exception);
-        }
-    }
-
     public synchronized Optional<String> readApprovedPlan(String taskId) {
         String safeTaskId = validateTaskId(taskId);
-        Path directory = validateTaskDirectory(safeTaskId);
-        Path approvedPlan = directory.resolve(APPROVED_PLAN_FILE);
-        if (!Files.isRegularFile(approvedPlan, LinkOption.NOFOLLOW_LINKS)) {
+        LongRunningTaskMetadata metadata = loadTask(safeTaskId);
+        if (metadata.planSummary() == null || metadata.planSummary().isBlank()) {
             return Optional.empty();
         }
-        try {
-            String value = Files.readString(approvedPlan);
-            return value.isBlank() ? Optional.empty() : Optional.of(value);
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException("Failed to read approved plan for " + safeTaskId, exception);
-        }
+        return Optional.of(metadata.planSummary() + System.lineSeparator());
+    }
+
+    public synchronized void writeApprovedPlan(String taskId, String plan) {
+        String safeTaskId = validateTaskId(taskId);
+        String value = plan == null ? "" : plan.strip();
+        updateTaskMetadata(safeTaskId, metadata -> new LongRunningTaskMetadata(
+                metadata.id(),
+                metadata.title(),
+                metadata.status(),
+                metadata.reason(),
+                metadata.executionStarted(),
+                metadata.createdAt(),
+                Instant.now(),
+                metadata.controlSessionId(),
+                value.isBlank() ? null : value));
     }
 
     public synchronized void writeInitialFeatureList(String taskId, List<FeatureItem> features) {
@@ -159,12 +186,19 @@ public final class LongRunningTaskStore {
         updateTaskTimestamp(taskId, Instant.now());
     }
 
+    public synchronized void replaceFeatureList(String taskId, List<FeatureItem> features) {
+        Path directory = validateTaskDirectory(taskId);
+        List<FeatureItem> validated = validateFeatureList(features, true);
+        validateFeatureDependencies(validated, true);
+        writeFeatures(directory.resolve(FEATURE_LIST_FILE), validated, taskId);
+        updateTaskTimestamp(taskId, Instant.now());
+    }
+
     public synchronized FeatureItem markFeaturePassed(String taskId, String featureId) {
         requireNonBlank(featureId, "featureId");
         Path directory = validateTaskDirectory(taskId);
         List<FeatureItem> features = readFeatures(directory.resolve(FEATURE_LIST_FILE));
 
-        // Find the target feature
         FeatureItem target = features.stream()
                 .filter(f -> f.id().equals(featureId))
                 .findFirst()
@@ -175,7 +209,6 @@ public final class LongRunningTaskStore {
             return target;
         }
 
-        // Validate all dependency features are already passed
         for (String depId : target.dependsOn()) {
             FeatureItem dep = features.stream()
                     .filter(f -> f.id().equals(depId))
@@ -188,7 +221,6 @@ public final class LongRunningTaskStore {
             }
         }
 
-        // Check for open or blocked known issues
         List<KnownIssue> issues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
         boolean hasActiveIssue = issues.stream()
                 .anyMatch(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()));
@@ -220,6 +252,12 @@ public final class LongRunningTaskStore {
     public synchronized List<KnownIssue> readKnownIssues(String taskId) {
         Path directory = validateTaskDirectory(taskId);
         return readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
+    }
+
+    public synchronized void replaceKnownIssues(String taskId, List<KnownIssue> issues) {
+        Path directory = validateTaskDirectory(taskId);
+        writeKnownIssues(directory.resolve(KNOWN_ISSUES_FILE), issues, taskId);
+        updateTaskTimestamp(taskId, Instant.now());
     }
 
     public synchronized void appendEvent(String taskId, LongRunningTaskEvent event) {
@@ -330,25 +368,6 @@ public final class LongRunningTaskStore {
         return changed;
     }
 
-    /**
-     * Updates the status of a known issue with state-machine validation.
-     *
-     * <p>Allowed transitions:
-     * <ul>
-     *   <li>{@code open -> blocked}</li>
-     *   <li>{@code blocked -> open}</li>
-     *   <li>{@code open -> resolved}</li>
-     *   <li>{@code blocked -> resolved}</li>
-     * </ul>
-     *
-     * <p>Transitions from {@code resolved} back to any other status are
-     * rejected. {@code resolvedAt} is set only when entering
-     * {@code resolved}, and cleared when leaving it.
-     *
-     * @return the updated issue
-     * @throws LongRunningTaskStoreException if the issue is not found or the
-     *         transition is invalid
-     */
     public synchronized KnownIssue updateIssueStatus(String taskId, String issueId, String newStatus) {
         requireNonBlank(issueId, "issueId");
         requireNonBlank(newStatus, "newStatus");
@@ -410,18 +429,11 @@ public final class LongRunningTaskStore {
         }
     }
 
-    /**
-     * Marks a task as completed: updates task.json status and stage.
-     *
-     * @return the updated metadata
-     * @throws LongRunningTaskStoreException if the task is not in an
-     *         executable state
-     */
     public synchronized LongRunningTaskMetadata markTaskCompleted(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if (!"executing".equals(metadata.status())) {
+        if (!"RUNNING".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot be completed: current status is " + metadata.status());
         }
@@ -429,11 +441,13 @@ public final class LongRunningTaskStore {
         LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
                 metadata.id(),
                 metadata.title(),
-                "completed",
+                "DONE",
+                "task_completed",
+                metadata.executionStarted(),
                 metadata.createdAt(),
                 Instant.now(),
-                metadata.sessionId(),
-                "COMPLETED");
+                metadata.controlSessionId(),
+                metadata.planSummary());
         try {
             writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
         } catch (IOException exception) {
@@ -443,79 +457,52 @@ public final class LongRunningTaskStore {
         return updated;
     }
 
-    /**
-     * Promotes a planned task into executable state.
-     *
-     * <p>Planning tasks are created as soon as a long-running request is
-     * received so the harness has durable state before model deliberation. Once
-     * the user approves execution, this method updates the same task directory
-     * instead of creating a second task.
-     */
     public synchronized LongRunningTaskMetadata markTaskExecuting(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("executing".equals(metadata.status())
-                && "EXECUTING".equals(metadata.stage())) {
+        if ("RUNNING".equals(metadata.status())) {
             return metadata;
         }
-        if (!isExecutionStartable(metadata)) {
+        if (!"DRAFT".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot enter execution: status="
                             + metadata.status() + ", stage=" + metadata.stage());
         }
-        return writeTaskLifecycle(directory, metadata, "executing", "EXECUTING",
+        return writeTaskLifecycle(directory, metadata, "RUNNING", "RUNNING",
                 "Failed to mark task " + taskId + " as executing");
     }
 
-    /**
-     * Marks a planned task as initialized after user approval.
-     *
-     * <p>This prepares durable task state for the launcher/worker handoff
-     * without claiming that execution has started in the control session.
-     */
     public synchronized LongRunningTaskMetadata markTaskInitialized(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("initialized".equals(metadata.status())
-                && "INITIALIZING".equals(metadata.stage())) {
+        if ("DRAFT".equals(metadata.status())) {
             return metadata;
         }
-        if (!"planning".equals(metadata.status())
-                || (!"PLANNING".equals(metadata.stage())
-                && !"WAITING_FOR_APPROVAL".equals(metadata.stage()))) {
+        if (!"DRAFT".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot be initialized: status="
                             + metadata.status() + ", stage=" + metadata.stage());
         }
-        return writeTaskLifecycle(directory, metadata, "initialized", "INITIALIZING",
+        return writeTaskLifecycle(directory, metadata, "DRAFT", "DRAFT",
                 "Failed to mark task " + taskId + " as initialized");
-    }
-
-    private static boolean isExecutionStartable(LongRunningTaskMetadata metadata) {
-        return ("initialized".equals(metadata.status())
-                && "INITIALIZING".equals(metadata.stage()))
-                || ("planning".equals(metadata.status())
-                && ("PLANNING".equals(metadata.stage())
-                || "WAITING_FOR_APPROVAL".equals(metadata.stage())));
     }
 
     public synchronized LongRunningTaskMetadata markPlanAwaitingApproval(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("planning".equals(metadata.status())
-                && "WAITING_FOR_APPROVAL".equals(metadata.stage())) {
+        if ("DRAFT".equals(metadata.status())
+                && "awaiting_approval".equals(metadata.reason())) {
             return metadata;
         }
-        if (!"planning".equals(metadata.status())
-                || !"PLANNING".equals(metadata.stage())) {
+        if (!"DRAFT".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot await approval: status="
                             + metadata.status() + ", stage=" + metadata.stage());
         }
-        return writeTaskLifecycle(directory, metadata, "planning", "WAITING_FOR_APPROVAL",
+        return writeTaskLifecycle(directory, metadata, "DRAFT", "DRAFT",
                 "Failed to mark task " + taskId + " as waiting for approval");
     }
 
@@ -523,18 +510,71 @@ public final class LongRunningTaskStore {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("planning".equals(metadata.status())
-                && "PLANNING".equals(metadata.stage())) {
+        if ("DRAFT".equals(metadata.status())
+                && metadata.reason() == null) {
             return metadata;
         }
-        if (!"planning".equals(metadata.status())
-                || !"WAITING_FOR_APPROVAL".equals(metadata.stage())) {
+        if (!"DRAFT".equals(metadata.status())) {
             throw new LongRunningTaskStoreException(
                     "Task " + taskId + " cannot return to planning: status="
                             + metadata.status() + ", stage=" + metadata.stage());
         }
-        return writeTaskLifecycle(directory, metadata, "planning", "PLANNING",
+        return writeTaskLifecycle(directory, metadata, "DRAFT", "DRAFT",
                 "Failed to return task " + taskId + " to planning");
+    }
+
+    public synchronized LongRunningTaskMetadata cancelTask(String taskId) {
+        requireNonBlank(taskId, "taskId");
+        Path directory = validateTaskDirectory(taskId);
+        LongRunningTaskMetadata metadata = loadTask(taskId);
+        if ("DONE".equals(metadata.status())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be cancelled: current status is " + metadata.status());
+        }
+        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
+                metadata.id(),
+                metadata.title(),
+                "DONE",
+                "cancelled",
+                metadata.executionStarted(),
+                metadata.createdAt(),
+                Instant.now(),
+                metadata.controlSessionId(),
+                metadata.planSummary());
+        try {
+            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(
+                    "Failed to cancel task " + taskId, exception);
+        }
+        return updated;
+    }
+
+    public synchronized Path validateTaskDirectory(String taskId) {
+        String safeTaskId = validateTaskId(taskId);
+        Path directory = taskDirectory(safeTaskId);
+        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+            throw new LongRunningTaskStoreException("Task directory not found for " + safeTaskId);
+        }
+        requireRegularFile(directory.resolve(TASK_FILE), TASK_FILE, safeTaskId);
+        requireRegularFile(directory.resolve(FEATURE_LIST_FILE), FEATURE_LIST_FILE, safeTaskId);
+        requireRegularFile(directory.resolve(PROGRESS_FILE), PROGRESS_FILE, safeTaskId);
+        requireRegularFile(directory.resolve(KNOWN_ISSUES_FILE), KNOWN_ISSUES_FILE, safeTaskId);
+        requireRegularFile(directory.resolve(CHECKPOINT_FILE), CHECKPOINT_FILE, safeTaskId);
+        requireRegularFile(directory.resolve(INIT_SCRIPT_FILE), INIT_SCRIPT_FILE, safeTaskId);
+        Path logs = directory.resolve(LOGS_DIR);
+        if (!Files.isDirectory(logs, LinkOption.NOFOLLOW_LINKS)) {
+            throw new LongRunningTaskStoreException("Missing logs directory for task " + safeTaskId);
+        }
+        ensureEventLogFile(logs.resolve(EVENTS_FILE), safeTaskId);
+        readTaskMetadata(directory.resolve(TASK_FILE), safeTaskId);
+        readFeatures(directory.resolve(FEATURE_LIST_FILE));
+        readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
+        return directory;
+    }
+
+    public Path taskDirectoryPath(String taskId) {
+        return taskDirectory(validateTaskId(taskId));
     }
 
     private void validateTaskCompletionPreconditions(String taskId, Path directory) {
@@ -563,73 +603,23 @@ public final class LongRunningTaskStore {
         }
     }
 
-    /**
-     * Cancels a task: updates task.json status and stage.
-     *
-     * @return the updated metadata
-     * @throws LongRunningTaskStoreException if the task is already terminal or
-     *         otherwise not in a cancellable lifecycle state
-     */
-    public synchronized LongRunningTaskMetadata cancelTask(String taskId) {
-        requireNonBlank(taskId, "taskId");
-        Path directory = validateTaskDirectory(taskId);
-        LongRunningTaskMetadata metadata = loadTask(taskId);
-        if (!"planning".equals(metadata.status())
-                && !"initialized".equals(metadata.status())
-                && !"executing".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be cancelled: current status is " + metadata.status());
-        }
-        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
-                metadata.id(),
-                metadata.title(),
-                "cancelled",
-                metadata.createdAt(),
-                Instant.now(),
-                metadata.sessionId(),
-                "CANCELLED");
-        try {
-            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException(
-                    "Failed to cancel task " + taskId, exception);
-        }
-        return updated;
-    }
-
-    public synchronized Path validateTaskDirectory(String taskId) {
-        String safeTaskId = validateTaskId(taskId);
-        Path directory = taskDirectory(safeTaskId);
-        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
-            throw new LongRunningTaskStoreException("Task directory not found for " + safeTaskId);
-        }
-        requireRegularFile(directory.resolve(TASK_FILE), TASK_FILE, safeTaskId);
-        requireRegularFile(directory.resolve(FEATURE_LIST_FILE), FEATURE_LIST_FILE, safeTaskId);
-        requireRegularFile(directory.resolve(PROGRESS_FILE), PROGRESS_FILE, safeTaskId);
-        requireRegularFile(directory.resolve(KNOWN_ISSUES_FILE), KNOWN_ISSUES_FILE, safeTaskId);
-        requireRegularFile(directory.resolve(INIT_SCRIPT_FILE), INIT_SCRIPT_FILE, safeTaskId);
-        Path logs = directory.resolve(LOGS_DIR);
-        if (!Files.isDirectory(logs, LinkOption.NOFOLLOW_LINKS)) {
-            throw new LongRunningTaskStoreException("Missing logs directory for task " + safeTaskId);
-        }
-        ensureEventLogFile(logs.resolve(EVENTS_FILE), safeTaskId);
-        readTaskMetadata(directory.resolve(TASK_FILE), safeTaskId);
-        readFeatures(directory.resolve(FEATURE_LIST_FILE));
-        readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
-        return directory;
-    }
-
     private void updateTaskTimestamp(String taskId, Instant updatedAt) {
-        LongRunningTaskMetadata metadata = loadTask(taskId);
-        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
+        updateTaskMetadata(taskId, metadata -> new LongRunningTaskMetadata(
                 metadata.id(),
                 metadata.title(),
                 metadata.status(),
+                metadata.reason(),
+                metadata.executionStarted(),
                 metadata.createdAt(),
                 updatedAt,
-                metadata.sessionId(),
-                metadata.stage());
+                metadata.controlSessionId(),
+                metadata.planSummary()));
+    }
+
+    private void updateTaskMetadata(String taskId, java.util.function.UnaryOperator<LongRunningTaskMetadata> updater) {
         Path taskFile = taskDirectory(taskId).resolve(TASK_FILE);
+        LongRunningTaskMetadata current = loadTask(taskId);
+        LongRunningTaskMetadata updated = Objects.requireNonNull(updater.apply(current), "updated");
         try {
             writeJsonAtomically(taskFile, serializeTask(updated));
         } catch (IOException exception) {
@@ -646,17 +636,54 @@ public final class LongRunningTaskStore {
         LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
                 metadata.id(),
                 metadata.title(),
-                status,
+                mapLifecycleStatus(status),
+                mapLifecycleReason(status, stage),
+                determineExecutionStarted(metadata, status),
                 metadata.createdAt(),
                 Instant.now(),
-                metadata.sessionId(),
-                stage);
+                metadata.controlSessionId(),
+                metadata.planSummary());
         try {
             writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
         } catch (IOException exception) {
             throw new LongRunningTaskStoreException(failureMessage, exception);
         }
         return updated;
+    }
+
+    private static String mapLifecycleStatus(String status) {
+        String normalized = requireNonBlank(status, "status").toUpperCase();
+        return switch (normalized) {
+            case "PLANNING", "INITIALIZING", "INITIALIZED", "WAITING_FOR_APPROVAL", "DRAFT" -> "DRAFT";
+            case "EXECUTING", "RUNNING" -> "RUNNING";
+            case "COMPLETED", "CANCELLED", "DONE" -> "DONE";
+            default -> throw new LongRunningTaskStoreException("Unsupported lifecycle status: " + status);
+        };
+    }
+
+    private static String mapLifecycleReason(String status, String stage) {
+        String normalizedStatus = requireNonBlank(status, "status").toUpperCase();
+        String normalizedStage = stage == null ? "" : stage.strip().toUpperCase();
+        if ("DONE".equals(normalizedStatus) || "COMPLETED".equals(normalizedStatus)) {
+            return "task_completed";
+        }
+        if ("CANCELLED".equals(normalizedStatus)) {
+            return "cancelled";
+        }
+        if ("INITIALIZING".equals(normalizedStage) || "INITIALIZED".equals(normalizedStatus)) {
+            return "initializing";
+        }
+        if ("WAITING_FOR_APPROVAL".equals(normalizedStage)) {
+            return "awaiting_approval";
+        }
+        return null;
+    }
+
+    private static Instant determineExecutionStarted(LongRunningTaskMetadata metadata, String status) {
+        if (!"RUNNING".equals(mapLifecycleStatus(status))) {
+            return metadata.executionStarted();
+        }
+        return metadata.executionStarted() == null ? Instant.now() : metadata.executionStarted();
     }
 
     private List<FeatureItem> readFeatures(Path featureFile) {
@@ -669,10 +696,6 @@ public final class LongRunningTaskStore {
             for (JsonNode item : root) {
                 features.add(deserializeFeature(item));
             }
-            // Structural validation only — duplicates, required fields, etc.
-            // Dependency integrity (existence, no self-deps, no cycles) is
-            // validated on write in writeInitialFeatureList. We trust on read
-            // to avoid O(V+E) DFS on every store operation.
             return validateFeatureList(features, true);
         } catch (IOException exception) {
             throw new LongRunningTaskStoreException("Failed to read feature list from " + featureFile, exception);
@@ -739,22 +762,9 @@ public final class LongRunningTaskStore {
         return validated;
     }
 
-    /**
-     * Validates feature dependency integrity: all depends_on references must
-     * point to existing feature IDs, self-dependencies are forbidden, and
-     * circular dependencies are detected.
-     *
-     * @param features the feature list to validate
-     * @param allowPassedFeatures if true, skip dependency checks for features
-     *        that are already passed (used when reading from disk)
-     */
     private void validateFeatureDependencies(List<FeatureItem> features, boolean allowPassedFeatures) {
         Set<String> ids = features.stream().map(FeatureItem::id).collect(java.util.stream.Collectors.toSet());
-
         for (FeatureItem feature : features) {
-            // Skip dependency validation for already-passed features when
-            // reading from disk — they may have been written before validation
-            // was added.
             if (allowPassedFeatures && feature.passes()) {
                 continue;
             }
@@ -770,7 +780,6 @@ public final class LongRunningTaskStore {
             }
         }
 
-        // Detect circular dependencies via DFS
         Set<String> visited = new LinkedHashSet<>();
         Set<String> recursionStack = new LinkedHashSet<>();
         for (FeatureItem feature : features) {
@@ -778,14 +787,12 @@ public final class LongRunningTaskStore {
                 continue;
             }
             if (hasCycle(feature.id(), features, visited, recursionStack)) {
-                throw new LongRunningTaskStoreException(
-                        "Circular dependency detected in feature list");
+                throw new LongRunningTaskStoreException("Circular dependency detected in feature list");
             }
         }
     }
 
-    private boolean hasCycle(String featureId, List<FeatureItem> features,
-                             Set<String> visited, Set<String> recursionStack) {
+    private boolean hasCycle(String featureId, List<FeatureItem> features, Set<String> visited, Set<String> recursionStack) {
         if (recursionStack.contains(featureId)) {
             return true;
         }
@@ -794,7 +801,6 @@ public final class LongRunningTaskStore {
         }
         visited.add(featureId);
         recursionStack.add(featureId);
-
         FeatureItem feature = features.stream()
                 .filter(f -> f.id().equals(featureId))
                 .findFirst()
@@ -806,7 +812,6 @@ public final class LongRunningTaskStore {
                 }
             }
         }
-
         recursionStack.remove(featureId);
         return false;
     }
@@ -851,15 +856,86 @@ public final class LongRunningTaskStore {
     }
 
     private ObjectNode serializeTask(LongRunningTaskMetadata metadata) {
+        if (!ALLOWED_TASK_STATUSES.contains(metadata.status())) {
+            throw new LongRunningTaskStoreException("Unsupported task status: " + metadata.status());
+        }
         ObjectNode root = mapper.createObjectNode();
         root.put("id", metadata.id());
         root.put("title", metadata.title());
         root.put("status", metadata.status());
+        if (metadata.reason() != null) {
+            root.put("reason", metadata.reason());
+        }
+        if (metadata.executionStarted() != null) {
+            root.put("executionStarted", metadata.executionStarted().toString());
+        }
         root.put("createdAt", metadata.createdAt().toString());
         root.put("updatedAt", metadata.updatedAt().toString());
-        root.put("sessionId", metadata.sessionId());
-        root.put("stage", metadata.stage());
+        if (metadata.controlSessionId() != null) {
+            root.put("controlSessionId", metadata.controlSessionId());
+        }
+        if (metadata.planSummary() != null) {
+            root.put("planSummary", metadata.planSummary());
+        }
         return root;
+    }
+
+    private ObjectNode serializeFeature(FeatureItem feature) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("id", feature.id());
+        root.put("category", feature.category());
+        root.put("priority", feature.priority());
+        root.put("description", feature.description());
+        ArrayNode dependsOn = mapper.createArrayNode();
+        feature.dependsOn().forEach(dependsOn::add);
+        root.set("depends_on", dependsOn);
+        ArrayNode verificationSteps = mapper.createArrayNode();
+        feature.verificationSteps().forEach(verificationSteps::add);
+        root.set("verification_steps", verificationSteps);
+        root.put("passes", feature.passes());
+        return root;
+    }
+
+    private FeatureItem deserializeFeature(JsonNode root) {
+        List<String> dependsOn = arrayText(root.path("depends_on"));
+        List<String> verificationSteps = arrayText(root.path("verification_steps"));
+        return new FeatureItem(
+                requiredText(root, "id"),
+                requiredText(root, "category"),
+                requiredText(root, "priority"),
+                requiredText(root, "description"),
+                dependsOn,
+                verificationSteps,
+                root.path("passes").asBoolean(false));
+    }
+
+    private ObjectNode serializeKnownIssue(KnownIssue issue) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("id", issue.id());
+        root.put("description", issue.description());
+        root.put("severity", issue.severity());
+        root.put("status", issue.status());
+        root.put("discovered_in", issue.discoveredIn());
+        ArrayNode verificationSteps = mapper.createArrayNode();
+        issue.verificationSteps().forEach(verificationSteps::add);
+        root.set("verification_steps", verificationSteps);
+        root.put("created_at", issue.createdAt().toString());
+        if (issue.resolvedAt() != null) {
+            root.put("resolved_at", issue.resolvedAt().toString());
+        }
+        return root;
+    }
+
+    private KnownIssue deserializeKnownIssue(JsonNode root) {
+        return new KnownIssue(
+                requiredText(root, "id"),
+                requiredText(root, "description"),
+                requiredText(root, "severity"),
+                requiredText(root, "status"),
+                requiredText(root, "discovered_in"),
+                arrayText(root.path("verification_steps")),
+                Instant.parse(requiredText(root, "created_at")),
+                optionalText(root, "resolved_at").map(Instant::parse).orElse(null));
     }
 
     private ObjectNode serializeEvent(LongRunningTaskEvent event) {
@@ -890,6 +966,24 @@ public final class LongRunningTaskStore {
         }
         root.set("details", details);
         return root;
+    }
+
+    private LongRunningTaskEvent deserializeEvent(JsonNode root, String expectedTaskId) {
+        String taskId = requiredText(root, "taskId");
+        if (!expectedTaskId.equals(taskId)) {
+            throw new LongRunningTaskStoreException(
+                    "Event task id " + taskId + " does not match expected " + expectedTaskId);
+        }
+        return new LongRunningTaskEvent(
+                Instant.parse(requiredText(root, "timestamp")),
+                requiredText(root, "type"),
+                taskId,
+                optionalText(root, "sessionId").orElse(null),
+                optionalText(root, "stage").orElse(null),
+                optionalText(root, "action").orElse(null),
+                root.has("success") ? root.path("success").asBoolean() : null,
+                optionalText(root, "message").orElse(null),
+                objectText(root.path("details")));
     }
 
     private ObjectNode serializeCheckpoint(LongRunningWorkspaceCheckpoint checkpoint) {
@@ -923,270 +1017,85 @@ public final class LongRunningTaskStore {
                 optionalText(root, "statusShort").orElse(""));
     }
 
-    private LongRunningTaskEvent deserializeEvent(JsonNode root, String expectedTaskId) {
-        String taskId = requiredText(root, "taskId");
-        if (!expectedTaskId.equals(taskId)) {
-            throw new LongRunningTaskStoreException("Event task id mismatch for " + expectedTaskId);
-        }
-        Map<String, String> details = new LinkedHashMap<>();
-        JsonNode detailsNode = root.path("details");
-        if (detailsNode.isObject()) {
-            detailsNode.fields().forEachRemaining(entry -> {
-                if (entry.getValue().isTextual()) {
-                    details.put(entry.getKey(), entry.getValue().asText());
-                }
-            });
-        }
-        return new LongRunningTaskEvent(
-                Instant.parse(requiredText(root, "timestamp")),
-                requiredText(root, "type"),
-                taskId,
-                optionalText(root, "sessionId").orElse(null),
-                optionalText(root, "stage").orElse(null),
-                optionalText(root, "action").orElse(null),
-                root.has("success") && root.get("success").isBoolean()
-                        ? root.get("success").asBoolean()
-                        : null,
-                optionalText(root, "message").orElse(null),
-                details);
-    }
-
-    private LongRunningTaskMetadata deserializeTask(JsonNode root) {
-        return new LongRunningTaskMetadata(
-                requiredText(root, "id"),
-                requiredText(root, "title"),
-                requiredText(root, "status"),
-                Instant.parse(requiredText(root, "createdAt")),
-                Instant.parse(requiredText(root, "updatedAt")),
-                requiredText(root, "sessionId"),
-                requiredText(root, "stage"));
-    }
-
-    private LongRunningTaskMetadata readTaskMetadata(Path taskFile, String expectedTaskId) {
+    private LongRunningTaskMetadata readTaskMetadata(Path taskFile, String taskId) {
         try {
             JsonNode root = mapper.readTree(taskFile.toFile());
-            LongRunningTaskMetadata metadata = deserializeTask(root);
-            if (!metadata.id().equals(expectedTaskId)) {
-                throw new LongRunningTaskStoreException("Task metadata id mismatch for " + expectedTaskId);
+            String id = requiredText(root, "id");
+            if (!taskId.equals(id)) {
+                throw new LongRunningTaskStoreException("Task id mismatch in task.json: expected " + taskId + " but found " + id);
             }
-            return metadata;
+            return new LongRunningTaskMetadata(
+                    id,
+                    requiredText(root, "title"),
+                    requiredText(root, "status"),
+                    optionalText(root, "reason").orElse(null),
+                    optionalText(root, "executionStarted").map(Instant::parse).orElse(null),
+                    Instant.parse(requiredText(root, "createdAt")),
+                    Instant.parse(requiredText(root, "updatedAt")),
+                    optionalText(root, "controlSessionId").orElse(optionalText(root, "sessionId").orElse(null)),
+                    optionalText(root, "planSummary").orElse(null));
         } catch (IOException exception) {
-            throw new LongRunningTaskStoreException(
-                    "Failed to load task metadata for " + expectedTaskId, exception);
+            throw new LongRunningTaskStoreException("Failed to read task metadata for " + taskId, exception);
         }
     }
 
-    private ObjectNode serializeFeature(FeatureItem feature) {
-        ObjectNode root = mapper.createObjectNode();
-        root.put("id", feature.id());
-        root.put("category", feature.category());
-        root.put("priority", feature.priority());
-        root.put("description", feature.description());
-        root.set("depends_on", stringsArray(feature.dependsOn()));
-        root.set("verification_steps", stringsArray(feature.verificationSteps()));
-        root.put("passes", feature.passes());
-        return root;
+    private Path taskDirectory(String taskId) {
+        return rootDirectory.resolve(taskId).normalize();
     }
 
-    private FeatureItem deserializeFeature(JsonNode root) {
-        return new FeatureItem(
-                requiredText(root, "id"),
-                requiredText(root, "category"),
-                requiredText(root, "priority"),
-                requiredText(root, "description"),
-                readStringArray(root, "depends_on"),
-                readStringArray(root, "verification_steps"),
-                root.path("passes").asBoolean(false));
-    }
-
-    private ObjectNode serializeKnownIssue(KnownIssue issue) {
-        ObjectNode root = mapper.createObjectNode();
-        root.put("id", issue.id());
-        root.put("description", issue.description());
-        root.put("severity", issue.severity());
-        root.put("status", issue.status());
-        root.put("discoveredIn", issue.discoveredIn());
-        root.set("verification_steps", stringsArray(issue.verificationSteps()));
-        root.put("createdAt", issue.createdAt().toString());
-        if (issue.resolvedAt() != null) {
-            root.put("resolvedAt", issue.resolvedAt().toString());
+    private String validateTaskId(String taskId) {
+        String safeTaskId = requireNonBlank(taskId, "taskId");
+        if (!SAFE_TASK_ID.matcher(safeTaskId).matches()) {
+            throw new LongRunningTaskStoreException("Invalid task id: " + taskId);
         }
-        return root;
+        return safeTaskId;
     }
 
-    private KnownIssue deserializeKnownIssue(JsonNode root) {
-        return new KnownIssue(
-                requiredText(root, "id"),
-                requiredText(root, "description"),
-                requiredText(root, "severity"),
-                requiredText(root, "status"),
-                requiredText(root, "discoveredIn"),
-                readStringArray(root, "verification_steps"),
-                Instant.parse(requiredText(root, "createdAt")),
-                optionalText(root, "resolvedAt").map(Instant::parse).orElse(null));
-    }
-
-    private ArrayNode stringsArray(List<String> values) {
-        ArrayNode array = mapper.createArrayNode();
-        for (String value : values) {
-            array.add(value);
+    private static String requireNonBlank(String value, String field) {
+        if (value == null) {
+            throw new LongRunningTaskStoreException(field + " must not be blank");
         }
-        return array;
+        String normalized = value.strip();
+        if (normalized.isBlank()) {
+            throw new LongRunningTaskStoreException(field + " must not be blank");
+        }
+        return normalized;
     }
 
-    private List<String> readStringArray(JsonNode root, String field) {
-        JsonNode node = root.path(field);
-        if (node.isMissingNode()) {
-            return List.of();
+    private static Optional<String> optionalText(JsonNode root, String field) {
+        if (!root.has(field) || root.path(field).isNull()) {
+            return Optional.empty();
         }
+        String text = root.path(field).asText();
+        return text == null || text.isBlank() ? Optional.empty() : Optional.of(text);
+    }
+
+    private static String requiredText(JsonNode root, String field) {
+        return optionalText(root, field)
+                .orElseThrow(() -> new LongRunningTaskStoreException("Missing required field: " + field));
+    }
+
+    private static List<String> arrayText(JsonNode node) {
         if (!node.isArray()) {
-            throw new LongRunningTaskStoreException(field + " must be a JSON array");
+            return List.of();
         }
         List<String> values = new ArrayList<>();
         for (JsonNode item : node) {
-            if (!item.isTextual()) {
-                throw new LongRunningTaskStoreException(field + " must contain only strings");
-            }
             values.add(item.asText());
         }
         return List.copyOf(values);
     }
 
-    private String requiredText(JsonNode root, String field) {
-        return optionalText(root, field)
-                .orElseThrow(() -> new LongRunningTaskStoreException("Missing required field: " + field));
-    }
-
-    private Optional<String> optionalText(JsonNode root, String field) {
-        JsonNode node = root.path(field);
-        if (!node.isTextual()) {
-            return Optional.empty();
+    private static Map<String, String> objectText(JsonNode node) {
+        if (!node.isObject()) {
+            return Map.of();
         }
-        String text = node.asText();
-        return text.isBlank() ? Optional.empty() : Optional.of(text);
+        Map<String, String> values = new LinkedHashMap<>();
+        node.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().asText("")));
+        return Map.copyOf(values);
     }
 
-    private void requireRegularFile(Path path, String label, String taskId) {
-        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
-            throw new LongRunningTaskStoreException("Missing " + label + " for task " + taskId);
-        }
-    }
-
-    private void ensureEventLogFile(Path path, String taskId) {
-        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
-            requireRegularFile(path, EVENTS_FILE, taskId);
-            return;
-        }
-        try {
-            writeStringAtomically(path, "");
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException("Failed to create event log for task " + taskId, exception);
-        }
-    }
-
-    /**
-     * Returns the canonical task directory path for the given task id without
-     * checking whether the directory exists.
-     *
-     * <p>Use this when you need only the path computation (e.g. to display the
-     * expected location or to set the session field). For actual existence
-     * checks and file validation, call {@link #validateTaskDirectory} instead.
-     *
-     * @throws IllegalArgumentException if the task id is invalid
-     */
-    public synchronized Path taskDirectoryPath(String taskId) {
-        return taskDirectory(validateTaskId(taskId));
-    }
-
-    private Path taskDirectory(String taskId) {
-        Path directory = rootDirectory.resolve(validateTaskId(taskId)).normalize();
-        if (!directory.startsWith(rootDirectory)) {
-            throw new LongRunningTaskStoreException("Task directory escapes project root: " + taskId);
-        }
-        return directory;
-    }
-
-    private String validateTaskId(String taskId) {
-        requireNonBlank(taskId, "taskId");
-        if (taskId.contains("/") || taskId.contains("\\") || taskId.contains("..")) {
-            throw new IllegalArgumentException("taskId contains forbidden path characters");
-        }
-        if (!SAFE_TASK_ID.matcher(taskId).matches()) {
-            throw new IllegalArgumentException("taskId must be a safe token");
-        }
-        return taskId;
-    }
-
-    private String requireNonBlank(String value, String field) {
-        Objects.requireNonNull(value, field);
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-        return value;
-    }
-
-    private void writeJsonAtomically(Path target, JsonNode node) throws IOException {
-        Path parent = target.toAbsolutePath().getParent();
-        Path tempFile = null;
-        boolean moved = false;
-        try {
-            Files.createDirectories(parent);
-            tempFile = Files.createTempFile(parent, target.getFileName().toString() + ".", ".tmp");
-            mapper.writerWithDefaultPrettyPrinter().writeValue(tempFile.toFile(), node);
-            moveIntoPlace(tempFile, target);
-            moved = true;
-        } finally {
-            if (!moved && tempFile != null) {
-                Files.deleteIfExists(tempFile);
-            }
-        }
-    }
-
-    private void writeStringAtomically(Path target, String content) throws IOException {
-        Path parent = target.toAbsolutePath().getParent();
-        Path tempFile = null;
-        boolean moved = false;
-        try {
-            Files.createDirectories(parent);
-            tempFile = Files.createTempFile(parent, target.getFileName().toString() + ".", ".tmp");
-            Files.writeString(tempFile, content == null ? "" : content);
-            moveIntoPlace(tempFile, target);
-            moved = true;
-        } finally {
-            if (!moved && tempFile != null) {
-                Files.deleteIfExists(tempFile);
-            }
-        }
-    }
-
-    private String initScript(LongRunningWorkspaceCheckpoint checkpoint) {
-        StringBuilder script = new StringBuilder();
-        script.append("#!/usr/bin/env bash\n");
-        script.append("set -euo pipefail\n\n");
-        script.append("# Initialization helper for this long-running task.\n");
-        script.append("cd ").append(shellQuote(checkpoint.projectDirectory().toString())).append("\n");
-        script.append("echo ").append(shellQuote("Long-running task workspace checkpoint")).append("\n");
-        if (checkpoint.gitRepository()) {
-            script.append("echo ").append(shellQuote("Git root: " + checkpoint.gitRoot())).append("\n");
-            script.append("echo ").append(shellQuote("Start branch: " + nullToEmpty(checkpoint.branch()))).append("\n");
-            script.append("echo ").append(shellQuote("Start HEAD: " + nullToEmpty(checkpoint.head()))).append("\n");
-            script.append("echo ").append(shellQuote("Dirty at start: " + checkpoint.dirty())).append("\n");
-            script.append("git status --short\n");
-        } else {
-            script.append("echo ").append(shellQuote("No git repository detected at task start.")).append("\n");
-        }
-        return script.toString();
-    }
-
-    private static String shellQuote(String value) {
-        return "'" + (value == null ? "" : value.replace("'", "'\"'\"'")) + "'";
-    }
-
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
-
-    private void moveIntoPlace(Path tempFile, Path target) throws IOException {
+    private static void moveIntoPlace(Path tempFile, Path target) throws IOException {
         try {
             Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException ignored) {
@@ -1194,20 +1103,94 @@ public final class LongRunningTaskStore {
         }
     }
 
-    private void deleteRecursively(Path root) throws IOException {
-        if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
+    private void writeJsonAtomically(Path target, JsonNode payload) throws IOException {
+        Path parent = target.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path tempFile = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
+        try {
+            mapper.writerWithDefaultPrettyPrinter().writeValue(tempFile.toFile(), payload);
+            moveIntoPlace(tempFile, target);
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
+    private void writeStringAtomically(Path target, String content) throws IOException {
+        Path parent = target.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Path tempFile = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
+        try {
+            Files.writeString(tempFile, content == null ? "" : content);
+            moveIntoPlace(tempFile, target);
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
+    private void ensureEventLogFile(Path eventsFile, String taskId) {
+        if (Files.isRegularFile(eventsFile, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
-        try (var paths = Files.walk(root)) {
-            paths.sorted((left, right) -> right.getNameCount() - left.getNameCount())
-                    .forEach(path -> {
+        try {
+            Files.createDirectories(eventsFile.getParent());
+            Files.writeString(eventsFile, "", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(
+                    "Failed to initialize event log for task " + taskId, exception);
+        }
+    }
+
+    private void requireRegularFile(Path file, String label, String taskId) {
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new LongRunningTaskStoreException("Missing " + label + " for task " + taskId);
+        }
+    }
+
+    private String initScript(LongRunningWorkspaceCheckpoint checkpoint) {
+        if (!checkpoint.gitRepository()) {
+            return """
+                    #!/usr/bin/env bash
+                    set -euo pipefail
+
+                    # No git repository detected when the task was created.
+                    """;
+        }
+        return """
+                #!/usr/bin/env bash
+                set -euo pipefail
+
+                # Restored from checkpoint:
+                # branch: %s
+                # head: %s
+                # dirty: %s
+                """.formatted(
+                checkpoint.branch() == null ? "" : checkpoint.branch(),
+                checkpoint.head() == null ? "" : checkpoint.head(),
+                checkpoint.dirty());
+    }
+
+    private static void deleteRecursively(Path path) throws IOException {
+        if (path == null || !Files.exists(path)) {
+            return;
+        }
+        try (var stream = Files.walk(path)) {
+            stream.sorted(java.util.Comparator.reverseOrder())
+                    .forEach(current -> {
                         try {
-                            Files.deleteIfExists(path);
+                            Files.deleteIfExists(current);
                         } catch (IOException exception) {
-                            throw new LongRunningTaskStoreException(
-                                    "Failed to clean up staging directory " + root, exception);
+                            throw new RuntimeException(exception);
                         }
                     });
+        } catch (RuntimeException exception) {
+            if (exception.getCause() instanceof IOException ioException) {
+                throw ioException;
+            }
+            throw exception;
         }
     }
 }

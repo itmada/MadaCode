@@ -64,11 +64,10 @@ public class ConversationSession {
     private volatile String longRunningTaskId;
     private volatile String longRunningTaskDirectory;
     private volatile String longRunningTaskTitle;
-    private volatile String longRunningPlanSummary;
     private volatile String longRunningReason;
-    private volatile boolean executionStarted;
-    private volatile LongRunningTurnAssignment longRunningTurnAssignment;
+    private volatile String longRunningPlanSummary;
     private volatile boolean longRunningWorkerSession;
+    private volatile LongRunningTransitionRequest pendingLongRunningTransitionRequest;
     private volatile madacode.longrunning.WorkerReport lastWorkerReport;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
@@ -359,11 +358,10 @@ public class ConversationSession {
             this.longRunningTaskId = null;
             this.longRunningTaskDirectory = null;
             this.longRunningTaskTitle = null;
-            this.longRunningPlanSummary = null;
             this.longRunningReason = null;
-            this.executionStarted = false;
-            this.longRunningTurnAssignment = null;
+            this.longRunningPlanSummary = null;
             this.longRunningWorkerSession = false;
+            this.pendingLongRunningTransitionRequest = null;
             this.lastWorkerReport = null;
         }
     }
@@ -390,9 +388,6 @@ public class ConversationSession {
 
     public void setLongRunningStage(LongRunningStage longRunningStage) {
         requireLongRunningMode("longRunningStage", longRunningStage);
-        if (longRunningStage == LongRunningStage.RUNNING) {
-            this.executionStarted = true;
-        }
         this.longRunningStage = longRunningStage;
     }
 
@@ -423,15 +418,6 @@ public class ConversationSession {
         this.longRunningTaskTitle = normalizeOptionalLongRunningText(longRunningTaskTitle);
     }
 
-    public String longRunningPlanSummary() {
-        return longRunningPlanSummary;
-    }
-
-    public void setLongRunningPlanSummary(String longRunningPlanSummary) {
-        requireLongRunningMode("longRunningPlanSummary", longRunningPlanSummary);
-        this.longRunningPlanSummary = normalizeOptionalLongRunningText(longRunningPlanSummary);
-    }
-
     public String longRunningReason() {
         return longRunningReason;
     }
@@ -441,23 +427,13 @@ public class ConversationSession {
         this.longRunningReason = normalizeOptionalLongRunningText(longRunningReason);
     }
 
-    public boolean executionStarted() {
-        return executionStarted;
+    public String longRunningPlanSummary() {
+        return longRunningPlanSummary;
     }
 
-    public void setExecutionStarted(boolean executionStarted) {
-        requireLongRunningMode("executionStarted", executionStarted);
-        this.executionStarted = executionStarted;
-    }
-
-    public Optional<LongRunningTurnAssignment> longRunningTurnAssignment() {
-        return Optional.ofNullable(longRunningTurnAssignment);
-    }
-
-    @Deprecated(forRemoval = false)
-    public void setLongRunningTurnAssignment(LongRunningTurnAssignment assignment) {
-        requireLongRunningMode("longRunningTurnAssignment", assignment);
-        this.longRunningTurnAssignment = assignment;
+    public void setLongRunningPlanSummary(String longRunningPlanSummary) {
+        requireLongRunningMode("longRunningPlanSummary", longRunningPlanSummary);
+        this.longRunningPlanSummary = normalizeOptionalLongRunningText(longRunningPlanSummary);
     }
 
     public boolean isLongRunningWorkerSession() {
@@ -466,6 +442,19 @@ public class ConversationSession {
 
     public void setLongRunningWorkerSession(boolean value) {
         this.longRunningWorkerSession = value;
+    }
+
+    public Optional<LongRunningTransitionRequest> pendingLongRunningTransitionRequest() {
+        return Optional.ofNullable(pendingLongRunningTransitionRequest);
+    }
+
+    public void setPendingLongRunningTransitionRequest(LongRunningTransitionRequest request) {
+        requireLongRunningMode("pendingLongRunningTransitionRequest", request);
+        this.pendingLongRunningTransitionRequest = request;
+    }
+
+    public void clearPendingLongRunningTransitionRequest() {
+        this.pendingLongRunningTransitionRequest = null;
     }
 
     public Optional<madacode.longrunning.WorkerReport> lastWorkerReport() {

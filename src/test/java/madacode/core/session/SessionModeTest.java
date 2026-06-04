@@ -54,7 +54,7 @@ class SessionModeTest {
         ConversationSession session = new ConversationSession();
 
         assertThrows(IllegalStateException.class,
-                () -> session.setLongRunningStage(LongRunningStage.PLANNING));
+                () -> session.setLongRunningStage(LongRunningStage.DRAFT));
         assertThrows(IllegalStateException.class,
                 () -> session.setLongRunningTaskId("task-1"));
         assertThrows(IllegalStateException.class,

@@ -38,37 +38,25 @@ public final class LongRunningTaskInitializer {
     }
 
     /**
-     * Ensures the session has a durable draft task shell immediately on entry.
+     * Ensures the session has a durable planning task.
+     *
+     * <p>This is intentionally called before the first DRAFT model turn so
+     * logs, task metadata, and workspace checkpoint files exist even if the
+     * model later asks questions or the process is interrupted.
      */
-    public LongRunningTaskContext ensureDraftTaskShell(ConversationSession session) {
+    public LongRunningTaskContext ensurePlanningTask(ConversationSession session, String expandedInput) {
         Objects.requireNonNull(session, "session");
         if (session.workflowMode() != SessionMode.LONG_RUNNING) {
             throw new IllegalStateException(
-                    "ensureDraftTaskShell requires LONG_RUNNING mode, got " + session.workflowMode());
+                    "ensurePlanningTask requires LONG_RUNNING mode, got " + session.workflowMode());
         }
         if (session.longRunningTaskDirectory() != null && session.longRunningTaskId() == null) {
             session.setLongRunningTaskDirectory(null);
         }
         if (session.longRunningTaskId() != null) {
-            return restoreDraftTask(session);
+            return restorePlanningTask(session);
         }
-        return createNewTask(session, "", "draft", LongRunningStage.DRAFT);
-    }
-
-    /**
-     * Ensures the session has a durable planning task.
-     *
-     * <p>This is intentionally called before the first PLANNING model turn so
-     * logs, task metadata, and workspace checkpoint files exist even if the
-     * model later asks questions or the process is interrupted.
-     */
-    public LongRunningTaskContext ensurePlanningTask(ConversationSession session, String expandedInput) {
-        Objects.requireNonNull(expandedInput, "expandedInput");
-        if (session.longRunningTaskTitle() == null) {
-            session.setLongRunningTaskTitle(taskTitle(expandedInput));
-        }
-        session.setLongRunningReason(expandedInput);
-        return ensureDraftTaskShell(session);
+        return createNewTask(session, expandedInput, "DRAFT", LongRunningStage.DRAFT);
     }
 
     /**
@@ -96,7 +84,6 @@ public final class LongRunningTaskInitializer {
                     "ensureExecutionTask requires LONG_RUNNING mode, got " + session.workflowMode());
         }
         session.setPlanMode(false);
-        session.setExecutionStarted(true);
 
         // Stale partial state: taskDirectory without taskId — clear and recreate
         if (session.longRunningTaskId() == null && session.longRunningTaskDirectory() != null) {
@@ -109,21 +96,28 @@ public final class LongRunningTaskInitializer {
             return context;
         }
 
-        LongRunningTaskContext context = createNewTask(session, expandedInput, "running", LongRunningStage.RUNNING);
+        LongRunningTaskContext context = createNewTask(session, expandedInput, "DRAFT", LongRunningStage.DRAFT);
+        context = restoreOrInitializeExecutionTask(session, expandedInput);
         persistApprovedPlan(session);
         return context;
     }
 
-    private LongRunningTaskContext restoreDraftTask(ConversationSession session) {
+    private LongRunningTaskContext restorePlanningTask(ConversationSession session) {
         String taskId = session.longRunningTaskId();
         String previousDirectory = session.longRunningTaskDirectory();
         Path dir = store.validateTaskDirectory(taskId);
         LongRunningTaskMetadata meta = store.loadTask(taskId);
+        if (!"DRAFT".equals(meta.status())) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " is not a draft task: status="
+                            + meta.status() + ", stage=" + meta.stage());
+        }
         session.setLongRunningTaskDirectory(dir.toString());
         if (session.longRunningTaskTitle() == null) {
             session.setLongRunningTaskTitle(meta.title());
         }
         session.setLongRunningStage(LongRunningStage.DRAFT);
+        session.setLongRunningReason(meta.reason());
         if (previousDirectory == null || !previousDirectory.equals(dir.toString())) {
             store.appendEvent(taskId, LongRunningTaskEvent.of(
                     "task_context_repaired",
@@ -140,10 +134,6 @@ public final class LongRunningTaskInitializer {
         return new LongRunningTaskContext(meta.id(), dir, meta);
     }
 
-    private LongRunningTaskContext restorePlanningTask(ConversationSession session) {
-        return restoreDraftTask(session);
-    }
-
     private LongRunningTaskContext restoreOrInitializeExecutionTask(
             ConversationSession session,
             String expandedInput) {
@@ -151,22 +141,21 @@ public final class LongRunningTaskInitializer {
         String previousDirectory = session.longRunningTaskDirectory();
         Path dir = store.validateTaskDirectory(taskId);
         LongRunningTaskMetadata meta = store.loadTask(taskId);
-        if (isExecutionInitializablePlanningStage(meta.stage())) {
+        if ("DRAFT".equals(meta.status())) {
             meta = store.markTaskExecuting(taskId);
             store.appendProgress(taskId, initializedProgressEntry(session, expandedInput));
             store.appendEvent(taskId, LongRunningTaskEvent.of(
-                    "task_execution_started",
+                    "task_execution_initialized",
                     taskId,
                     session.sessionId(),
                     LongRunningStage.RUNNING.name(),
                     null,
                     true,
-                    "Long-running task entered RUNNING.",
+                    "Long-running task entered RUNNING; awaiting launcher/worker.",
                     Map.of("taskDirectory", dir.toString())));
-        } else if (!"running".equals(meta.status())
-                || !LongRunningStage.RUNNING.name().equals(meta.stage())) {
+        } else if (!"RUNNING".equals(meta.status())) {
             throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " is not in running state: status="
+                    "Task " + taskId + " is not ready for execution handoff: status="
                             + meta.status() + ", stage=" + meta.stage());
         }
         session.setLongRunningTaskDirectory(dir.toString());
@@ -174,6 +163,7 @@ public final class LongRunningTaskInitializer {
             session.setLongRunningTaskTitle(meta.title());
         }
         session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningReason(meta.reason());
         if (previousDirectory == null || !previousDirectory.equals(dir.toString())) {
             store.appendEvent(taskId, LongRunningTaskEvent.of(
                     "task_context_repaired",
@@ -188,11 +178,6 @@ public final class LongRunningTaskInitializer {
                             "taskDirectory", dir.toString())));
         }
         return new LongRunningTaskContext(meta.id(), dir, meta);
-    }
-
-    private static boolean isExecutionInitializablePlanningStage(String stage) {
-        return LongRunningStage.DRAFT.name().equals(stage)
-                || LongRunningStage.RUNNING.name().equals(stage);
     }
 
     private LongRunningTaskContext createNewTask(
@@ -311,8 +296,8 @@ public final class LongRunningTaskInitializer {
                 stage: RUNNING
                 session: %s
                 task: %s
-                execution input: %s
-                status: long-running execution started
+                approval input: %s
+                status: task entered RUNNING; awaiting launcher/worker
 
                 """.formatted(
                 Instant.now(),

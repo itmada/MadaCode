@@ -29,7 +29,7 @@ class LongRunningModeHandlerTest {
     Path tempDir;
 
     @Test
-    void defaultsToDraftStageWhenLegacyPlanModeIsEnabled() {
+    void fallsBackToPlanningStageWhenLegacyPlanModeIsEnabled() {
         AtomicReference<String> seenInput = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
             seenInput.set(turn.userInput());
@@ -53,7 +53,7 @@ class LongRunningModeHandlerTest {
     }
 
     @Test
-    void acceptsExplicitRunningStage() {
+    void acceptsExplicitExecutingStage() {
         AtomicReference<String> seenInput = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
             seenInput.set(turn.userInput());
@@ -73,7 +73,6 @@ class LongRunningModeHandlerTest {
 
         assertEquals("continue", seenInput.get());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
-        assertNull(session.longRunningTurnAssignment().orElse(null));
     }
 
     @Test
@@ -104,7 +103,7 @@ class LongRunningModeHandlerTest {
     }
 
     @Test
-    void draftStageKeepsDraftAndInitializesTaskShellBeforeTurn() {
+    void waitingForTaskMovesToPlanningBeforeTurn() {
         AtomicReference<LongRunningStage> stageDuringTurn = new AtomicReference<>();
         AtomicReference<String> taskIdDuringTurn = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
@@ -131,12 +130,12 @@ class LongRunningModeHandlerTest {
         assertEquals(taskIdDuringTurn.get(), session.longRunningTaskId());
         assertTrue(Files.isDirectory(Path.of(session.longRunningTaskDirectory())));
         LongRunningTaskStore store = new LongRunningTaskStore(session.workingDirectory());
-        assertEquals("draft", store.loadTask(session.longRunningTaskId()).status());
+        assertEquals("DRAFT", store.loadTask(session.longRunningTaskId()).status());
         assertTrue(Files.isRegularFile(Path.of(session.longRunningTaskDirectory()).resolve("logs/events.jsonl")));
     }
 
     @Test
-    void runningStageRunsConversationalTurnWithoutCreatingTask() {
+    void executingStageRunsConversationalTurnWithoutCreatingTask() {
         AtomicReference<String> seenInput = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
             seenInput.set(turn.userInput());
@@ -160,7 +159,7 @@ class LongRunningModeHandlerTest {
     }
 
     @Test
-    void runningStageRunsConversationalTurnEvenWithExistingTaskId() {
+    void executingStageRunsConversationalTurnEvenWithExistingTaskId() {
         AtomicReference<String> seenInput = new AtomicReference<>();
         TurnExecutor executor = executor((turn, session, token) -> {
             seenInput.set(turn.userInput());
@@ -185,7 +184,7 @@ class LongRunningModeHandlerTest {
     }
 
     @Test
-    void runningControlSessionDoesNotVerifyAssignment() {
+    void executingControlSessionDoesNotVerifyAssignment() {
         TurnExecutor executor = executor((turn, session, token) ->
                 new TurnResult("ok", FinishReason.COMPLETED, 1));
         ConversationSession session = new ConversationSession(tempDir.resolve("ws-verify"));

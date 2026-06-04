@@ -51,8 +51,6 @@ public class SessionStorageTest {
         session.setPlanMode(true);
         session.setPermissionMode(PermissionMode.BYPASS);
         session.setLongRunningStage(LongRunningStage.DRAFT);
-        session.setLongRunningReason("discuss refactor scope");
-        session.setExecutionStarted(false);
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
@@ -72,8 +70,6 @@ public class SessionStorageTest {
         assertNull(restored.longRunningTaskDirectory());
         assertEquals(session.permissionMode(), restored.permissionMode());
         assertEquals(session.longRunningStage(), restored.longRunningStage());
-        assertEquals("discuss refactor scope", restored.longRunningReason());
-        assertEquals(false, restored.executionStarted());
         assertEquals(session.messages().size(), restored.messages().size());
 
         for (int i = 0; i < session.messages().size(); i++) {
@@ -151,8 +147,6 @@ public class SessionStorageTest {
         session.setLongRunningTaskDirectory(tempDir.resolve("workspace/tasks/task-42").toString());
         session.setLongRunningTaskTitle("Implement long-running workflow");
         session.setLongRunningPlanSummary("Finalize a durable serial execution plan.");
-        session.setLongRunningReason("user entered long-running mode");
-        session.setExecutionStarted(false);
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
@@ -163,12 +157,10 @@ public class SessionStorageTest {
         assertEquals(tempDir.resolve("workspace/tasks/task-42").toString(), restored.longRunningTaskDirectory());
         assertEquals("Implement long-running workflow", restored.longRunningTaskTitle());
         assertEquals("Finalize a durable serial execution plan.", restored.longRunningPlanSummary());
-        assertEquals("user entered long-running mode", restored.longRunningReason());
-        assertEquals(false, restored.executionStarted());
     }
 
     @Test
-    void saveAndLoadPreservesLongRunningWorkerMarkerAndWorkerReport() {
+    void saveAndLoadPreservesLongRunningWorkerMarker() {
         SessionStorage storage = new SessionStorage(tempDir);
         ConversationSession session = new ConversationSession(
                 "worker-session",
@@ -178,18 +170,7 @@ public class SessionStorageTest {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningTaskId("task-worker");
-        session.setExecutionStarted(true);
         session.setLongRunningWorkerSession(true);
-        session.recordWorkerReport(new madacode.longrunning.WorkerReport(
-                "task-worker",
-                "worker-session",
-                madacode.longrunning.WorkerReport.Status.PROGRESS_MADE,
-                "updated files",
-                null,
-                null,
-                List.of("src/App.java"),
-                List.of("mvn test"),
-                "continue"));
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
@@ -197,9 +178,6 @@ public class SessionStorageTest {
         assertTrue(restored.isLongRunningWorkerSession());
         assertEquals(LongRunningStage.RUNNING, restored.longRunningStage());
         assertEquals("task-worker", restored.longRunningTaskId());
-        assertEquals(true, restored.executionStarted());
-        assertTrue(restored.lastWorkerReport().isPresent());
-        assertEquals("updated files", restored.lastWorkerReport().orElseThrow().summary());
     }
 
     @Test

@@ -28,7 +28,7 @@ class LongRunningToolPolicyTest {
     void taskUpdateHiddenInExecutingControlSession() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
 
         assertFalse(LongRunningToolPolicy.isToolVisible("longrun_task_update", session));
     }
@@ -45,7 +45,7 @@ class LongRunningToolPolicyTest {
     void neitherVisibleInCompletedStage() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.COMPLETED);
+        session.setLongRunningStage(LongRunningStage.DONE);
 
         assertFalse(LongRunningToolPolicy.isToolVisible("longrun_task_update", session));
     }
@@ -54,7 +54,7 @@ class LongRunningToolPolicyTest {
     void neitherVisibleInCancelledStage() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.CANCELLED);
+        session.setLongRunningStage(LongRunningStage.DONE);
 
         assertFalse(LongRunningToolPolicy.isToolVisible("longrun_task_update", session));
     }
@@ -67,7 +67,7 @@ class LongRunningToolPolicyTest {
 
         ConversationSession lrSession = new ConversationSession();
         lrSession.setWorkflowMode(SessionMode.LONG_RUNNING);
-        lrSession.setLongRunningStage(LongRunningStage.EXECUTING);
+        lrSession.setLongRunningStage(LongRunningStage.RUNNING);
         assertTrue(LongRunningToolPolicy.isToolVisible("file_read", lrSession));
     }
 
@@ -75,7 +75,7 @@ class LongRunningToolPolicyTest {
     void planningDeniesNormalWriteTools() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("bash", false), session));
         assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("write", false), session));
@@ -95,7 +95,7 @@ class LongRunningToolPolicyTest {
     void waitingForApprovalDeniesNormalWriteTools() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("bash", false), session));
         assertFalse(LongRunningToolPolicy.isToolVisible(new StubTool("write", false), session));
@@ -117,7 +117,7 @@ class LongRunningToolPolicyTest {
     void taskUpdateDeniedInPlanningStage() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         String reason = LongRunningToolPolicy.executionDenialReason("longrun_task_update", session);
         assertNotNull(reason);
@@ -128,7 +128,7 @@ class LongRunningToolPolicyTest {
     void taskUpdateDeniedInWaitingForApprovalStage() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         String reason = LongRunningToolPolicy.executionDenialReason("longrun_task_update", session);
         assertNotNull(reason);
@@ -146,7 +146,7 @@ class LongRunningToolPolicyTest {
     void taskUpdateDeniedInExecutingForControlSession() {
         ConversationSession executing = new ConversationSession();
         executing.setWorkflowMode(SessionMode.LONG_RUNNING);
-        executing.setLongRunningStage(LongRunningStage.EXECUTING);
+        executing.setLongRunningStage(LongRunningStage.RUNNING);
         assertNotNull(LongRunningToolPolicy.executionDenialReason("longrun_task_update", executing));
     }
 
@@ -170,7 +170,7 @@ class LongRunningToolPolicyTest {
     void workerSessionExecutingShowsTaskUpdateAndWorkerReport() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningWorkerSession(true);
 
         assertTrue(LongRunningToolPolicy.isToolVisible("longrun_task_update", session));
@@ -181,7 +181,7 @@ class LongRunningToolPolicyTest {
     void controlSessionExecutingHidesWorkerReportAndTaskUpdate() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         // NOT a worker session
 
         assertFalse(LongRunningToolPolicy.isToolVisible("worker_report", session));
@@ -192,7 +192,7 @@ class LongRunningToolPolicyTest {
     void workerSessionNonExecutingHidesAllLongRunningTools() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
         session.setLongRunningWorkerSession(true);
 
         assertFalse(LongRunningToolPolicy.isToolVisible("worker_report", session));
@@ -203,7 +203,7 @@ class LongRunningToolPolicyTest {
     void workerReportDeniedInControlSession() {
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
 
         String reason = LongRunningToolPolicy.executionDenialReason("worker_report", session);
         assertNotNull(reason);

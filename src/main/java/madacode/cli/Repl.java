@@ -11,6 +11,8 @@ import madacode.cli.slash.SlashContext;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
+import madacode.core.session.LongRunningStage;
+import madacode.core.session.LongRunningTransitionRequest;
 import madacode.core.session.SessionListener;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorageException;
@@ -30,6 +32,7 @@ import madacode.tui.theme.Tk;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
 
+import madacode.longrunning.LongRunningController;
 import madacode.longrunning.LongRunningLauncher;
 import madacode.longrunning.LongRunningWorkerRunner;
 import madacode.permission.PermissionGate;
@@ -58,6 +61,8 @@ public abstract class Repl {
     final TurnExecutor turnExecutor;
     final ModeRouter modeRouter;
     final LongRunningLauncher launcher;
+    final LongRunningController longRunningController;
+    final UserPromptChannel promptChannel;
     final PermissionGate permissionGate;
     final Path workerTurnLogRoot;
     private final List<AutoCloseable> shutdownTargets;
@@ -79,6 +84,12 @@ public abstract class Repl {
                         new CommonModeHandler(turnExecutor),
                         new LongRunningModeHandler(turnExecutor));
         this.launcher = config.launcher;
+        this.longRunningController = config.longRunningController != null
+                ? config.longRunningController
+                : new LongRunningController();
+        this.promptChannel = config.promptChannel != null
+                ? config.promptChannel
+                : UnavailablePromptChannel.INSTANCE;
         this.permissionGate = config.permissionGate;
         this.workerTurnLogRoot = config.workerTurnLogRoot;
         this.shutdownTargets = config.shutdownTargets != null
@@ -123,6 +134,7 @@ public abstract class Repl {
                 yield true;
             }
             case SlashAction.Handled h -> {
+                processPendingLongRunningTransitionRequest();
                 if (h.persistSession()) {
                     persistSession();
                 }
@@ -130,10 +142,6 @@ public abstract class Repl {
             }
             case SlashAction.SwitchSession s -> {
                 replaceSession(s.session(), s.fresh());
-                yield true;
-            }
-            case SlashAction.SwitchToNewLongRunningSession s -> {
-                replaceSession(s.session(), true);
                 yield true;
             }
             case SlashAction.ReplayAll r -> {
@@ -215,7 +223,46 @@ public abstract class Repl {
             }
         }
         session.fireTurnEnd();
+        processPendingLongRunningTransitionRequest();
         persistSession();
+    }
+
+    private void processPendingLongRunningTransitionRequest() {
+        session.pendingLongRunningTransitionRequest()
+                .ifPresent(this::handlePendingLongRunningTransitionRequest);
+    }
+
+    private void handlePendingLongRunningTransitionRequest(LongRunningTransitionRequest request) {
+        boolean approved = promptChannel.confirm(longRunningTransitionPrompt(request));
+        try {
+            if (approved) {
+                LongRunningController.AppliedTransition applied =
+                        longRunningController.applyPendingRequest(session, "user", interruptController);
+                if (applied.targetStage() == LongRunningStage.RUNNING) {
+                    runLongRunLaunch(5);
+                }
+            } else {
+                longRunningController.rejectPendingRequest(session, "user");
+            }
+        } catch (RuntimeException exception) {
+            screen.scrollback("Failed to apply long-running transition: " + exception.getMessage());
+        }
+    }
+
+    protected static String longRunningTransitionPrompt(LongRunningTransitionRequest request) {
+        LongRunningStage source = request.sourceStage().normalized();
+        LongRunningStage target = request.targetStage().normalized();
+        String suffix = request.summary() == null ? "" : "\n\n" + request.summary();
+        if (source == LongRunningStage.DRAFT && target == LongRunningStage.RUNNING) {
+            return "Start this long-running task now?" + suffix;
+        }
+        if (source == LongRunningStage.RUNNING && target == LongRunningStage.DRAFT) {
+            return "Pause worker execution and return to DRAFT?" + suffix;
+        }
+        if (target == LongRunningStage.DONE) {
+            return "Mark this long-running task DONE?" + suffix;
+        }
+        return "Apply long-running transition " + source + " -> " + target + "?" + suffix;
     }
 
     private Optional<ModeExecution> runAfterTurnHook(ModeExecution.AfterTurn afterTurn) {
@@ -400,6 +447,8 @@ public abstract class Repl {
         List<AutoCloseable> shutdownTargets;
         ModeRouter modeRouter;
         LongRunningLauncher launcher;
+        LongRunningController longRunningController;
+        UserPromptChannel promptChannel;
         PermissionGate permissionGate;
         Path workerTurnLogRoot;
     }

@@ -1,10 +1,7 @@
 package madacode.cli.slash;
 
-import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
 import madacode.longrunning.LongRunningController;
-
-import java.util.Optional;
 
 final class LongRunFinalizeCommand implements SlashCommand {
 
@@ -35,15 +32,13 @@ final class LongRunFinalizeCommand implements SlashCommand {
             ctx.screen().scrollback("Not in long-running mode.");
             return new SlashAction.Handled();
         }
-        LongRunningStage stage = ctx.session().longRunningStage();
-        if (stage != LongRunningStage.DRAFT) {
-            ctx.screen().scrollback("Cannot finalize plan in stage: " + stage);
+        if (ctx.session().longRunningStage() != madacode.core.session.LongRunningStage.DRAFT) {
+            ctx.screen().scrollback("Cannot finalize plan in stage: " + ctx.session().longRunningStage());
             return new SlashAction.Handled();
         }
         try {
             controller.finalizePlan(ctx.session());
-            ctx.screen().scrollback("Plan recorded as ready while remaining in DRAFT. "
-                    + "Use /longrun-approve when you want runtime execution to begin.");
+            ctx.screen().scrollback("Transition request recorded. Runtime will ask for confirmation before changing state.");
             return new SlashAction.Handled(true);
         } catch (Exception e) {
             ctx.screen().scrollback("Failed to finalize plan: " + e.getMessage());

@@ -40,8 +40,7 @@ final class LongRunApproveCommand implements SlashCommand {
         }
         try {
             controller.approveExecution(ctx.session(), args.isBlank() ? "" : args);
-            ctx.screen().scrollback("Execution approved. Control session entered RUNNING. "
-                    + "Use /longrun-continue to launch worker agents.");
+            ctx.screen().scrollback("Transition request recorded. Runtime will ask for confirmation before starting workers.");
             return new SlashAction.Handled(true);
         } catch (Exception e) {
             ctx.screen().scrollback("Failed to approve execution: " + e.getMessage());

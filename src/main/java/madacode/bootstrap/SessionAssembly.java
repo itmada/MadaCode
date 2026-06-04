@@ -4,12 +4,13 @@ import madacode.cli.CliArgs;
 import madacode.cli.session.SessionPointer;
 import madacode.cli.session.StartupSessionLauncher;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.LongRunningStage;
+import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
-import madacode.longrunning.LongRunningSessionBootstrap;
 import madacode.tui.WelcomeCard;
 import madacode.tui.inline.InlineChoicePrompt;
 
@@ -30,11 +31,11 @@ final class SessionAssembly {
                     resolveStartupSession(environment, storage, terminal));
         }
         return new SessionRuntime(storage,
-                resolveSession(environment.args(), storage, environment.projectDir()));
+                resolveSession(environment.args(), storage));
     }
 
     private static ConversationSession resolveSession(
-            CliArgs args, SessionStorage storage, Path projectDir) {
+            CliArgs args, SessionStorage storage) {
         return switch (args) {
             case CliArgs.NewSession n -> {
                 ConversationSession session = new ConversationSession();
@@ -81,8 +82,9 @@ final class SessionAssembly {
                 yield session;
             }
             case CliArgs.LongRunningSession l -> {
-                ConversationSession session =
-                        LongRunningSessionBootstrap.createFreshControlSession(projectDir);
+                ConversationSession session = new ConversationSession();
+                session.setWorkflowMode(SessionMode.LONG_RUNNING);
+                session.setLongRunningStage(LongRunningStage.DRAFT);
                 SessionPointer.write(session.sessionId());
                 yield session;
             }

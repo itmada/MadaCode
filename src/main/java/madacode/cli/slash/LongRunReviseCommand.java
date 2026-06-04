@@ -33,13 +33,14 @@ final class LongRunReviseCommand implements SlashCommand {
             ctx.screen().scrollback("Not in long-running mode.");
             return new SlashAction.Handled();
         }
-        if (ctx.session().longRunningStage() != LongRunningStage.DRAFT) {
+        if (ctx.session().longRunningStage() != LongRunningStage.RUNNING
+                && ctx.session().longRunningStage() != LongRunningStage.DRAFT) {
             ctx.screen().scrollback("Cannot revise plan in stage: " + ctx.session().longRunningStage());
             return new SlashAction.Handled();
         }
         try {
             controller.revisePlan(ctx.session());
-            ctx.screen().scrollback("Plan remains in DRAFT for revision.");
+            ctx.screen().scrollback("Transition request recorded. Runtime will ask for confirmation before returning to DRAFT.");
             return new SlashAction.Handled(true);
         } catch (Exception e) {
             ctx.screen().scrollback("Failed to revise plan: " + e.getMessage());

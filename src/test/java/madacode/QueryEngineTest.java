@@ -260,7 +260,7 @@ public class QueryEngineTest {
     @Test
     void longRunningToolDeclarationsAreFilteredByStage() {
         FakeApiClient fakeApiClient = new FakeApiClient();
-        fakeApiClient.enqueue(new ApiClient.ApiResponse("planning", List.of()));
+        fakeApiClient.enqueue(new ApiClient.ApiResponse("DRAFT", List.of()));
 
         ToolRegistry registry = new ToolRegistry();
         registry.register(new StubTool("file_read"));
@@ -273,7 +273,7 @@ public class QueryEngineTest {
                 PermissionGate.permissive());
         ConversationSession session = new ConversationSession();
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         engine.runTurn(session, "finish planning");
 
@@ -281,7 +281,7 @@ public class QueryEngineTest {
         assertTrue(fakeApiClient.lastSystemPrompt().contains("Available tools: file_read"));
 
         FakeApiClient executingClient = new FakeApiClient();
-        executingClient.enqueue(new ApiClient.ApiResponse("executing", List.of()));
+        executingClient.enqueue(new ApiClient.ApiResponse("RUNNING", List.of()));
         QueryEngine executingEngine = new QueryEngine(
                 executingClient,
                 registry,
@@ -289,7 +289,7 @@ public class QueryEngineTest {
                 PermissionGate.permissive());
         ConversationSession executing = new ConversationSession();
         executing.setWorkflowMode(SessionMode.LONG_RUNNING);
-        executing.setLongRunningStage(LongRunningStage.EXECUTING);
+        executing.setLongRunningStage(LongRunningStage.RUNNING);
 
         executingEngine.runTurn(executing, "continue");
 

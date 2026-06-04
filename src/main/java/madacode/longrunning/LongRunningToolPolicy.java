@@ -33,6 +33,8 @@ public final class LongRunningToolPolicy {
 
     private static final String TASK_UPDATE_TOOL = "longrun_task_update";
     private static final String WORKER_REPORT_TOOL = "worker_report";
+    private static final String PLAN_UPDATE_TOOL = "longrun_plan_update";
+    private static final String TRANSITION_REQUEST_TOOL = "longrun_state_transition_request";
 
     private static final Set<String> ORDINARY_PLAN_MODE_TOOLS = Set.of(
             "enter_plan_mode", "exit_plan_mode",
@@ -59,7 +61,7 @@ public final class LongRunningToolPolicy {
         if (stage == null) {
             return false;
         }
-        // Worker session: task_update and worker_report visible in EXECUTING
+        // Worker session: task_update and worker_report visible in RUNNING.
         if (session.isLongRunningWorkerSession() && stage == LongRunningStage.RUNNING) {
             return switch (toolName) {
                 case TASK_UPDATE_TOOL, WORKER_REPORT_TOOL -> true;
@@ -69,6 +71,8 @@ public final class LongRunningToolPolicy {
         // Control session
         return switch (toolName) {
             case TASK_UPDATE_TOOL, WORKER_REPORT_TOOL -> false;
+            case PLAN_UPDATE_TOOL -> stage == LongRunningStage.DRAFT;
+            case TRANSITION_REQUEST_TOOL -> stage == LongRunningStage.DRAFT || stage == LongRunningStage.RUNNING;
             default -> false;
         };
     }
@@ -90,23 +94,28 @@ public final class LongRunningToolPolicy {
         if (stage == null) return !isLongRunningTool(name);
         if (ORDINARY_PLAN_MODE_TOOLS.contains(name)) return false;
 
-        // Worker session in EXECUTING: full tool access except stage_update
+        // Worker session in RUNNING: full tool access plus task-store tools.
         if (session.isLongRunningWorkerSession() && stage == LongRunningStage.RUNNING) {
             if (WORKER_REPORT_TOOL.equals(name)) return true;
             if (TASK_UPDATE_TOOL.equals(name)) return true;
+            if (PLAN_UPDATE_TOOL.equals(name) || TRANSITION_REQUEST_TOOL.equals(name)) return false;
             return true; // All other tools available to worker
         }
 
         if (stage == LongRunningStage.DRAFT) {
             if (TASK_UPDATE_TOOL.equals(name)) return false;
             if (WORKER_REPORT_TOOL.equals(name)) return false;
+            if (PLAN_UPDATE_TOOL.equals(name)) return true;
+            if (TRANSITION_REQUEST_TOOL.equals(name)) return true;
             return tool.isReadOnly() || PRE_EXECUTION_ALLOWED_WRITE_TOOLS.contains(name);
         }
 
-        if (stage == LongRunningStage.RUNNING || stage == LongRunningStage.DONE) {
+        if (stage == LongRunningStage.RUNNING) {
             // Control session: read-only only. No task updates, no worker report.
             if (TASK_UPDATE_TOOL.equals(name)) return false;
             if (WORKER_REPORT_TOOL.equals(name)) return false;
+            if (PLAN_UPDATE_TOOL.equals(name)) return false;
+            if (TRANSITION_REQUEST_TOOL.equals(name)) return true;
             return tool.isReadOnly();
         }
 
@@ -154,6 +163,10 @@ public final class LongRunningToolPolicy {
                 "longrun_task_update is reserved for the worker session and is not available in the control session. Current stage: " + stage;
             case WORKER_REPORT_TOOL ->
                 "worker_report is only available in a worker session. Current stage: " + stage;
+            case PLAN_UPDATE_TOOL ->
+                "longrun_plan_update is only available in the control session while the task is DRAFT. Current stage: " + stage;
+            case TRANSITION_REQUEST_TOOL ->
+                "longrun_state_transition_request is only available in the control session while the task is DRAFT or RUNNING. Current stage: " + stage;
             default -> "Unknown long-running tool: " + toolName;
         };
     }
@@ -172,13 +185,12 @@ public final class LongRunningToolPolicy {
                 && session.workflowMode() == SessionMode.LONG_RUNNING
                 && session.longRunningStage() == LongRunningStage.DRAFT) {
             return "Current long-running stage is " + session.longRunningStage()
-                    + ". This stage only allows planning, approval, read-only investigation, and ask_user_question. Do not attempt implementation until EXECUTING.";
+                    + ". This stage only allows draft planning, transition requests, read-only investigation, and ask_user_question. Do not attempt implementation until RUNNING.";
         }
 
         if (session != null
                 && session.workflowMode() == SessionMode.LONG_RUNNING
-                && (session.longRunningStage() == LongRunningStage.RUNNING
-                    || session.longRunningStage() == LongRunningStage.DONE)) {
+                && session.longRunningStage() == LongRunningStage.RUNNING) {
             return "Current long-running stage is " + session.longRunningStage()
                     + ". The control session only allows read-only tools. Implementation is managed by the worker/launcher system.";
         }
@@ -188,6 +200,8 @@ public final class LongRunningToolPolicy {
 
     private static boolean isLongRunningTool(String toolName) {
         return TASK_UPDATE_TOOL.equals(toolName)
-                || WORKER_REPORT_TOOL.equals(toolName);
+                || WORKER_REPORT_TOOL.equals(toolName)
+                || PLAN_UPDATE_TOOL.equals(toolName)
+                || TRANSITION_REQUEST_TOOL.equals(toolName);
     }
 }

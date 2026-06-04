@@ -7,33 +7,19 @@ public enum LongRunningStage {
     RUNNING,
     DONE;
 
-    @Deprecated(forRemoval = false)
-    public static final LongRunningStage WAITING_FOR_TASK = DRAFT;
-    @Deprecated(forRemoval = false)
-    public static final LongRunningStage PLANNING = DRAFT;
-    @Deprecated(forRemoval = false)
-    public static final LongRunningStage WAITING_FOR_APPROVAL = DRAFT;
-    @Deprecated(forRemoval = false)
-    public static final LongRunningStage INITIALIZING = RUNNING;
-    @Deprecated(forRemoval = false)
-    public static final LongRunningStage EXECUTING = RUNNING;
-    @Deprecated(forRemoval = false)
-    public static final LongRunningStage COMPLETED = DONE;
-    @Deprecated(forRemoval = false)
-    public static final LongRunningStage CANCELLED = DONE;
+    public LongRunningStage normalized() {
+        return this;
+    }
 
     public static Optional<LongRunningStage> fromWire(String value) {
         if (value == null || value.isBlank()) {
             return Optional.empty();
         }
-        String normalized = value.strip().toUpperCase();
-        return switch (normalized) {
-            case "DRAFT", "WAITING_FOR_TASK", "PLANNING", "WAITING_FOR_APPROVAL" ->
+        return switch (value.strip().toUpperCase()) {
+            case "DRAFT", "PLANNING", "WAITING_FOR_TASK", "WAITING_FOR_APPROVAL", "INITIALIZING" ->
                     Optional.of(DRAFT);
-            case "RUNNING", "INITIALIZING", "EXECUTING" ->
-                    Optional.of(RUNNING);
-            case "DONE", "COMPLETED", "CANCELLED" ->
-                    Optional.of(DONE);
+            case "RUNNING", "EXECUTING" -> Optional.of(RUNNING);
+            case "DONE", "COMPLETED", "CANCELLED" -> Optional.of(DONE);
             default -> Optional.empty();
         };
     }

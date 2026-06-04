@@ -86,6 +86,7 @@ public final class JLineRepl extends Repl {
                                    CompactPlanner compactPlanner,
                                    PermissionGate permissionGate,
                                    Path workerTurnLogRoot,
+                                   UserPromptChannel promptChannel,
                                    InterruptController interruptController) {
         NotificationCenter notifications = new NotificationCenter(screen);
         SessionContext ctx = new SessionContext();
@@ -161,6 +162,7 @@ public final class JLineRepl extends Repl {
         config.expandableHistory = expandableHistory;
         config.permissionGate = permissionGate;
         config.workerTurnLogRoot = workerTurnLogRoot;
+        config.promptChannel = promptChannel;
 
         JLineRepl repl = new JLineRepl(config, terminal, screen, lineReader, sessionHistory, slashComposer);
         repl.interruptController = interruptController;

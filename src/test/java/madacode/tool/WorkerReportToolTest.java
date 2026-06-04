@@ -53,7 +53,7 @@ class WorkerReportToolTest {
     void failsInControlSession() {
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningTaskId("task-1");
         // NOT a worker session
         ToolUseContext context = new ToolUseContext(tempDir, session);
@@ -106,7 +106,7 @@ class WorkerReportToolTest {
         Path workingDirectory = tempDir.resolve("ws-report");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-report", "Test task", "executing", "session-ctrl", "EXECUTING"));
+                "task-report", "Test task", "RUNNING", "session-ctrl", "RUNNING"));
 
         ConversationSession session = workerSession("task-report", workingDirectory);
         ToolUseContext context = new ToolUseContext(workingDirectory, session);
@@ -143,11 +143,11 @@ class WorkerReportToolTest {
         assertTrue(events.stream().anyMatch(e -> "worker_report".equals(e.type())
                 && "PROGRESS_MADE".equals(e.action())));
 
-        // Verify progress.txt has summary
+        // worker_report is structured control flow only; business progress is
+        // written by longrun_task_update.
         String progress = Files.readString(workingDirectory.resolve(".mada/long-running/task-report/progress.txt"));
-        assertTrue(progress.contains("Implemented feature X"));
-        assertTrue(progress.contains("progress_made"));
-        assertTrue(progress.contains("feat-1"));
+        assertFalse(progress.contains("Implemented feature X"));
+        assertFalse(progress.contains("progress_made"));
     }
 
     @Test
@@ -155,7 +155,7 @@ class WorkerReportToolTest {
         Path workingDirectory = tempDir.resolve("ws-complete");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-complete", "Test task", "executing", "session-ctrl", "EXECUTING"));
+                "task-complete", "Test task", "RUNNING", "session-ctrl", "RUNNING"));
 
         ConversationSession session = workerSession("task-complete", workingDirectory);
         ToolUseContext context = new ToolUseContext(workingDirectory, session);
@@ -173,7 +173,7 @@ class WorkerReportToolTest {
         Path workingDirectory = tempDir.resolve("ws-duplicate");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-duplicate", "Test task", "executing", "session-ctrl", "EXECUTING"));
+                "task-duplicate", "Test task", "RUNNING", "session-ctrl", "RUNNING"));
         ConversationSession session = workerSession("task-duplicate", workingDirectory);
         ToolUseContext context = new ToolUseContext(workingDirectory, session);
 
@@ -195,7 +195,7 @@ class WorkerReportToolTest {
     private ConversationSession workerSession(String taskId, Path workingDirectory) {
         ConversationSession session = new ConversationSession(workingDirectory);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningWorkerSession(true);
         session.setLongRunningTaskId(taskId);
         return session;

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import madacode.core.engine.ToolUseContext;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
-import madacode.core.session.LongRunningTurnAssignment;
 import madacode.core.session.SessionMode;
 import madacode.longrunning.CreateTaskRequest;
 import madacode.longrunning.LongRunningTaskMetadata;
@@ -113,7 +112,7 @@ class LongRunTaskUpdateToolTest {
                 "high",
                 "open",
                 null,
-                "EXECUTING",
+                "RUNNING",
                 List.of("Verify fix"),
                 null),
                 context(session));
@@ -245,88 +244,28 @@ class LongRunTaskUpdateToolTest {
                 null),
                 context(session));
 
-        var result = tool.execute(new LongRunTaskUpdateTool.Input(
+        var complete = tool.execute(new LongRunTaskUpdateTool.Input(
                 "mark_task_complete",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null),
+                null, null, null, null, null, null, null, null, null, null, null),
                 context(session));
-
-        assertTrue(result.success());
-        assertTrue(result.output().contains("completed"));
-        assertEquals(LongRunningStage.COMPLETED, session.longRunningStage());
-
-        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        LongRunningTaskMetadata meta = store.loadTask("task-010");
-        assertEquals("completed", meta.status());
-        assertEquals("COMPLETED", meta.stage());
-    }
-
-    @Test
-    void markTaskCompleteRejectsIncompleteTask() {
-        ConversationSession session = initializedSession("task-012");
-
-        var result = tool.execute(new LongRunTaskUpdateTool.Input(
-                "mark_task_complete",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null),
-                context(session));
-
-        assertFalse(result.success());
-        assertTrue(result.output().contains("feature list is empty"));
-        assertEquals(LongRunningStage.EXECUTING, session.longRunningStage());
-    }
-
-    @Test
-    void cancelTaskUpdatesStoreAndSessionStage() {
-        ConversationSession session = initializedSession("task-011");
-        var result = tool.execute(new LongRunTaskUpdateTool.Input(
+        var cancel = tool.execute(new LongRunTaskUpdateTool.Input(
                 "cancel_task",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null),
+                null, null, null, null, null, null, null, null, null, null, null),
                 context(session));
 
-        assertTrue(result.success());
-        assertTrue(result.output().contains("cancelled"));
-        assertEquals(LongRunningStage.CANCELLED, session.longRunningStage());
-
-        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        LongRunningTaskMetadata meta = store.loadTask("task-011");
-        assertEquals("cancelled", meta.status());
-        assertEquals("CANCELLED", meta.stage());
+        assertFalse(complete.success());
+        assertFalse(cancel.success());
+        assertTrue(complete.output().contains("Unsupported"));
+        assertTrue(cancel.output().contains("Unsupported"));
+        assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
+        assertEquals("RUNNING", new LongRunningTaskStore(tempDir).loadTask("task-010").status());
     }
 
     @Test
     void taskUpdateToolRejectsNonExecutingStage() {
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         var result = tool.execute(new LongRunTaskUpdateTool.Input(
                 "append_progress",
@@ -344,7 +283,7 @@ class LongRunTaskUpdateToolTest {
                 context(session));
 
         assertFalse(result.success());
-        assertTrue(result.output().contains("EXECUTING"));
+        assertTrue(result.output().contains("RUNNING"));
     }
 
     @Test
@@ -359,7 +298,7 @@ class LongRunTaskUpdateToolTest {
                 context(session));
         tool.execute(new LongRunTaskUpdateTool.Input(
                 "record_issue",
-                null, null, null, "issue-1", "desc", "high", "open", null, "EXECUTING", List.of(), null),
+                null, null, null, "issue-1", "desc", "high", "open", null, "RUNNING", List.of(), null),
                 context(session));
 
         var result = tool.execute(new LongRunTaskUpdateTool.Input(
@@ -387,7 +326,7 @@ class LongRunTaskUpdateToolTest {
                 context(session));
         tool.execute(new LongRunTaskUpdateTool.Input(
                 "record_issue",
-                null, null, null, "issue-1", "desc", "high", "open", null, "EXECUTING", List.of(), null),
+                null, null, null, "issue-1", "desc", "high", "open", null, "RUNNING", List.of(), null),
                 context(session));
         tool.execute(new LongRunTaskUpdateTool.Input(
                 "resolve_issue",
@@ -408,12 +347,12 @@ class LongRunTaskUpdateToolTest {
         // Create task on disk but do NOT set taskDirectory on session
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
         store.createTask(new CreateTaskRequest(
-                "task-repair-dir", "Repair dir test", "executing", "session-rd", "EXECUTING"));
+                "task-repair-dir", "Repair dir test", "RUNNING", "session-rd", "RUNNING"));
         Path realDir = store.taskDirectoryPath("task-repair-dir");
 
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningTaskId("task-repair-dir");
         // taskDirectory intentionally left null
 
@@ -444,33 +383,10 @@ class LongRunTaskUpdateToolTest {
     }
 
     @Test
-    void taskUpdateEventIncludesHarnessAssignmentTarget() {
-        ConversationSession session = initializedSession("task-assignment-details");
-        session.setLongRunningTurnAssignment(new LongRunningTurnAssignment(
-                LongRunningTurnAssignment.Kind.FEATURE,
-                "feature-a",
-                "Build feature A",
-                "eligible",
-                List.of("verify")));
-
-        var result = tool.execute(new LongRunTaskUpdateTool.Input(
-                "append_progress",
-                null, null, null, null, null, null, null, null, null, null,
-                "feature progress"),
-                context(session));
-
-        assertTrue(result.success());
-        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        var event = store.readEvents("task-assignment-details").getFirst();
-        assertEquals("FEATURE", event.details().get("assignedKind"));
-        assertEquals("feature-a", event.details().get("assignedTargetId"));
-    }
-
-    @Test
     void failsWhenTaskDirectoryDoesNotExistOnDisk() {
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningTaskId("task-missing");
 
         var result = tool.execute(new LongRunTaskUpdateTool.Input(
@@ -489,12 +405,12 @@ class LongRunTaskUpdateToolTest {
         store.createTask(new CreateTaskRequest(
                 taskId,
                 "Test task",
-                "executing",
+                "RUNNING",
                 "session-1",
-                "EXECUTING"));
+                "RUNNING"));
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningTaskId(taskId);
         session.setLongRunningTaskDirectory(tempDir
                 .resolve(".mada/long-running")

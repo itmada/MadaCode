@@ -432,7 +432,7 @@ public class DefaultPermissionGateTest {
         RecordingPrompt prompt = new RecordingPrompt(ApprovalResponse.ALLOW_ONCE);
         DefaultPermissionGate gate = gate(prompt);
 
-        String target = tempDir.resolve(".mada/long-running/task-1/known-issues.json").toString();
+        String target = tempDir.resolve(".mada/long-running/task-1/known_issues.json").toString();
         PermissionDecision decision = gate.check(
                 new BashTool(), bashInput("ruby -e 'File.write(\"" + target + "\", \"[]\")'"), context());
 

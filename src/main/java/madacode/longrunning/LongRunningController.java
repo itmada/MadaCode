@@ -1,16 +1,20 @@
 package madacode.longrunning;
 
+import madacode.cli.InterruptController;
+import madacode.core.model.Message;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
+import madacode.core.session.LongRunningTransitionRequest;
+import madacode.core.session.SessionMode;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * Service layer for long-running task stage transitions.
- * Called directly by slash commands and the launcher — not by model tool calls.
+ * Single authority for long-running transition requests and applied state changes.
  */
 public final class LongRunningController {
 
@@ -25,70 +29,279 @@ public final class LongRunningController {
         this(taskStoreFactory, LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId);
     }
 
-    public LongRunningController(TaskStoreFactory taskStoreFactory,
-                                  LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
+    public LongRunningController(
+            TaskStoreFactory taskStoreFactory,
+            LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
         this.taskStoreFactory = Objects.requireNonNull(taskStoreFactory, "taskStoreFactory");
         this.taskIdGenerator = Objects.requireNonNull(taskIdGenerator, "taskIdGenerator");
     }
 
-    // ---- Stage transition methods called by slash commands ----
+    public LongRunningTransitionRequest requestTransition(
+            ConversationSession session,
+            LongRunningStage targetStage,
+            String reason,
+            String summary,
+            String planDelta,
+            String requestedBy) {
+        Objects.requireNonNull(session, "session");
+        requireControlSession(session);
+        LongRunningStage sourceStage = effectiveStage(session);
+        LongRunningTransitionRequest request = LongRunningTransitionRequest.of(
+                sourceStage,
+                Objects.requireNonNull(targetStage, "targetStage").normalized(),
+                reason,
+                summary,
+                planDelta,
+                requestedBy);
+        validateRequest(session, request);
+        if (session.longRunningTaskId() == null) {
+            ensureDraftTask(session, firstNonBlank(summary, session.longRunningTaskTitle(), ""));
+        }
+        session.setPendingLongRunningTransitionRequest(request);
+        appendEvent(session, "transition_request_pending", request, true,
+                "Pending transition request: " + request.sourceStage() + " -> " + request.targetStage() + ".",
+                Map.of());
+        appendControlNotice(session, "[long-running] Pending transition request: "
+                + request.sourceStage() + " -> " + request.targetStage() + ".");
+        return request;
+    }
+
+    public void rejectPendingRequest(ConversationSession session, String rejectedBy) {
+        Objects.requireNonNull(session, "session");
+        LongRunningTransitionRequest request = session.pendingLongRunningTransitionRequest()
+                .orElseThrow(() -> new IllegalStateException("No pending long-running transition request."));
+        appendEvent(session, "transition_request_rejected", request, false,
+                "Rejected transition request: " + request.sourceStage() + " -> " + request.targetStage() + ".",
+                Map.of("rejectedBy", safe(rejectedBy)));
+        appendControlNotice(session, "[long-running] Kept " + request.sourceStage()
+                + " after user declined transition to " + request.targetStage() + ".");
+        session.clearPendingLongRunningTransitionRequest();
+    }
+
+    public AppliedTransition applyPendingRequest(
+            ConversationSession session,
+            String approvedBy,
+            InterruptController interruptController) {
+        Objects.requireNonNull(session, "session");
+        LongRunningTransitionRequest request = session.pendingLongRunningTransitionRequest()
+                .orElseThrow(() -> new IllegalStateException("No pending long-running transition request."));
+        AppliedTransition applied = applyTransition(session, request, approvedBy, interruptController);
+        session.clearPendingLongRunningTransitionRequest();
+        return applied;
+    }
+
+    public AppliedTransition requestAndApply(
+            ConversationSession session,
+            LongRunningStage targetStage,
+            String reason,
+            String summary,
+            String planDelta,
+            String requestedBy,
+            InterruptController interruptController) {
+        requestTransition(session, targetStage, reason, summary, planDelta, requestedBy);
+        return applyPendingRequest(session, requestedBy, interruptController);
+    }
 
     public void finalizePlan(ConversationSession session) {
-        Objects.requireNonNull(session, "session");
-        LongRunningStage stage = session.longRunningStage();
-        if (stage != LongRunningStage.DRAFT) {
-            throw new IllegalStateException(
-                    "Cannot finalize plan: session is in stage " + stage);
-        }
-        String taskId = requireActiveTask(session);
-        LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
-        appendEvent(store, taskId, "plan_ready", "FINALIZE_PLAN",
-                true, "Plan is ready for a future RUNNING transition.", session.longRunningStage());
+        requestTransition(session, LongRunningStage.DRAFT,
+                "plan_ready_for_confirmation",
+                firstNonBlank(session.longRunningPlanSummary(), session.longRunningTaskTitle(), "Plan ready."),
+                session.longRunningPlanSummary(),
+                "slash:/longrun-finalize");
     }
 
     public void approveExecution(ConversationSession session, String expandedInput) {
-        Objects.requireNonNull(session, "session");
-        if (session.longRunningStage() != LongRunningStage.DRAFT) {
-            throw new IllegalStateException(
-                    "Cannot approve execution: session is in stage " + session.longRunningStage());
-        }
-        String taskId = requireActiveTask(session);
-        LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
-
-        session.setLongRunningTurnAssignment(null);
-
-        LongRunningTaskInitializer initializer = new LongRunningTaskInitializer(store, taskIdGenerator);
-        initializer.ensureExecutionTask(session, expandedInput);
-        appendEvent(store, taskId, "stage_transition", "APPROVE_EXECUTION",
-                true, "Execution approved; control session entered RUNNING.", session.longRunningStage());
+        requestTransition(session, LongRunningStage.RUNNING,
+                "user_confirmed_start",
+                firstNonBlank(expandedInput, session.longRunningPlanSummary(), session.longRunningTaskTitle(), ""),
+                session.longRunningPlanSummary(),
+                "slash:/longrun-approve");
     }
 
     public void revisePlan(ConversationSession session) {
-        Objects.requireNonNull(session, "session");
-        if (session.longRunningStage() != LongRunningStage.DRAFT) {
-            throw new IllegalStateException(
-                    "Cannot revise plan: session is in stage " + session.longRunningStage());
-        }
-        String taskId = requireActiveTask(session);
-        LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
-        appendEvent(store, taskId, "stage_transition", "REVISE_PLAN",
-                true, "Plan remains in DRAFT for revision.", session.longRunningStage());
+        requestTransition(session, LongRunningStage.DRAFT,
+                "resume_after_revision",
+                "User requested plan revision.",
+                session.longRunningPlanSummary(),
+                "slash:/longrun-revise");
     }
 
     public void cancelTask(ConversationSession session) {
-        Objects.requireNonNull(session, "session");
-        String taskId = requireActiveTask(session);
-        LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
-
-        store.cancelTask(taskId);
-        session.setLongRunningStage(LongRunningStage.DONE);
-        appendEvent(store, taskId, "stage_transition", "CANCEL",
-                true, "Task cancelled by user.", session.longRunningStage());
+        requestTransition(session, LongRunningStage.DONE,
+                "user_requested_cancel",
+                "User cancelled the long-running task.",
+                null,
+                "slash:/longrun-cancel");
     }
 
-    // ---- Helpers ----
+    private AppliedTransition applyTransition(
+            ConversationSession session,
+            LongRunningTransitionRequest request,
+            String approvedBy,
+            InterruptController interruptController) {
+        requireControlSession(session);
+        LongRunningTaskStore store = taskStore(session);
+        String taskId = requireTaskId(session);
+        LongRunningStage previous = effectiveStage(session);
+        LongRunningStage target = request.targetStage().normalized();
 
-    private String requireActiveTask(ConversationSession session) {
+        switch (target) {
+            case DRAFT -> {
+                if (previous == LongRunningStage.RUNNING) {
+                    interruptRunningWork(interruptController);
+                }
+                store.markPlanRevision(taskId);
+                session.setLongRunningStage(LongRunningStage.DRAFT);
+                session.setLongRunningReason(request.reason());
+            }
+            case RUNNING -> {
+                ensureExecutionTask(session, request.summary());
+                store.markTaskExecuting(taskId);
+                session.setLongRunningStage(LongRunningStage.RUNNING);
+                session.setLongRunningReason(request.reason());
+            }
+            case DONE -> {
+                if ("task_completed".equals(request.reason())) {
+                    store.markTaskCompleted(taskId);
+                } else {
+                    store.cancelTask(taskId);
+                }
+                session.setLongRunningStage(LongRunningStage.DONE);
+                session.setLongRunningReason(request.reason());
+            }
+        }
+
+        appendProgress(store, taskId, request, true);
+        appendEvent(session, "transition_applied", request, true,
+                "Applied transition: " + previous + " -> " + target + " (" + request.reason() + ").",
+                Map.of("approvedBy", safe(approvedBy)));
+        appendControlNotice(session, "[long-running] " + previous + " -> " + target
+                + " (" + request.reason() + ").");
+        return new AppliedTransition(previous, target, request.reason());
+    }
+
+    private void validateRequest(ConversationSession session, LongRunningTransitionRequest request) {
+        if (session.isLongRunningWorkerSession()) {
+            throw new IllegalStateException("Worker session cannot request long-running transitions.");
+        }
+        LongRunningStage source = effectiveStage(session);
+        LongRunningStage target = request.targetStage().normalized();
+        if (source == LongRunningStage.DONE) {
+            throw new IllegalStateException("Long-running task is already DONE.");
+        }
+        if (source == LongRunningStage.DRAFT
+                && target != LongRunningStage.DRAFT
+                && target != LongRunningStage.RUNNING
+                && target != LongRunningStage.DONE) {
+            throw new IllegalStateException("DRAFT sessions may only request DRAFT, RUNNING, or DONE.");
+        }
+        if (source == LongRunningStage.RUNNING
+                && target != LongRunningStage.DRAFT
+                && target != LongRunningStage.RUNNING
+                && target != LongRunningStage.DONE) {
+            throw new IllegalStateException("RUNNING sessions may only request DRAFT, RUNNING, or DONE.");
+        }
+    }
+
+    private void ensureDraftTask(ConversationSession session, String expandedInput) {
+        LongRunningTaskInitializer initializer =
+                new LongRunningTaskInitializer(taskStore(session), taskIdGenerator);
+        initializer.ensurePlanningTask(session, expandedInput);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
+    }
+
+    private void ensureExecutionTask(ConversationSession session, String expandedInput) {
+        LongRunningTaskInitializer initializer =
+                new LongRunningTaskInitializer(taskStore(session), taskIdGenerator);
+        initializer.ensureExecutionTask(session, expandedInput == null ? "" : expandedInput);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+    }
+
+    private static void interruptRunningWork(InterruptController interruptController) {
+        if (interruptController != null && interruptController.hasActiveTurn()) {
+            interruptController.interrupt("longrun-transition");
+        }
+    }
+
+    private void appendEvent(
+            ConversationSession session,
+            String type,
+            LongRunningTransitionRequest request,
+            boolean success,
+            String message,
+            Map<String, String> extraDetails) {
+        try {
+            String taskId = session.longRunningTaskId();
+            if (taskId == null || taskId.isBlank()) {
+                return;
+            }
+            LinkedHashMap<String, String> details = new LinkedHashMap<>();
+            details.put("sourceStage", request.sourceStage().name());
+            details.put("targetStage", request.targetStage().name());
+            details.put("reason", request.reason());
+            if (request.summary() != null) {
+                details.put("summary", request.summary());
+            }
+            if (request.planDelta() != null) {
+                details.put("planDelta", request.planDelta());
+            }
+            details.putAll(extraDetails);
+            taskStore(session).appendEvent(taskId, new LongRunningTaskEvent(
+                    Instant.now(),
+                    type,
+                    taskId,
+                    session.sessionId(),
+                    effectiveStage(session).name(),
+                    request.reason(),
+                    success,
+                    message,
+                    Map.copyOf(details)));
+        } catch (RuntimeException ignored) {
+            // Best-effort diagnostics only.
+        }
+    }
+
+    private static void appendProgress(
+            LongRunningTaskStore store,
+            String taskId,
+            LongRunningTransitionRequest request,
+            boolean approved) {
+        try {
+            String line = "## " + Instant.now() + System.lineSeparator()
+                    + "transition: " + request.sourceStage() + " -> " + request.targetStage() + System.lineSeparator()
+                    + "reason: " + request.reason() + System.lineSeparator()
+                    + "approved: " + approved + System.lineSeparator()
+                    + (request.summary() == null ? "" : "summary: " + request.summary() + System.lineSeparator())
+                    + System.lineSeparator();
+            store.appendProgress(taskId, line);
+        } catch (RuntimeException ignored) {
+            // Best-effort diagnostics only.
+        }
+    }
+
+    private static void appendControlNotice(ConversationSession session, String text) {
+        session.addMessage(Message.system(text));
+    }
+
+    private static void requireControlSession(ConversationSession session) {
+        if (session.workflowMode() != SessionMode.LONG_RUNNING) {
+            throw new IllegalStateException("Long-running mode is not active for this session.");
+        }
+        if (session.isLongRunningWorkerSession()) {
+            throw new IllegalStateException("Worker session cannot manage long-running transitions.");
+        }
+    }
+
+    private static LongRunningStage effectiveStage(ConversationSession session) {
+        LongRunningStage stage = session.longRunningStage();
+        return stage == null ? LongRunningStage.DRAFT : stage.normalized();
+    }
+
+    private LongRunningTaskStore taskStore(ConversationSession session) {
+        return taskStoreFactory.create(session.workingDirectory());
+    }
+
+    private static String requireTaskId(ConversationSession session) {
         String taskId = session.longRunningTaskId();
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalStateException("No active long-running task on session.");
@@ -96,17 +309,23 @@ public final class LongRunningController {
         return taskId;
     }
 
-    private static void appendEvent(LongRunningTaskStore store, String taskId,
-                                     String type, String action, boolean success,
-                                     String message, LongRunningStage stage) {
-        try {
-            store.appendEvent(taskId, new LongRunningTaskEvent(
-                    Instant.now(), type, taskId, null,
-                    stage != null ? stage.name() : null,
-                    action, success, message, Map.of()));
-        } catch (RuntimeException ignored) {
-            // best-effort event logging
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.strip();
+            }
         }
+        return "";
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+
+    public record AppliedTransition(
+            LongRunningStage sourceStage,
+            LongRunningStage targetStage,
+            String reason) {
     }
 
     @FunctionalInterface

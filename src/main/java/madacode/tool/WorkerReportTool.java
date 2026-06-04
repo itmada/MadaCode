@@ -11,7 +11,6 @@ import madacode.longrunning.LongRunningTaskEvent;
 import madacode.longrunning.LongRunningTaskStore;
 import madacode.longrunning.WorkerReport;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -20,8 +19,9 @@ import java.util.Objects;
 /**
  * Tool for worker agents to report the outcome of a bounded work cycle.
  *
- * <p>This tool writes structured results to the task store (events.jsonl + progress.txt)
- * and records the report in the session for the launcher to read.
+ * <p>This tool writes a structured report event and records the report in the
+ * session for the launcher to read. Business progress belongs in
+ * {@code longrun_task_update}.
  */
 public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
 
@@ -84,7 +84,7 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
         Objects.requireNonNull(input, "input");
         ConversationSession session = context.session();
 
-        // Guard: must be a worker session in long-running RUNNING stage
+        // Guard: must be a worker session in long-running RUNNING stage.
         if (session.workflowMode() != SessionMode.LONG_RUNNING) {
             return failed("Long-running mode is not active for this session.");
         }
@@ -150,30 +150,6 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
                             "filesChanged", String.join(", ", report.filesChanged()),
                             "verification", String.join("; ", report.verification()),
                             "next", report.next() == null ? "" : report.next())));
-
-            // Append progress
-            StringBuilder progress = new StringBuilder();
-            progress.append("## ").append(Instant.now()).append("\n");
-            progress.append("worker: ").append(report.workerSessionId()).append("\n");
-            progress.append("status: ").append(status.name().toLowerCase(Locale.ROOT)).append("\n");
-            if (report.featureId() != null) {
-                progress.append("feature: ").append(report.featureId()).append("\n");
-            }
-            if (report.issueId() != null) {
-                progress.append("issue: ").append(report.issueId()).append("\n");
-            }
-            progress.append("summary: ").append(report.summary()).append("\n");
-            if (!report.filesChanged().isEmpty()) {
-                progress.append("files_changed: ").append(String.join(", ", report.filesChanged())).append("\n");
-            }
-            if (!report.verification().isEmpty()) {
-                progress.append("verification: ").append(String.join("; ", report.verification())).append("\n");
-            }
-            if (report.next() != null) {
-                progress.append("next: ").append(report.next()).append("\n");
-            }
-            progress.append("\n");
-            store.appendProgress(sessionTaskId, progress.toString());
 
             // Record in session for launcher to read
             session.recordWorkerReport(report);

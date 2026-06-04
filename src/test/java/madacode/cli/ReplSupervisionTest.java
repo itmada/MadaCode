@@ -380,13 +380,13 @@ class ReplSupervisionTest {
         SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-long"));
         ConversationSession session = new ConversationSession(tempDir.resolve("ws-long"));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         AtomicReference<String> seenPrompt = new AtomicReference<>();
         QueryEngine engine = new QueryEngine(
                 (msgs, sys, tools, sink, tok) -> {
                     seenPrompt.set(firstText(msgs.getLast()));
-                    sink.onTextDelta("executing");
-                    return new ApiClient.ApiResponse("executing", List.of());
+                    sink.onTextDelta("RUNNING");
+                    return new ApiClient.ApiResponse("RUNNING", List.of());
                 },
                 new ToolRegistry(), new SystemPromptBuilder(),
                 PermissionGate.permissive());
@@ -450,7 +450,7 @@ class ReplSupervisionTest {
         ConversationSession restored = storage.load(session.sessionId());
         assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
         assertEquals(PermissionMode.BYPASS, restored.permissionMode());
-        assertEquals(LongRunningStage.WAITING_FOR_TASK, restored.longRunningStage());
+        assertEquals(LongRunningStage.DRAFT, restored.longRunningStage());
     }
 
     @Test
@@ -458,7 +458,7 @@ class ReplSupervisionTest {
         SessionStorage storage = new SessionStorage(tempDir.resolve("sessions-auto"));
         ConversationSession session = new ConversationSession(tempDir.resolve("ws-auto"));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.EXECUTING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         // No taskId set — command should report no active task
 
         QueryEngine engine = new QueryEngine(
@@ -498,11 +498,11 @@ class ReplSupervisionTest {
         Path workingDirectory = tempDir.resolve("ws-chain");
         ConversationSession session = new ConversationSession(workingDirectory);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.WAITING_FOR_APPROVAL);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-chain", "Chain test", "planning", session.sessionId(), "WAITING_FOR_APPROVAL"));
+                "task-chain", "Chain test", "DRAFT", session.sessionId(), "DRAFT"));
         session.setLongRunningTaskId("task-chain");
         session.setLongRunningTaskDirectory(store.taskDirectoryPath("task-chain").toString());
 
@@ -521,9 +521,9 @@ class ReplSupervisionTest {
                             CompletableFuture.completedFuture(new madacode.core.turn.TurnResult(
                                     "ok", FinishReason.COMPLETED, 1)),
                             reason -> { });
-                    // Simulate approving execution: set INITIALIZING
+                    // Simulate approving execution: enter RUNNING
                     return ModeExecution.managedTurn(handle, () -> {
-                        s.setLongRunningStage(LongRunningStage.INITIALIZING);
+                        s.setLongRunningStage(LongRunningStage.RUNNING);
                         return Optional.empty();
                     });
                 });
@@ -554,7 +554,7 @@ class ReplSupervisionTest {
 
         assertEquals(1, turnCount.get(), "Handler should have been called once for user input");
         assertEquals("开始", turnInputs.get(0), "First turn input should be user's '开始'");
-        assertEquals(LongRunningStage.INITIALIZING, session.longRunningStage());
+        assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals(SessionMode.LONG_RUNNING, session.workflowMode());
         assertFalse(session.inputHistory().contains("[auto-start] Begin executing the approved long-running task."),
                 "Auto-start input should not appear in inputHistory");

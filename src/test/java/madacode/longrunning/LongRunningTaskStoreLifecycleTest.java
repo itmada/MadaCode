@@ -32,8 +32,8 @@ class LongRunningTaskStoreLifecycleTest {
 
         LongRunningTaskMetadata result = store.markTaskCompleted("task-comp-1");
 
-        assertEquals("completed", result.status());
-        assertEquals("COMPLETED", result.stage());
+        assertEquals("DONE", result.status());
+        assertEquals("DONE", result.stage());
     }
 
     @Test
@@ -42,8 +42,8 @@ class LongRunningTaskStoreLifecycleTest {
         store.markTaskCompleted("task-comp-2");
 
         LongRunningTaskMetadata reloaded = store.loadTask("task-comp-2");
-        assertEquals("completed", reloaded.status());
-        assertEquals("COMPLETED", reloaded.stage());
+        assertEquals("DONE", reloaded.status());
+        assertEquals("DONE", reloaded.stage());
     }
 
     @Test
@@ -58,7 +58,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsEmptyFeatureList() {
-        store.createTask(new CreateTaskRequest("task-empty-features", "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest("task-empty-features", "Test", "RUNNING", "s1", "RUNNING"));
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
                 () -> store.markTaskCompleted("task-empty-features"));
@@ -68,7 +68,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsIncompleteFeatures() {
-        store.createTask(new CreateTaskRequest("task-incomplete", "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest("task-incomplete", "Test", "RUNNING", "s1", "RUNNING"));
         store.writeInitialFeatureList("task-incomplete", List.of(feature("feature-a")));
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
@@ -80,7 +80,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsOpenKnownIssue() {
-        store.createTask(new CreateTaskRequest("task-open-issue", "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest("task-open-issue", "Test", "RUNNING", "s1", "RUNNING"));
         store.writeInitialFeatureList("task-open-issue", List.of(feature("feature-a")));
         store.markFeaturePassed("task-open-issue", "feature-a");
         store.recordIssue("task-open-issue", issue("issue-a", "open"));
@@ -94,7 +94,7 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void markTaskCompletedRejectsBlockedKnownIssue() {
-        store.createTask(new CreateTaskRequest("task-blocked-issue", "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest("task-blocked-issue", "Test", "RUNNING", "s1", "RUNNING"));
         store.writeInitialFeatureList("task-blocked-issue", List.of(feature("feature-a")));
         store.markFeaturePassed("task-blocked-issue", "feature-a");
         store.recordIssue("task-blocked-issue", issue("issue-a", "blocked"));
@@ -110,59 +110,59 @@ class LongRunningTaskStoreLifecycleTest {
 
     @Test
     void cancelTaskUpdatesStatusAndStage() {
-        store.createTask(new CreateTaskRequest("task-cancel-1", "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest("task-cancel-1", "Test", "RUNNING", "s1", "RUNNING"));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-1");
 
-        assertEquals("cancelled", result.status());
-        assertEquals("CANCELLED", result.stage());
+        assertEquals("DONE", result.status());
+        assertEquals("DONE", result.stage());
     }
 
     @Test
     void cancelTaskPersistsToDisk() {
-        store.createTask(new CreateTaskRequest("task-cancel-2", "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest("task-cancel-2", "Test", "RUNNING", "s1", "RUNNING"));
         store.cancelTask("task-cancel-2");
 
         LongRunningTaskMetadata reloaded = store.loadTask("task-cancel-2");
-        assertEquals("cancelled", reloaded.status());
-        assertEquals("CANCELLED", reloaded.stage());
+        assertEquals("DONE", reloaded.status());
+        assertEquals("DONE", reloaded.stage());
     }
 
     @Test
     void cancelTaskAllowsPlanningTask() {
-        store.createTask(new CreateTaskRequest("task-cancel-planning", "Test", "planning", "s1", "PLANNING"));
+        store.createTask(new CreateTaskRequest("task-cancel-planning", "Test", "DRAFT", "s1", "PLANNING"));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-planning");
 
-        assertEquals("cancelled", result.status());
-        assertEquals("CANCELLED", result.stage());
+        assertEquals("DONE", result.status());
+        assertEquals("DONE", result.stage());
     }
 
     @Test
     void cancelTaskAllowsPlanAwaitingApproval() {
         store.createTask(new CreateTaskRequest(
-                "task-cancel-approval", "Test", "planning", "s1", "WAITING_FOR_APPROVAL"));
+                "task-cancel-approval", "Test", "DRAFT", "s1", "DRAFT"));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-approval");
 
-        assertEquals("cancelled", result.status());
-        assertEquals("CANCELLED", result.stage());
+        assertEquals("DONE", result.status());
+        assertEquals("DONE", result.stage());
     }
 
     @Test
     void cancelTaskAllowsInitializedTask() {
         store.createTask(new CreateTaskRequest(
-                "task-cancel-initialized", "Test", "initialized", "s1", "INITIALIZING"));
+                "task-cancel-initialized", "Test", "DRAFT", "s1", "DRAFT"));
 
         LongRunningTaskMetadata result = store.cancelTask("task-cancel-initialized");
 
-        assertEquals("cancelled", result.status());
-        assertEquals("CANCELLED", result.stage());
+        assertEquals("DONE", result.status());
+        assertEquals("DONE", result.stage());
     }
 
     @Test
     void cancelTaskRejectsAlreadyCancelledTask() {
-        store.createTask(new CreateTaskRequest("task-cancel-3", "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest("task-cancel-3", "Test", "RUNNING", "s1", "RUNNING"));
         store.cancelTask("task-cancel-3");
 
         LongRunningTaskStoreException ex = assertThrows(LongRunningTaskStoreException.class,
@@ -181,7 +181,7 @@ class LongRunningTaskStoreLifecycleTest {
     }
 
     private void createTaskReadyToComplete(String taskId) {
-        store.createTask(new CreateTaskRequest(taskId, "Test", "executing", "s1", "EXECUTING"));
+        store.createTask(new CreateTaskRequest(taskId, "Test", "RUNNING", "s1", "RUNNING"));
         store.writeInitialFeatureList(taskId, List.of(feature("feature-a")));
         store.markFeaturePassed(taskId, "feature-a");
     }
@@ -196,7 +196,7 @@ class LongRunningTaskStoreLifecycleTest {
                 "Unresolved behavior",
                 "high",
                 status,
-                "EXECUTING",
+                "RUNNING",
                 List.of("Verify fix"),
                 Instant.now(),
                 null);

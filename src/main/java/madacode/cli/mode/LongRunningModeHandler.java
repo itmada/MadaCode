@@ -14,8 +14,10 @@ import java.util.Objects;
 /**
  * Stateful handler for long-running workflow turns.
  *
- * <p>Each user input still runs through the normal QueryEngine turn pipeline.
- * This handler only keeps the control session in a valid DRAFT/RUNNING/DONE shape.
+ * <p>Each user input still runs through the normal QueryEngine turn pipeline,
+ * but this handler owns the workflow state transitions around that turn.
+ *
+ * <p>State transition logic is delegated to {@link LongRunningController}.
  */
 public final class LongRunningModeHandler implements ModeHandler {
 
@@ -45,9 +47,14 @@ public final class LongRunningModeHandler implements ModeHandler {
         ensureLongRunningSession(session);
         session.addInput(line);
         String expanded = AtFileCompleter.expandMentions(line, session);
-        if (stage(session) == LongRunningStage.DRAFT) {
-            initializeDraftTask(session, expanded);
+        LongRunningStage stage = stage(session);
+        if (stage == LongRunningStage.DRAFT && session.longRunningTaskId() == null) {
+            if (session.longRunningTaskTitle() == null) {
+                session.setLongRunningTaskTitle(taskTitle(expanded));
+            }
+            initializePlanningTask(session, expanded);
         }
+
         return runConversationalTurn(session, expanded);
     }
 
@@ -57,17 +64,22 @@ public final class LongRunningModeHandler implements ModeHandler {
 
     LongRunningStage stage(ConversationSession session) {
         LongRunningStage explicit = session.longRunningStage();
-        if (explicit != null) {
-            return explicit;
+        if (explicit != null) return explicit;
+        if (session.isPlanMode()) {
+            return LongRunningStage.DRAFT;
         }
         return LongRunningStage.DRAFT;
     }
 
-    private void initializeDraftTask(ConversationSession session, String expandedInput) {
+    private void initializePlanningTask(ConversationSession session, String expandedInput) {
         LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
         LongRunningTaskInitializer initializer =
                 new LongRunningTaskInitializer(store, taskIdGenerator);
         initializer.ensurePlanningTask(session, expandedInput);
+    }
+
+    private static String taskTitle(String input) {
+        return LongRunningTaskInitializer.taskTitle(input);
     }
 
     private static void ensureLongRunningSession(ConversationSession session) {

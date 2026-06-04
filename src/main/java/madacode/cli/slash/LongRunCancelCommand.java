@@ -40,7 +40,7 @@ final class LongRunCancelCommand implements SlashCommand {
         }
         try {
             controller.cancelTask(ctx.session());
-            ctx.screen().scrollback("Long-running task cancelled.");
+            ctx.screen().scrollback("Transition request recorded. Runtime will ask for confirmation before marking DONE.");
             return new SlashAction.Handled(true);
         } catch (Exception e) {
             ctx.screen().scrollback("Failed to cancel task: " + e.getMessage());

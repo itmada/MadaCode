@@ -174,20 +174,18 @@ public final class SessionStorage {
         if (session.longRunningTaskTitle() != null) {
             root.put("longRunningTaskTitle", session.longRunningTaskTitle());
         }
-        if (session.longRunningPlanSummary() != null) {
-            root.put("longRunningPlanSummary", session.longRunningPlanSummary());
-        }
         if (session.longRunningReason() != null) {
             root.put("longRunningReason", session.longRunningReason());
         }
-        if (session.executionStarted()) {
-            root.put("executionStarted", true);
+        if (session.longRunningPlanSummary() != null) {
+            root.put("longRunningPlanSummary", session.longRunningPlanSummary());
         }
         if (session.isLongRunningWorkerSession()) {
             root.put("longRunningWorkerSession", true);
         }
-        session.lastWorkerReport()
-                .ifPresent(report -> root.set("lastWorkerReport", serializeWorkerReport(report)));
+        session.pendingLongRunningTransitionRequest()
+                .ifPresent(request -> root.set("pendingLongRunningTransitionRequest",
+                        serializeTransitionRequest(request)));
         ArrayNode messages = mapper.createArrayNode();
         for (Message message : session.messages()) {
             messages.add(serializeMessage(message));
@@ -234,6 +232,25 @@ public final class SessionStorage {
         if (!item.activeForm().isEmpty()) {
             node.put("activeForm", item.activeForm());
         }
+        return node;
+    }
+
+    private ObjectNode serializeTransitionRequest(LongRunningTransitionRequest request) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("sourceStage", request.sourceStage().name());
+        node.put("targetStage", request.targetStage().name());
+        node.put("reason", request.reason());
+        if (request.summary() != null) {
+            node.put("summary", request.summary());
+        }
+        if (request.planDelta() != null) {
+            node.put("planDelta", request.planDelta());
+        }
+        node.put("requestedAt", request.requestedAt().toString());
+        if (request.requestedBy() != null) {
+            node.put("requestedBy", request.requestedBy());
+        }
+        node.put("userConfirmationRequired", request.userConfirmationRequired());
         return node;
     }
 
@@ -352,12 +369,12 @@ public final class SessionStorage {
             session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
             session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
             session.setLongRunningTaskTitle(optionalText(migrated, "longRunningTaskTitle"));
-            session.setLongRunningPlanSummary(optionalText(migrated, "longRunningPlanSummary"));
             session.setLongRunningReason(optionalText(migrated, "longRunningReason"));
-            session.setExecutionStarted(migrated.path("executionStarted").asBoolean(false));
+            session.setLongRunningPlanSummary(optionalText(migrated, "longRunningPlanSummary"));
             session.setLongRunningWorkerSession(migrated.path("longRunningWorkerSession").asBoolean(false));
-            if (migrated.has("lastWorkerReport") && migrated.get("lastWorkerReport").isObject()) {
-                session.recordWorkerReport(deserializeWorkerReport(migrated.get("lastWorkerReport")));
+            JsonNode pendingRequest = migrated.get("pendingLongRunningTransitionRequest");
+            if (pendingRequest != null && !pendingRequest.isNull()) {
+                session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
             }
         }
         return session;
@@ -384,64 +401,25 @@ public final class SessionStorage {
                 .orElseThrow(() -> new SessionStorageException("Unsupported longRunningStage: " + raw));
     }
 
-    private ObjectNode serializeWorkerReport(madacode.longrunning.WorkerReport report) {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("taskId", report.taskId());
-        node.put("workerSessionId", report.workerSessionId());
-        node.put("status", report.status().name());
-        node.put("summary", report.summary());
-        if (report.featureId() != null) {
-            node.put("featureId", report.featureId());
+    private LongRunningTransitionRequest deserializeTransitionRequest(JsonNode node) {
+        if (!node.isObject()) {
+            throw new SessionStorageException("pendingLongRunningTransitionRequest must be an object");
         }
-        if (report.issueId() != null) {
-            node.put("issueId", report.issueId());
-        }
-        ArrayNode filesChanged = mapper.createArrayNode();
-        for (String file : report.filesChanged()) {
-            filesChanged.add(file);
-        }
-        node.set("filesChanged", filesChanged);
-        ArrayNode verification = mapper.createArrayNode();
-        for (String item : report.verification()) {
-            verification.add(item);
-        }
-        node.set("verification", verification);
-        if (report.next() != null) {
-            node.put("next", report.next());
-        }
-        return node;
-    }
-
-    private madacode.longrunning.WorkerReport deserializeWorkerReport(JsonNode node) {
-        List<String> filesChanged = new ArrayList<>();
-        JsonNode filesChangedNode = node.path("filesChanged");
-        if (filesChangedNode.isArray()) {
-            for (JsonNode entry : filesChangedNode) {
-                filesChanged.add(entry.asText());
-            }
-        }
-        List<String> verification = new ArrayList<>();
-        JsonNode verificationNode = node.path("verification");
-        if (verificationNode.isArray()) {
-            for (JsonNode entry : verificationNode) {
-                verification.add(entry.asText());
-            }
-        }
-        madacode.longrunning.WorkerReport.Status status =
-                madacode.longrunning.WorkerReport.Status.fromWire(optionalText(node, "status"));
-        if (status == null) {
-            throw new SessionStorageException("Unsupported lastWorkerReport.status: " + optionalText(node, "status"));
-        }
-        return new madacode.longrunning.WorkerReport(
-                requiredText(node, "taskId"),
-                requiredText(node, "workerSessionId"),
-                status,
-                requiredText(node, "summary"),
-                optionalText(node, "featureId"),
-                optionalText(node, "issueId"),
-                filesChanged,
-                verification,
-                optionalText(node, "next"));
+        String sourceRaw = requiredText(node, "sourceStage");
+        String targetRaw = requiredText(node, "targetStage");
+        LongRunningStage source = LongRunningStage.fromWire(sourceRaw)
+                .orElseThrow(() -> new SessionStorageException("Unsupported sourceStage: " + sourceRaw));
+        LongRunningStage target = LongRunningStage.fromWire(targetRaw)
+                .orElseThrow(() -> new SessionStorageException("Unsupported targetStage: " + targetRaw));
+        return new LongRunningTransitionRequest(
+                source,
+                target,
+                requiredText(node, "reason"),
+                optionalText(node, "summary"),
+                optionalText(node, "planDelta"),
+                node.has("requestedAt") ? Instant.parse(node.path("requestedAt").asText()) : Instant.now(),
+                optionalText(node, "requestedBy"),
+                node.path("userConfirmationRequired").asBoolean(true));
     }
 
     private PlanItem deserializeTask(JsonNode node) {

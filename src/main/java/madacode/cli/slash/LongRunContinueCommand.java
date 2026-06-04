@@ -21,7 +21,7 @@ public final class LongRunContinueCommand implements SlashCommand {
         LongRunningStage stage = ctx.session().longRunningStage();
         if (stage != LongRunningStage.RUNNING) {
             SlashFeedback.muted(ctx.screen(),
-                    "Long-running task must be in RUNNING stage to launch workers. Current: " + stage);
+                    "Long-running task must be RUNNING to launch workers. Current: " + stage);
             return new SlashAction.Handled();
         }
         if (ctx.session().longRunningTaskId() == null || ctx.session().longRunningTaskId().isBlank()) {

@@ -9,7 +9,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LongRunningControllerTest {
 
@@ -17,9 +18,8 @@ class LongRunningControllerTest {
     Path tempDir;
 
     private ConversationSession sessionWithTask(String taskId, LongRunningStage stage) {
-        // Create the task on disk so the controller can access it
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-        store.createTask(new CreateTaskRequest(taskId, "Test Task", "planning", "test-session", stage.name()));
+        store.createTask(new CreateTaskRequest(taskId, "Test Task", stage.name(), "test-session", "test plan"));
 
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
@@ -30,73 +30,71 @@ class LongRunningControllerTest {
     }
 
     @Test
-    void finalizePlanMovesFromPlanningToWaitingForApproval() {
-        ConversationSession session = sessionWithTask("task-finalize", LongRunningStage.PLANNING);
+    void requestTransitionRecordsPendingRequestWithoutChangingStage() {
+        ConversationSession session = sessionWithTask("task-request", LongRunningStage.DRAFT);
 
-        new LongRunningController().finalizePlan(session);
+        new LongRunningController().requestTransition(
+                session,
+                LongRunningStage.RUNNING,
+                "user_confirmed_start",
+                "start",
+                null,
+                "test");
 
-        assertEquals(LongRunningStage.WAITING_FOR_APPROVAL, session.longRunningStage());
+        assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
+        assertTrue(session.pendingLongRunningTransitionRequest().isPresent());
     }
 
     @Test
-    void finalizePlanThrowsInWrongStage() {
-        ConversationSession session = sessionWithTask("task-finalize-err", LongRunningStage.EXECUTING);
+    void applyPendingStartMovesToRunning() {
+        ConversationSession session = sessionWithTask("task-start", LongRunningStage.DRAFT);
+        LongRunningController controller = new LongRunningController();
 
-        assertThrows(IllegalStateException.class,
-                () -> new LongRunningController().finalizePlan(session));
+        controller.requestTransition(session, LongRunningStage.RUNNING,
+                "user_confirmed_start", "approved", null, "test");
+        controller.applyPendingRequest(session, "user", null);
+
+        assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
+        assertFalse(session.pendingLongRunningTransitionRequest().isPresent());
+        assertEquals("RUNNING", new LongRunningTaskStore(tempDir).loadTask("task-start").status());
     }
 
     @Test
-    void revisePlanMovesBackToPlanning() {
-        ConversationSession session = sessionWithTask("task-revise", LongRunningStage.WAITING_FOR_APPROVAL);
+    void rejectPendingRequestKeepsCurrentStage() {
+        ConversationSession session = sessionWithTask("task-reject", LongRunningStage.DRAFT);
+        LongRunningController controller = new LongRunningController();
 
-        new LongRunningController().revisePlan(session);
+        controller.requestTransition(session, LongRunningStage.RUNNING,
+                "user_confirmed_start", "approved", null, "test");
+        controller.rejectPendingRequest(session, "user");
 
-        assertEquals(LongRunningStage.PLANNING, session.longRunningStage());
+        assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
+        assertFalse(session.pendingLongRunningTransitionRequest().isPresent());
     }
 
     @Test
-    void revisePlanThrowsInWrongStage() {
-        ConversationSession session = sessionWithTask("task-revise-err", LongRunningStage.PLANNING);
+    void applyPendingCancelMovesToDone() {
+        ConversationSession session = sessionWithTask("task-cancel", LongRunningStage.DRAFT);
+        LongRunningController controller = new LongRunningController();
 
-        assertThrows(IllegalStateException.class,
-                () -> new LongRunningController().revisePlan(session));
+        controller.cancelTask(session);
+        controller.applyPendingRequest(session, "user", null);
+
+        assertEquals(LongRunningStage.DONE, session.longRunningStage());
+        assertEquals("DONE", new LongRunningTaskStore(tempDir).loadTask("task-cancel").status());
     }
 
     @Test
-    void cancelTaskMovesToCancelled() {
-        ConversationSession session = sessionWithTask("task-cancel", LongRunningStage.PLANNING);
-
-        new LongRunningController().cancelTask(session);
-
-        assertEquals(LongRunningStage.CANCELLED, session.longRunningStage());
-    }
-
-    @Test
-    void cancelTaskThrowsWhenNoTaskId() {
+    void requestCreatesDraftTaskShellWhenMissing() {
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
 
-        assertThrows(IllegalStateException.class,
-                () -> new LongRunningController().cancelTask(session));
-    }
+        new LongRunningController().requestTransition(session, LongRunningStage.RUNNING,
+                "user_confirmed_start", "new task", null, "test");
 
-    @Test
-    void approveExecutionThrowsWhenNotInApproval() {
-        ConversationSession session = sessionWithTask("task-approve-err", LongRunningStage.PLANNING);
-
-        assertThrows(IllegalStateException.class,
-                () -> new LongRunningController().approveExecution(session, ""));
-    }
-
-    @Test
-    void requiresActiveTaskForTransitions() {
-        ConversationSession session = new ConversationSession(tempDir);
-        session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.PLANNING);
-
-        assertThrows(IllegalStateException.class,
-                () -> new LongRunningController().finalizePlan(session));
+        assertTrue(session.longRunningTaskId() != null && !session.longRunningTaskId().isBlank());
+        assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
+        assertTrue(session.pendingLongRunningTransitionRequest().isPresent());
     }
 }

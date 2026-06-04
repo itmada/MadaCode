@@ -95,6 +95,7 @@ public class DefaultPermissionGate implements PermissionGate {
         return List.of(
                 new BashSafetyPermissionRule(),
                 new LongRunningTaskStatePermissionRule(),
+                new LongRunningWorkspacePermissionRule(),
                 new ReadOnlyPermissionRule(trustedRoots),
                 new BypassPermissionRule(),
                 new AcceptEditsPermissionRule());

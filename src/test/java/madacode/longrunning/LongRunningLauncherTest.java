@@ -25,7 +25,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-progress");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "initialized", "session-ctrl", "INITIALIZING"));
+                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
         // Set up features and mark them passed so markTaskCompleted succeeds
         store.writeInitialFeatureList("task-1", List.of(
                 new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false)));
@@ -62,7 +62,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-complete");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "initialized", "session-ctrl", "INITIALIZING"));
+                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
         // Set up features and mark them passed so markTaskCompleted succeeds
         store.writeInitialFeatureList("task-1", List.of(
                 new FeatureItem("feat-1", "core", "high", "Feature 1", List.of(), List.of(), false)));
@@ -83,9 +83,9 @@ class LongRunningLauncherTest {
         assertEquals(LongRunningLauncher.LaunchStatus.COMPLETED, result.status());
         assertEquals(1, result.workersLaunched());
         LongRunningTaskMetadata meta = store.loadTask("task-1");
-        assertEquals("completed", meta.status());
-        assertEquals("COMPLETED", meta.stage());
-        assertEquals(LongRunningStage.COMPLETED, controlSession.longRunningStage());
+        assertEquals("DONE", meta.status());
+        assertEquals("DONE", meta.stage());
+        assertEquals(LongRunningStage.DONE, controlSession.longRunningStage());
     }
 
     @Test
@@ -93,7 +93,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-blocked");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "initialized", "session-ctrl", "INITIALIZING"));
+                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -117,7 +117,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-failed");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "initialized", "session-ctrl", "INITIALIZING"));
+                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -140,7 +140,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-needsuser");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "initialized", "session-ctrl", "INITIALIZING"));
+                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -163,7 +163,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-noreport");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "initialized", "session-ctrl", "INITIALIZING"));
+                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -187,7 +187,7 @@ class LongRunningLauncherTest {
         Path workingDirectory = tempDir.resolve("ws-exhausted");
         LongRunningTaskStore store = new LongRunningTaskStore(workingDirectory);
         store.createTask(new CreateTaskRequest(
-                "task-1", "Test task", "initialized", "session-ctrl", "INITIALIZING"));
+                "task-1", "Test task", "DRAFT", "session-ctrl", "DRAFT"));
 
         LongRunningWorkerRunner fakeRunner = new FakeWorkerRunner(taskId ->
                 new LongRunningWorkerRunner.WorkerRunResult(
@@ -208,7 +208,7 @@ class LongRunningLauncherTest {
     private ConversationSession controlSession(Path workingDirectory) {
         ConversationSession session = new ConversationSession(workingDirectory);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningStage(LongRunningStage.INITIALIZING);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningTaskId("task-1");
         return session;
     }
