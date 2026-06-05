@@ -35,6 +35,31 @@ public record Provider(
     }
 
     /**
+     * Whether this endpoint correctly implements fine-grained tool streaming
+     * (FGTS): the {@code fine-grained-tool-streaming} beta plus the per-tool
+     * {@code eager_input_streaming} field.
+     *
+     * <p>FGTS is only properly implemented by the first-party Anthropic API.
+     * Proxies/relays (LiteLLM and similar) and Bedrock/Vertex either reject the
+     * field with a 400 or silently accept it and then stop emitting
+     * {@code input_json_delta} events for large tool inputs — producing empty
+     * tool arguments ({@code {}}) on big {@code bash}/{@code write} calls. So we
+     * gate FGTS to first-party hosts, mirroring the upstream Claude Code
+     * {@code isFirstPartyAnthropicBaseUrl()} check.
+     *
+     * @see #isFirstPartyHost(String)
+     */
+    public boolean supportsFineGrainedToolStreaming() {
+        String host = baseUrl.getHost();
+        return host != null && isFirstPartyHost(host);
+    }
+
+    private static boolean isFirstPartyHost(String host) {
+        String h = host.toLowerCase(java.util.Locale.ROOT);
+        return h.equals("api.anthropic.com") || h.equals("api-staging.anthropic.com");
+    }
+
+    /**
      * Resolves the Anthropic Messages endpoint from {@link #baseUrl}.
      *
      * <p>Tolerates three common ways users write {@code baseUrl}:

@@ -11,6 +11,7 @@ As a powerful pair-programming assistant, MadaCode can autonomously read and edi
 - 🧠 **Intelligent Session Management**: Supports session persistence, resumable states, and automatic context compaction.
 - 🔌 **Flexible Model Ecosystem**: Dynamically hot-switch between different models and providers directly from the terminal.
 - 🧩 **Modular Extensibility**: Native support for MCP (Model Context Protocol) integration, Sub-Agents, and customizable Skill systems.
+- 🚀 **Long-Running Mode**: Designed for complex tasks like large-scale refactoring and batch fixes, the model iterates through multi-round Worker Agents with independent contexts. Each Worker picks up task context from the task file list and executes independently, with a built-in state machine (Draft → Running → Interrupt → Done), checkpoint recovery, and real-time progress monitoring.
 - ⚡ **Native Terminal Experience**: A pure CLI application built on Java 21 with a built-in interactive TUI. Can be quickly launched from source or installed as a global `mada` command.
 
 ## Quick Start
@@ -76,14 +77,15 @@ mada --new               # start a new session
 mada --continue          # continue the most recent session
 mada --resume <id>       # resume a saved session by ID
 mada --list              # list saved sessions
+mada --long-running      # start in Long-Running mode
 mada --provider <name>   # start with a provider from providers.json
 mada --no-memory         # disable memory for this run
 mada --help              # show CLI help
 ```
 
 Inside a session, use `/help` to list slash commands. Common commands include
-`/model`, `/provider`, `/sessions`, `/resume`, `/compact`, `/skills`,
-`/status`, and `/exit`.
+`/model`, `/provider`, `/mode`, `/permission`, `/sessions`, `/resume`, `/compact`,
+`/skills`, `/status`, and `/exit`.
 
 ## Configuration
 

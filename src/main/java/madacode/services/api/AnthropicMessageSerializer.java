@@ -27,6 +27,16 @@ final class AnthropicMessageSerializer {
             List<Message> messages,
             String systemPrompt,
             Collection<Tool<?>> tools) throws Exception {
+        return buildRequestBody(model, maxTokens, messages, systemPrompt, tools, false);
+    }
+
+    String buildRequestBody(
+            String model,
+            int maxTokens,
+            List<Message> messages,
+            String systemPrompt,
+            Collection<Tool<?>> tools,
+            boolean eagerInputStreaming) throws Exception {
         Objects.requireNonNull(model, "model");
 
         ObjectNode body = mapper.createObjectNode();
@@ -40,7 +50,7 @@ final class AnthropicMessageSerializer {
         if (!requestTools.isEmpty()) {
             ArrayNode toolsArr = mapper.createArrayNode();
             for (Tool<?> tool : requestTools) {
-                toolsArr.add(toolDeclaration(tool));
+                toolsArr.add(toolDeclaration(tool, eagerInputStreaming));
             }
             body.set("tools", toolsArr);
         }
@@ -147,11 +157,17 @@ final class AnthropicMessageSerializer {
         };
     }
 
-    private ObjectNode toolDeclaration(Tool<?> tool) {
+    private ObjectNode toolDeclaration(Tool<?> tool, boolean eagerInputStreaming) {
         ObjectNode t = mapper.createObjectNode();
         t.put("name", tool.name());
         t.put("description", tool.description());
         t.set("input_schema", tool.inputSchema(mapper));
+        // Only set when the caller has confirmed the endpoint implements FGTS
+        // (first-party Anthropic). Non-FGTS endpoints reject or mishandle this
+        // field; see Provider#supportsFineGrainedToolStreaming.
+        if (eagerInputStreaming) {
+            t.put("eager_input_streaming", true);
+        }
         return t;
     }
 }

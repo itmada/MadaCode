@@ -11,6 +11,7 @@
 - 🧠 **智能会话管理**：支持会话持久化、中断恢复（Resume）以及自动上下文压缩。
 - 🔌 **灵活的模型生态**：支持在终端热切换不同的 Model 与 Provider。
 - 🧩 **模块化扩展**：原生支持 MCP (Model Context Protocol) 接入，允许挂载 Sub Agent 和自定义 Skill 体系。
+- 🚀 **Long-Running 模式**：面向大规模重构、批量修复等复杂任务，模型以多轮独立上下文的 Worker Agent 循环推进，每轮 Worker 从任务文件列表中领取任务上下文后开始独立执行，内置状态机管理（规划→执行→中断→完成），支持断点恢复与实时进度监控。
 - ⚡ **原生终端体验**：基于 Java 21 构建的纯 CLI 应用，内置交互式 TUI 面板。既可从源码快速启动，也支持安装为全局 `mada` 命令。
 
 ## 快速开始
@@ -75,12 +76,13 @@ mada --new               # 开始新会话
 mada --continue          # 继续最近一次会话
 mada --resume <id>       # 按 ID 恢复已保存会话
 mada --list              # 列出已保存会话
+mada --long-running      # 启动 Long-Running 模式
 mada --provider <name>   # 使用 providers.json 中的 provider 启动
 mada --no-memory         # 本次运行禁用记忆
 mada --help              # 显示 CLI 帮助
 ```
 
-进入会话后，用 `/help` 查看 slash 命令。常用命令包括 `/model`、`/provider`、
+进入会话后，用 `/help` 查看 slash 命令。常用命令包括 `/model`、`/provider`、`/mode`、`/permission`、
 `/sessions`、`/resume`、`/compact`、`/skills`、`/status` 和 `/exit`。
 
 ## 配置
