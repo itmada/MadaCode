@@ -32,6 +32,8 @@ public final class LongRunningToolPolicy {
     private static final String WORKER_REPORT_TOOL = "worker_report";
     private static final String PLAN_UPDATE_TOOL = "longrun_plan_update";
     private static final String TRANSITION_REQUEST_TOOL = "longrun_state_transition_request";
+    private static final Set<String> WORKER_ORDINARY_TOOLS = Set.of(
+            "file_read", "glob", "grep", "write", "edit", "bash");
 
     private LongRunningToolPolicy() {}
 
@@ -53,7 +55,8 @@ public final class LongRunningToolPolicy {
         // Worker sessions never receive controller lifecycle tools.
         if (session.isLongRunningWorkerSession()) {
             return stage == LongRunningStage.RUNNING
-                    && (TASK_UPDATE_TOOL.equals(toolName) || WORKER_REPORT_TOOL.equals(toolName));
+                    && (TASK_UPDATE_TOOL.equals(toolName)
+                    || WORKER_REPORT_TOOL.equals(toolName));
         }
         // Control session
         return switch (toolName) {
@@ -80,12 +83,17 @@ public final class LongRunningToolPolicy {
         LongRunningStage stage = session.longRunningStage();
         if (stage == null) return !isLongRunningTool(name);
 
-        // Worker session in RUNNING: full ordinary tool access plus worker task-store tools.
+        if (session.isLongRunningWorkerSession() && session.lastWorkerReport().isPresent()) {
+            return false;
+        }
+
+        // Worker sessions receive an explicit capability set. Arbitrary shell,
+        // network, MCP, memory, and agent tools require a sandboxed broker.
         if (session.isLongRunningWorkerSession() && stage == LongRunningStage.RUNNING) {
             if (WORKER_REPORT_TOOL.equals(name)) return true;
             if (TASK_UPDATE_TOOL.equals(name)) return true;
             if (PLAN_UPDATE_TOOL.equals(name) || TRANSITION_REQUEST_TOOL.equals(name)) return false;
-            return true; // All other tools available to worker
+            return WORKER_ORDINARY_TOOLS.contains(name);
         }
 
         // Control session: ordinary tools remain available in every stage.
@@ -151,6 +159,9 @@ public final class LongRunningToolPolicy {
     public static String executionDenialReason(Tool<?> tool, ConversationSession session) {
         if (tool == null) return "Unknown tool.";
         if (isToolVisible(tool, session)) return null;
+        if (session != null && session.isLongRunningWorkerSession()) {
+            return "Tool is not part of the long-running worker capability set: " + tool.name();
+        }
 
         return executionDenialReason(tool.name(), session);
     }

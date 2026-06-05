@@ -17,9 +17,10 @@ public final class DiagnosticEventLogger {
     private DiagnosticEventLogger() {
     }
 
-    public static void turnStarted(ConversationSession session, int maxIterations) {
-        emit(session, "turn_started sessionId=%s maxIterations=%d messages=%d cwd=%s"
-                .formatted(session.sessionId(), maxIterations, session.messages().size(), session.workingDirectory()));
+    public static void turnStarted(ConversationSession session, Integer maxIterations) {
+        String limit = maxIterations == null ? "unbounded" : maxIterations.toString();
+        emit(session, "turn_started sessionId=%s maxIterations=%s messages=%d cwd=%s"
+                .formatted(session.sessionId(), limit, session.messages().size(), session.workingDirectory()));
     }
 
     public static void modelIterationCompleted(

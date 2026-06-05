@@ -16,9 +16,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +57,8 @@ public class ConversationSession {
     private final Instant createdAt;
     private final Path workingDirectory;
     private final AtomicReference<List<Message>> messagesRef =
+            new AtomicReference<>(List.of());
+    private final AtomicReference<List<Message>> pendingControllerEventsRef =
             new AtomicReference<>(List.of());
     private final PlanStore planStore;
     private final AtomicReference<List<String>> inputHistoryRef =
@@ -148,6 +154,64 @@ public class ConversationSession {
                 madacode.logging.DiagnosticEventLogger.listenerCrashed("onMessageAppended", e);
             }
         }
+    }
+
+    /**
+     * Append a controller-side runtime fact that must be visible to future model
+     * calls. The event is stored as a user-role message because provider
+     * serializers intentionally drop historical SYSTEM messages.
+     */
+    public void addControllerEvent(String domain, Map<String, String> fields) {
+        addControllerEvent(domain, fields, false);
+    }
+
+    public void enqueueControllerEvent(String domain, Map<String, String> fields) {
+        pendingControllerEventsRef.set(append(
+                pendingControllerEventsRef.get(),
+                buildControllerEventMessage(domain, fields)));
+    }
+
+    public void flushPendingControllerEvents() {
+        List<Message> pending = pendingControllerEventsRef.get();
+        if (pending.isEmpty()) {
+            return;
+        }
+        pendingControllerEventsRef.set(List.of());
+        for (Message event : pending) {
+            addControllerEventMessage(event);
+        }
+    }
+
+    private void addControllerEvent(String domain, Map<String, String> fields, boolean queued) {
+        Message event = buildControllerEventMessage(domain, fields);
+        if (queued) {
+            pendingControllerEventsRef.set(append(pendingControllerEventsRef.get(), event));
+            return;
+        }
+        addControllerEventMessage(event);
+    }
+
+    private Message buildControllerEventMessage(String domain, Map<String, String> fields) {
+        Objects.requireNonNull(domain, "domain");
+        Objects.requireNonNull(fields, "fields");
+        LinkedHashMap<String, String> ordered = new LinkedHashMap<>();
+        ordered.put("time", OffsetDateTime.now(ZoneId.systemDefault()).toString());
+        ordered.putAll(fields);
+        return Message.user(controllerEventText(domain, ordered));
+    }
+
+    private void addControllerEventMessage(Message event) {
+        if (currentStream != null) {
+            throw new IllegalStateException(
+                    "Cannot add controller event while an assistant stream is open; "
+                            + "finalize or abandon the stream first.");
+        }
+        List<Message> snapshot = messagesRef.get();
+        if (!snapshot.isEmpty() && snapshot.getLast().role() == MessageRole.USER) {
+            appendMessageWithoutStreamCheck(Message.system("[controller-event separator]"));
+        }
+        appendMessageWithoutStreamCheck(event);
+        appendMessageWithoutStreamCheck(Message.system("[controller-event barrier]"));
     }
 
     /** Append a streamed message silently — listeners receive
@@ -320,6 +384,7 @@ public class ConversationSession {
         return messagesRef.get().stream()
                 .filter(m -> m.role() == MessageRole.USER)
                 .map(ConversationSession::firstText)
+                .filter(s -> !isControllerEventText(s))
                 .filter(s -> !s.isBlank())
                 .findFirst()
                 .map(s -> truncateTitle(s.strip()))
@@ -332,6 +397,61 @@ public class ConversationSession {
         }
         var first = message.contentBlocks().getFirst();
         return first instanceof ContentBlock.TextBlock tb ? tb.text() : "";
+    }
+
+    private void appendMessageWithoutStreamCheck(Message message) {
+        List<Message> snapshot = messagesRef.get();
+        if (!snapshot.isEmpty()) {
+            Message tail = snapshot.getLast();
+            if (tail.role() == message.role() && message.role() != MessageRole.SYSTEM) {
+                throw new IllegalStateException(
+                        "Consecutive same-role messages are not allowed: "
+                                + message.role() + " after " + tail.role()
+                                + ". Use a SYSTEM message for warnings/markers.");
+            }
+        }
+        int index = snapshot.size();
+        messagesRef.set(append(snapshot, message));
+        for (SessionListener l : listeners) {
+            try {
+                l.onMessageAppended(index, message);
+            } catch (RuntimeException e) {
+                madacode.logging.DiagnosticEventLogger.listenerCrashed("onMessageAppended", e);
+            }
+        }
+    }
+
+    private static String controllerEventText(String domain, Map<String, String> fields) {
+        StringBuilder text = new StringBuilder("[controller-event][")
+                .append(normalizeControllerEventToken(domain))
+                .append("]");
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            String key = normalizeControllerEventToken(entry.getKey());
+            String value = normalizeControllerEventValue(entry.getValue());
+            if (key.isBlank() || value.isBlank()) {
+                continue;
+            }
+            text.append('\n').append(key).append(": ").append(value);
+        }
+        return text.toString();
+    }
+
+    private static String normalizeControllerEventToken(String value) {
+        return value == null ? "" : value.strip()
+                .replaceAll("[^A-Za-z0-9_.-]+", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_|_$", "");
+    }
+
+    private static String normalizeControllerEventValue(String value) {
+        return value == null ? "" : value.strip()
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ");
+    }
+
+    private static boolean isControllerEventText(String text) {
+        return text != null && text.startsWith("[controller-event][");
     }
 
     // ---- Plan mode ----------------------------------------------------------

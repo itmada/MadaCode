@@ -12,6 +12,7 @@ import madacode.permission.PermissionGate;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
 import madacode.render.BlockSpacing;
+import madacode.render.Spinner;
 import madacode.render.UserInputRenderer;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
@@ -45,7 +46,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,6 +57,7 @@ public final class JLineRepl extends Repl {
 
     private final LongRunningMonitorReader longRunningMonitorReader = new LongRunningMonitorReader();
     private final LongRunningMonitorRenderer longRunningMonitorRenderer = new LongRunningMonitorRenderer();
+    private final Spinner longRunningStatusSpinner = Spinner.thinking();
     private final AtomicBoolean longRunningMonitorInterruptRequested = new AtomicBoolean();
 
     private final Terminal terminal;
@@ -355,20 +359,31 @@ public final class JLineRepl extends Repl {
     }
 
     private List<String> longRunningMonitorLines(boolean interrupting) {
-        return longRunningMonitorRenderer.render(longRunningMonitorReader.read(
+        List<String> lines = new ArrayList<>(longRunningMonitorRenderer.render(longRunningMonitorReader.read(
                 session.workingDirectory(),
                 session.longRunningTaskId(),
-                interrupting));
+                interrupting)));
+        lines.add("");
+        lines.add(Tk.dim(longRunningStatusSpinner.tick() + " long task runing..."));
+        return lines;
     }
 
     private void requestLongRunningMonitorInterrupt() {
-        longRunningMonitorInterruptRequested.set(true);
+        if (longRunningMonitorInterruptRequested.compareAndSet(false, true)) {
+            recordLongRunningControllerEvent("user_requested_worker_runtime_interrupt",
+                    Map.of("input", "ESC_or_CTRL_C"));
+        }
     }
 
     private void applyLongRunningMonitorInterrupt() {
         screen.setLiveStatus(longRunningMonitorLines(true));
         if (longRunningRuntime != null && longRunningRuntime.isRunning()) {
+            recordLongRunningControllerEvent("worker_runtime_interrupt_sent",
+                    Map.of("reason", "user_interrupted"));
             longRunningRuntime.interrupt("user_interrupted");
+        } else {
+            recordLongRunningControllerEvent("worker_runtime_interrupt_skipped",
+                    Map.of("reason", "runtime_not_running"));
         }
     }
 

@@ -48,10 +48,6 @@ public record TerminalState(
         return new TerminalState(TurnStatus.FAILED, TerminationCause.MODEL_TRUNCATED, reason);
     }
 
-    public static TerminalState maxToolCalls(String reason) {
-        return new TerminalState(TurnStatus.FAILED, TerminationCause.MAX_TOOL_CALLS, reason);
-    }
-
     /**
      * Bridge from business-layer {@link FinishReason} to execution-layer
      * {@code TerminalState}. The single source of truth for that mapping —
@@ -71,7 +67,6 @@ public record TerminalState(
             case API_ERROR      -> apiError(result.finalText());
             case MODEL_TRUNCATED -> modelTruncated(result.finalText());
             case MAX_ITERATIONS -> maxIterations(result.finalText());
-            case MAX_TOOL_CALLS -> maxToolCalls(result.finalText());
         };
     }
 }

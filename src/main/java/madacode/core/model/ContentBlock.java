@@ -13,11 +13,23 @@ import java.util.Objects;
  */
 public sealed interface ContentBlock permits
         ContentBlock.TextBlock,
+        ContentBlock.TerminalBlock,
         ContentBlock.ThinkingBlock,
         ContentBlock.ToolUseBlock,
         ContentBlock.ToolResultBlock {
 
     record TextBlock(String text) implements ContentBlock {
+    }
+
+    /**
+     * Terminal assistant outcome persisted in transcript so future model calls
+     * retain turn state, but rendered specially instead of as ordinary prose.
+     */
+    record TerminalBlock(String message, FinishReason reason) implements ContentBlock {
+        public TerminalBlock {
+            Objects.requireNonNull(message, "message");
+            Objects.requireNonNull(reason, "reason");
+        }
     }
 
     /** Extended-thinking reasoning content — must be echoed back on subsequent turns. */

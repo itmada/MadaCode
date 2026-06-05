@@ -74,11 +74,8 @@ final class ModeCommand implements SlashCommand {
             ConversationSession fresh =
                     new LongRunningControlSessionFactory().create(ctx.session().workingDirectory());
             SessionPointer.write(fresh.sessionId());
-            SlashFeedback.muted(ctx.screen(), "Entered long-running mode.");
             SlashFeedback.muted(ctx.screen(),
-                    "Created a fresh control session and initialized a long-running task shell.");
-            SlashFeedback.muted(ctx.screen(),
-                    "Discuss and refine the task in DRAFT; workers start only after confirmed transition to RUNNING.");
+                    "Long-running mode ready. Stage: DRAFT. Workers start after you confirm RUNNING.");
             return new SlashAction.SwitchSession(fresh, true);
         }
 

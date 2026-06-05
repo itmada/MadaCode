@@ -25,20 +25,16 @@ import java.util.Set;
  * allowed_tools: [file_read, glob, grep]
  * disallowed_tools: [agent, bash]
  * max_iterations: 6
- * max_tool_calls: 20
  * ---
  * (body - becomes the systemPrompt)
  * </pre>
  *
- * <p>Invalid values (e.g. {@code max_iterations <= 0}) are sanitized to
- * defaults with a stderr warning, matching {@code Skill} behaviour.
+ * <p>{@code max_iterations} is optional. Missing or invalid values leave the
+ * agent unbounded; explicit positive values cap model/tool iterations.
  * Returns {@link Optional#empty()} only when the body is blank or
  * construction otherwise fails.
  */
 public final class AgentDefinitionParser {
-
-    private static final int DEFAULT_MAX_ITERATIONS = 15;
-    private static final int DEFAULT_MAX_TOOL_CALLS = 50;
 
     private AgentDefinitionParser() {}
 
@@ -50,6 +46,10 @@ public final class AgentDefinitionParser {
             warn(source + ": " + warning);
         }
         Map<String, Object> fm = parsed.frontmatter();
+        if (fm.containsKey("max_tool_calls")) {
+            warn(source + ": max_tool_calls is no longer supported; remove this field");
+            return Optional.empty();
+        }
 
         String name = SkillFrontmatterParser.stringField(fm, "name");
         if (name == null || name.isBlank()) {
@@ -70,18 +70,13 @@ public final class AgentDefinitionParser {
         List<String> disallowed = ToolNameNormalizer.normalize(
                 SkillFrontmatterParser.stringListField(fm, "disallowed_tools"));
 
-        int maxIter = sanitizePositive(
-                SkillFrontmatterParser.intField(fm, "max_iterations", DEFAULT_MAX_ITERATIONS),
-                DEFAULT_MAX_ITERATIONS, "max_iterations", source);
-        int maxCalls = sanitizePositive(
-                SkillFrontmatterParser.intField(fm, "max_tool_calls", DEFAULT_MAX_TOOL_CALLS),
-                DEFAULT_MAX_TOOL_CALLS, "max_tool_calls", source);
+        Integer maxIter = optionalPositiveInt(fm, "max_iterations", source);
 
         try {
             return Optional.of(new AgentDefinition(
                     name, desc, when, body,
                     Set.copyOf(allowed), Set.copyOf(disallowed),
-                    maxIter, maxCalls, PermissionMode.ACCEPT_EDITS));
+                    maxIter, PermissionMode.ACCEPT_EDITS));
         } catch (IllegalArgumentException e) {
             AppEvents.publisher().publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("AgentDefinitionParser"),
@@ -90,12 +85,23 @@ public final class AgentDefinitionParser {
         }
     }
 
-    private static int sanitizePositive(int value, int fallback, String field, Path source) {
-        if (value <= 0) {
-            warn(source + ": " + field + " must be > 0, using default " + fallback);
-            return fallback;
+    private static Integer optionalPositiveInt(Map<String, Object> fm, String field, Path source) {
+        if (!fm.containsKey(field)) {
+            return null;
         }
-        return value;
+        Object raw = fm.get(field);
+        if (raw instanceof String s) {
+            try {
+                int value = Integer.parseInt(s);
+                if (value > 0) {
+                    return value;
+                }
+            } catch (NumberFormatException ignored) {
+                // Warn below with the original value.
+            }
+        }
+        warn(source + ": " + field + " must be a positive integer; leaving unbounded");
+        return null;
     }
 
     private static void warn(String message) {

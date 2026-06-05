@@ -32,16 +32,13 @@ import java.util.Objects;
 
 public class QueryEngine {
 
-    public static final int DEFAULT_MAX_ITERATIONS = 15;
-
     private final ApiClient apiClient;
     private final ToolRegistry toolRegistry;
     private final SystemPromptBuilder systemPromptBuilder;
     private final PermissionGate permissionGate;
     private final ToolInputValidator toolInputValidator;
     private final CompactPlanner compactPlanner;
-    private final int maxIterations;
-    private final int maxToolCalls;
+    private final Integer maxIterations;
     private final HookManager hookManager;
     private QueryEngine(Builder builder) {
         this.apiClient = Objects.requireNonNull(builder.apiClient, "apiClient");
@@ -51,7 +48,6 @@ public class QueryEngine {
         this.toolInputValidator = Objects.requireNonNull(builder.toolInputValidator, "toolInputValidator");
         this.compactPlanner = builder.compactPlanner;
         this.maxIterations = builder.maxIterations;
-        this.maxToolCalls = builder.maxToolCalls;
         this.hookManager = builder.hookManager;
     }
 
@@ -82,8 +78,7 @@ public class QueryEngine {
         private final PermissionGate permissionGate;
         private ToolInputValidator toolInputValidator = new ToolInputValidator();
         private CompactPlanner compactPlanner;
-        private int maxIterations = DEFAULT_MAX_ITERATIONS;
-        private int maxToolCalls = Integer.MAX_VALUE;
+        private Integer maxIterations;
         private HookManager hookManager;
 
         Builder(ApiClient apiClient, ToolRegistry toolRegistry,
@@ -94,8 +89,14 @@ public class QueryEngine {
             this.permissionGate = permissionGate;
         }
 
-        public Builder maxIterations(int maxIterations)     { this.maxIterations = maxIterations; return this; }
-        public Builder maxToolCalls(int maxToolCalls)       { this.maxToolCalls = maxToolCalls; return this; }
+        public Builder maxIterations(int maxIterations) {
+            if (maxIterations <= 0) {
+                throw new IllegalArgumentException("maxIterations must be positive, was " + maxIterations);
+            }
+            this.maxIterations = maxIterations;
+            return this;
+        }
+        public Builder unlimitedIterations()                { this.maxIterations = null; return this; }
         public Builder toolInputValidator(ToolInputValidator v) { this.toolInputValidator = Objects.requireNonNull(v); return this; }
         public Builder compactPlanner(CompactPlanner p)     { this.compactPlanner = p; return this; }
         public Builder hookManager(HookManager h)           { this.hookManager = h; return this; }
@@ -125,9 +126,9 @@ public class QueryEngine {
         ToolOrchestrator toolOrchestrator = new ToolOrchestrator(toolRegistry, toolExecutor);
 
         CancellationToken cancel = ctx.cancellationToken();
-        int toolCallsUsed = 0;
 
-        for (int iteration = 0; iteration < maxIterations; iteration++) {
+        int iteration = 0;
+        while (maxIterations == null || iteration < maxIterations) {
             if (cancel.isCancelled()) {
                 return completeWithCancellation(session, cancel.reason(), iteration, elapsedMs(turnStart));
             }
@@ -190,16 +191,6 @@ public class QueryEngine {
                 return new TurnResult(response.assistantText(), finishReason, iteration + 1);
             }
 
-            if (toolCallsUsed + toolCalls.size() > maxToolCalls) {
-                String warning = "(Reached max tool calls: " + maxToolCalls + ")";
-                session.addMessage(Message.user(skippedToolResultBlocks(toolCalls, warning)));
-                session.fireMetaEvent(new MetaEvent.Error(warning, FinishReason.MAX_TOOL_CALLS));
-                DiagnosticEventLogger.turnCompleted(session, FinishReason.MAX_TOOL_CALLS,
-                        iteration + 1, elapsedMs(turnStart));
-                return new TurnResult(warning, FinishReason.MAX_TOOL_CALLS, iteration + 1);
-            }
-            toolCallsUsed += toolCalls.size();
-
             List<ToolResult> results = toolOrchestrator.run(toolCalls, ctx);
             List<ContentBlock> toolResultBlocks = new ArrayList<>(results.size());
             for (int j = 0; j < toolCalls.size(); j++) {
@@ -208,11 +199,13 @@ public class QueryEngine {
                         toolCalls.get(j).id(), result.output(), result.success(), -1));
             }
             session.addMessage(Message.user(toolResultBlocks));
+            session.flushPendingControllerEvents();
 
             if (cancel.isCancelled()) {
                 return completeWithCancellation(session, cancel.reason(),
                         iteration + 1, elapsedMs(turnStart));
             }
+            iteration++;
         }
 
         String warning = "(Reached max iterations: " + maxIterations + ")";
@@ -227,7 +220,7 @@ public class QueryEngine {
 
     private TurnResult completeWithApiError(ConversationSession session, String message,
                                             int iterations, long durationMs) {
-        session.addMessage(Message.assistant(message));
+        session.addMessage(Message.assistantTerminal(message, FinishReason.API_ERROR));
         session.fireMetaEvent(new MetaEvent.Error(message, FinishReason.API_ERROR));
         DiagnosticEventLogger.turnCompleted(session, FinishReason.API_ERROR, iterations, durationMs);
         return new TurnResult(message, FinishReason.API_ERROR, iterations);
@@ -240,7 +233,7 @@ public class QueryEngine {
                 ? FinishReason.PERMISSION_CANCELLED
                 : FinishReason.CANCELLED;
         String message = "(Cancelled" + (reason == null ? "" : ": " + reason) + ")";
-        session.addMessage(Message.assistant(message));
+        session.addMessage(Message.assistantTerminal(message, finishReason));
         if (!fromPermission) {
             session.fireMetaEvent(new MetaEvent.Error(message, finishReason));
         }
@@ -250,17 +243,5 @@ public class QueryEngine {
 
     private long elapsedMs(long startedAtNanos) {
         return java.time.Duration.ofNanos(System.nanoTime() - startedAtNanos).toMillis();
-    }
-
-    private List<ContentBlock> skippedToolResultBlocks(List<ToolCall> toolCalls, String warning) {
-        List<ContentBlock> blocks = new ArrayList<>(toolCalls.size());
-        for (ToolCall toolCall : toolCalls) {
-            blocks.add(new ContentBlock.ToolResultBlock(
-                    toolCall.id(),
-                    "Tool call skipped: max tool calls reached. " + warning,
-                    false,
-                    -1));
-        }
-        return blocks;
     }
 }

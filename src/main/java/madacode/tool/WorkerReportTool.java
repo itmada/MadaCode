@@ -114,35 +114,51 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
         if (input.summary() == null || input.summary().isBlank()) {
             return failed("summary must be non-empty.");
         }
-
         List<String> filesChanged = input.files_changed() == null ? List.of() : input.files_changed();
         List<String> verification = input.verification() == null ? List.of() : input.verification();
-
-        WorkerReport report = new WorkerReport(
-                sessionTaskId,
-                session.sessionId(),
-                status,
-                input.summary().strip(),
-                input.feature_id() == null ? null : input.feature_id().strip(),
-                input.issue_id() == null ? null : input.issue_id().strip(),
-                filesChanged,
-                verification,
-                input.next() == null ? null : input.next().strip()
-        );
 
         try {
             LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
             store.validateTaskDirectory(sessionTaskId);
             store.requireRunning(sessionTaskId);
+            String reportError = validateReport(store, sessionTaskId, status, input);
+            if (reportError != null) {
+                return failed(reportError);
+            }
 
-            // Write event
-            store.appendEvent(sessionTaskId, LongRunningTaskEvent.of(
-                    "worker_report",
+            WorkerReport report = new WorkerReport(
                     sessionTaskId,
                     session.sessionId(),
+                    status,
+                    input.summary().strip(),
+                    input.feature_id() == null ? null : input.feature_id().strip(),
+                    input.issue_id() == null ? null : input.issue_id().strip(),
+                    filesChanged,
+                    verification,
+                    input.next() == null ? null : input.next().strip()
+            );
+
+            session.recordWorkerReport(report);
+            appendDiagnosticsBestEffort(store, session, report);
+
+            return new ToolResult(name(), true,
+                    "worker_report recorded: status=" + status.name().toLowerCase(Locale.ROOT)
+                            + ", summary=" + report.summary());
+        } catch (RuntimeException e) {
+            return failed("Failed to write worker report: " + e.getMessage());
+        }
+    }
+
+    private static void appendDiagnosticsBestEffort(
+            LongRunningTaskStore store, ConversationSession session, WorkerReport report) {
+        try {
+            store.appendEvent(report.taskId(), LongRunningTaskEvent.of(
+                    "worker_report",
+                    report.taskId(),
+                    session.sessionId(),
                     session.longRunningStage().name(),
-                    status.name(),
-                    status != WorkerReport.Status.FAILED,
+                    report.status().name(),
+                    report.status() != WorkerReport.Status.FAILED,
                     report.summary(),
                     Map.of(
                             "workerSessionId", report.workerSessionId(),
@@ -151,17 +167,55 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
                             "filesChanged", String.join(", ", report.filesChanged()),
                             "verification", String.join("; ", report.verification()),
                             "next", report.next() == null ? "" : report.next())));
-            store.appendProgress(sessionTaskId, progressEntry(report));
-
-            // Record in session for launcher to read
-            session.recordWorkerReport(report);
-
-            return new ToolResult(name(), true,
-                    "worker_report recorded: status=" + status.name().toLowerCase(Locale.ROOT)
-                            + ", summary=" + report.summary());
-        } catch (RuntimeException e) {
-            return failed("Failed to write worker report: " + e.getMessage());
+            store.appendProgress(report.taskId(), progressEntry(report));
+        } catch (RuntimeException ignored) {
+            // The report remains available to the launcher.
         }
+    }
+
+    private static String validateReport(
+            LongRunningTaskStore store,
+            String taskId,
+            WorkerReport.Status status,
+            Input input) {
+        if (status == WorkerReport.Status.TASK_COMPLETED) {
+            boolean hasIncompleteFeature = store.readFeatureList(taskId).stream()
+                    .anyMatch(feature -> !feature.passes());
+            if (hasIncompleteFeature) {
+                return "task_completed requires all features to be marked passed.";
+            }
+            boolean hasActiveIssue = store.readKnownIssues(taskId).stream()
+                    .anyMatch(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()));
+            if (hasActiveIssue) {
+                return "task_completed requires all known issues to be resolved.";
+            }
+        }
+        if (status == WorkerReport.Status.PROGRESS_MADE) {
+            String featureId = normalize(input.feature_id());
+            String issueId = normalize(input.issue_id());
+            if (featureId == null && issueId == null) {
+                return "progress_made must reference a feature_id or issue_id.";
+            }
+            if (featureId != null) {
+                boolean passed = store.readFeatureList(taskId).stream()
+                        .anyMatch(feature -> feature.id().equals(featureId) && feature.passes());
+                if (!passed) {
+                    return "progress_made requires the reported feature to be marked passed.";
+                }
+            }
+            if (issueId != null) {
+                boolean resolved = store.readKnownIssues(taskId).stream()
+                        .anyMatch(issue -> issue.id().equals(issueId) && "resolved".equals(issue.status()));
+                if (!resolved) {
+                    return "progress_made requires the reported issue to be resolved.";
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     private static ToolResult failed(String message) {

@@ -1,8 +1,11 @@
 package madacode.services.api;
 
+import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
+import madacode.core.model.FinishReason;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -56,5 +59,75 @@ class AnthropicMessageSerializerTest {
         String serialized = messages.get(0).toString();
         assertTrue(serialized.contains("previous user content"));
         assertTrue(serialized.contains("next prompt"));
+    }
+
+    @Test
+    void controllerEventsAreSerializedEvenThoughSystemMessagesAreDropped() throws Exception {
+        AnthropicMessageSerializer serializer = new AnthropicMessageSerializer(mapper);
+
+        String body = serializer.buildRequestBody(
+                "test-model",
+                4096,
+                List.of(
+                        Message.system("Session initialized."),
+                        Message.user("[controller-event][long-running]\n"
+                                + "event: worker_runtime_finished\n"
+                                + "summary: interrupted by user"),
+                        Message.system("[controller-event barrier]"),
+                        Message.user("what happened?")),
+                "system prompt",
+                List.of());
+
+        JsonNode messages = mapper.readTree(body).path("messages");
+        assertEquals(1, messages.size());
+        String serialized = messages.get(0).toString();
+        assertTrue(serialized.contains("[controller-event][long-running]"));
+        assertTrue(serialized.contains("worker_runtime_finished"));
+        assertTrue(serialized.contains("what happened?"));
+        assertTrue(!serialized.contains("controller-event barrier"));
+    }
+
+    @Test
+    void queuedControllerEventSerializesAfterToolResultContent() throws Exception {
+        AnthropicMessageSerializer serializer = new AnthropicMessageSerializer(mapper);
+        ObjectNode input = mapper.createObjectNode().put("target_status", "RUNNING");
+
+        String body = serializer.buildRequestBody(
+                "test-model",
+                4096,
+                List.of(
+                        Message.assistant(List.of(new ContentBlock.ToolUseBlock(
+                                "toolu_1", "longrun_state_transition_request", input))),
+                        Message.user(List.of(new ContentBlock.ToolResultBlock(
+                                "toolu_1", "Pending transition request recorded.", true, -1))),
+                        Message.system("[controller-event separator]"),
+                        Message.user("[controller-event][long-running]\n"
+                                + "event: transition_request_pending"),
+                        Message.system("[controller-event barrier]")),
+                "system prompt",
+                List.of());
+
+        JsonNode messages = mapper.readTree(body).path("messages");
+        assertEquals("assistant", messages.get(0).path("role").asText());
+        assertEquals("user", messages.get(1).path("role").asText());
+        String serializedUser = messages.get(1).toString();
+        assertTrue(serializedUser.indexOf("tool_result") < serializedUser.indexOf("[controller-event][long-running]"),
+                serializedUser);
+    }
+
+    @Test
+    void terminalAssistantMessageSerializesAsPlainAssistantText() throws Exception {
+        AnthropicMessageSerializer serializer = new AnthropicMessageSerializer(mapper);
+
+        String body = serializer.buildRequestBody(
+                "test-model",
+                4096,
+                List.of(Message.assistantTerminal("(Cancelled: esc)", FinishReason.CANCELLED)),
+                "system prompt",
+                List.of());
+
+        JsonNode message = mapper.readTree(body).path("messages").get(0);
+        assertEquals("assistant", message.path("role").asText());
+        assertEquals("(Cancelled: esc)", message.path("content").asText());
     }
 }

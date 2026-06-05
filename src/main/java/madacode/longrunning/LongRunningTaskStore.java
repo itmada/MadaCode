@@ -12,6 +12,9 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.channels.FileChannel;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,6 +25,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 public final class LongRunningTaskStore {
 
@@ -36,6 +41,11 @@ public final class LongRunningTaskStore {
     private static final String CHECKPOINT_FILE = "checkpoint.json";
     private static final String LOGS_DIR = "logs";
     private static final String EVENTS_FILE = "events.jsonl";
+    private static final String EXECUTION_LOCK_FILE = ".execution.lock";
+    private static final String TASK_STATE_LOCK_FILE = ".state.lock";
+    private static final int MONITOR_EVENT_TAIL_BYTES = 1_048_576;
+    private static final Map<Path, Object> APPEND_LOCKS = new ConcurrentHashMap<>();
+    private static final Map<Path, Object> TASK_STATE_LOCKS = new ConcurrentHashMap<>();
     private static final String ROOT_DIR = ".mada/long-running";
     private static final String DEFAULT_INIT_SCRIPT = """
             #!/usr/bin/env bash
@@ -115,7 +125,34 @@ public final class LongRunningTaskStore {
         return readTaskMetadata(directory.resolve(TASK_FILE), validateTaskId(taskId));
     }
 
+    public LongRunningTaskLease acquireExecutionLease(String taskId) {
+        String safeTaskId = validateTaskId(taskId);
+        Path directory = validateTaskDirectory(safeTaskId);
+        try {
+            FileChannel channel = FileChannel.open(
+                    directory.resolve(EXECUTION_LOCK_FILE),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE);
+            return LongRunningTaskLease.tryAcquire(safeTaskId, channel);
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(
+                    "Failed to open execution lease for task " + safeTaskId, exception);
+        }
+    }
+
     public synchronized LongRunningTaskMetadata updateTaskShell(
+            String taskId,
+            String title,
+            String status,
+            String reason,
+            Instant executionStarted,
+            String controlSessionId,
+            String planSummary) {
+        return withTaskMetadataLock(taskId, () -> updateTaskShellUnlocked(
+                taskId, title, status, reason, executionStarted, controlSessionId, planSummary));
+    }
+
+    private LongRunningTaskMetadata updateTaskShellUnlocked(
             String taskId,
             String title,
             String status,
@@ -194,7 +231,8 @@ public final class LongRunningTaskStore {
         updateTaskTimestamp(taskId, Instant.now());
     }
 
-    public synchronized FeatureItem markFeaturePassed(String taskId, String featureId) {
+    public synchronized FeatureItem markFeaturePassed(
+            String taskId, String featureId, List<String> verificationEvidence) {
         requireNonBlank(featureId, "featureId");
         Path directory = validateTaskDirectory(taskId);
         List<FeatureItem> features = readFeatures(directory.resolve(FEATURE_LIST_FILE));
@@ -207,6 +245,12 @@ public final class LongRunningTaskStore {
 
         if (target.passes()) {
             return target;
+        }
+        List<String> evidence = List.copyOf(Objects.requireNonNullElse(verificationEvidence, List.of()));
+        ensureListItemsPresent(evidence, "feature.verificationEvidence");
+        if (!target.verificationSteps().isEmpty() && evidence.isEmpty()) {
+            throw new LongRunningTaskStoreException(
+                    "Feature " + featureId + " cannot be passed without verification evidence");
         }
 
         for (String depId : target.dependsOn()) {
@@ -239,7 +283,8 @@ public final class LongRunningTaskStore {
                         feature.description(),
                         feature.dependsOn(),
                         feature.verificationSteps(),
-                        true));
+                        true,
+                        evidence));
             } else {
                 updated.add(feature);
             }
@@ -269,11 +314,19 @@ public final class LongRunningTaskStore {
         }
         Path directory = validateTaskDirectory(safeTaskId);
         Path eventsFile = directory.resolve(LOGS_DIR).resolve(EVENTS_FILE);
-        try {
-            String line = mapper.writeValueAsString(serializeEvent(event)) + System.lineSeparator();
-            Files.writeString(eventsFile, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException("Failed to append event for task " + safeTaskId, exception);
+        synchronized (appendLock(eventsFile)) {
+            try (FileChannel channel = FileChannel.open(
+                    eventsFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+                 var ignored = channel.lock()) {
+                ByteBuffer bytes = StandardCharsets.UTF_8.encode(
+                        mapper.writeValueAsString(serializeEvent(event)) + System.lineSeparator());
+                while (bytes.hasRemaining()) {
+                    channel.write(bytes);
+                }
+                channel.force(false);
+            } catch (IOException exception) {
+                throw new LongRunningTaskStoreException("Failed to append event for task " + safeTaskId, exception);
+            }
         }
     }
 
@@ -301,6 +354,57 @@ public final class LongRunningTaskStore {
             return List.copyOf(events);
         } catch (IOException exception) {
             throw new LongRunningTaskStoreException("Failed to read events for task " + safeTaskId, exception);
+        }
+    }
+
+    /**
+     * Reads a bounded tail of the event log for live monitoring.
+     *
+     * <p>This intentionally avoids re-reading an unbounded JSONL history on
+     * every terminal refresh. Full-history reads remain available through
+     * {@link #readEvents(String)} for diagnostics and tests.
+     */
+    public synchronized List<LongRunningTaskEvent> readRecentEvents(String taskId, int limit) {
+        if (limit < 1) {
+            return List.of();
+        }
+        String safeTaskId = validateTaskId(taskId);
+        Path eventsFile = validateTaskDirectory(safeTaskId).resolve(LOGS_DIR).resolve(EVENTS_FILE);
+        try (FileChannel channel = FileChannel.open(eventsFile, StandardOpenOption.READ)) {
+            long size = channel.size();
+            int byteCount = (int) Math.min(size, MONITOR_EVENT_TAIL_BYTES);
+            long start = size - byteCount;
+            ByteBuffer buffer = ByteBuffer.allocate(byteCount);
+            channel.position(start);
+            while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
+                // Keep reading until the bounded tail is complete.
+            }
+            buffer.flip();
+            String tail = StandardCharsets.UTF_8.decode(buffer).toString();
+            if (start > 0) {
+                int firstNewline = tail.indexOf('\n');
+                tail = firstNewline < 0 ? "" : tail.substring(firstNewline + 1);
+            }
+            String[] lines = tail.split("\\R");
+            int from = Math.max(0, lines.length - limit);
+            List<LongRunningTaskEvent> events = new ArrayList<>();
+            for (int i = from; i < lines.length; i++) {
+                if (lines[i].isBlank()) {
+                    continue;
+                }
+                try {
+                    events.add(deserializeEvent(mapper.readTree(lines[i]), safeTaskId));
+                } catch (IOException exception) {
+                    if (i == lines.length - 1) {
+                        continue;
+                    }
+                    throw exception;
+                }
+            }
+            return List.copyOf(events);
+        } catch (IOException exception) {
+            throw new LongRunningTaskStoreException(
+                    "Failed to read recent events for task " + safeTaskId, exception);
         }
     }
 
@@ -430,15 +534,36 @@ public final class LongRunningTaskStore {
         requireNonBlank(text, "text");
         Path directory = validateTaskDirectory(taskId);
         Path progressFile = directory.resolve(PROGRESS_FILE);
+        synchronized (appendLock(progressFile)) {
+            try (FileChannel channel = FileChannel.open(
+                    progressFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+                 var ignored = channel.lock()) {
+                ByteBuffer bytes = StandardCharsets.UTF_8.encode(text);
+                while (bytes.hasRemaining()) {
+                    channel.write(bytes);
+                }
+                channel.force(false);
+                updateTaskTimestamp(taskId, Instant.now());
+            } catch (IOException exception) {
+                throw new LongRunningTaskStoreException("Failed to append progress for task " + taskId, exception);
+            }
+        }
+    }
+
+    public synchronized String readProgress(String taskId) {
+        Path directory = validateTaskDirectory(taskId);
         try {
-            Files.writeString(progressFile, text, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            updateTaskTimestamp(taskId, Instant.now());
+            return Files.readString(directory.resolve(PROGRESS_FILE));
         } catch (IOException exception) {
-            throw new LongRunningTaskStoreException("Failed to append progress for task " + taskId, exception);
+            throw new LongRunningTaskStoreException("Failed to read progress for task " + taskId, exception);
         }
     }
 
     public synchronized LongRunningTaskMetadata markTaskCompleted(String taskId) {
+        return withTaskMetadataLock(taskId, () -> markTaskCompletedUnlocked(taskId));
+    }
+
+    private LongRunningTaskMetadata markTaskCompletedUnlocked(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
@@ -467,6 +592,10 @@ public final class LongRunningTaskStore {
     }
 
     public synchronized LongRunningTaskMetadata markTaskExecuting(String taskId) {
+        return withTaskMetadataLock(taskId, () -> markTaskExecutingUnlocked(taskId));
+    }
+
+    private LongRunningTaskMetadata markTaskExecutingUnlocked(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
@@ -484,14 +613,14 @@ public final class LongRunningTaskStore {
     }
 
     public synchronized LongRunningTaskMetadata markTaskInterrupted(String taskId) {
-        return markInterruptState(taskId, "user_interrupted");
+        return withTaskMetadataLock(taskId, () -> markInterruptStateUnlocked(taskId, "user_interrupted"));
     }
 
     public synchronized LongRunningTaskMetadata markTaskInterrupted(String taskId, String reason) {
-        return markInterruptState(taskId, reason);
+        return withTaskMetadataLock(taskId, () -> markInterruptStateUnlocked(taskId, reason));
     }
 
-    private LongRunningTaskMetadata markInterruptState(String taskId, String reason) {
+    private LongRunningTaskMetadata markInterruptStateUnlocked(String taskId, String reason) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
@@ -520,6 +649,10 @@ public final class LongRunningTaskStore {
     }
 
     public synchronized LongRunningTaskMetadata cancelTask(String taskId) {
+        return withTaskMetadataLock(taskId, () -> cancelTaskUnlocked(taskId));
+    }
+
+    private LongRunningTaskMetadata cancelTaskUnlocked(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
@@ -547,6 +680,10 @@ public final class LongRunningTaskStore {
     }
 
     public synchronized LongRunningTaskMetadata markTaskFailed(String taskId) {
+        return withTaskMetadataLock(taskId, () -> markTaskFailedUnlocked(taskId));
+    }
+
+    private LongRunningTaskMetadata markTaskFailedUnlocked(String taskId) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
@@ -615,6 +752,16 @@ public final class LongRunningTaskStore {
                     "Task " + taskId + " cannot be completed: incomplete features "
                             + String.join(", ", incompleteFeatures));
         }
+        List<String> unverifiedFeatures = features.stream()
+                .filter(feature -> !feature.verificationSteps().isEmpty()
+                        && feature.verificationEvidence().isEmpty())
+                .map(FeatureItem::id)
+                .toList();
+        if (!unverifiedFeatures.isEmpty()) {
+            throw new LongRunningTaskStoreException(
+                    "Task " + taskId + " cannot be completed: missing verification evidence for "
+                            + String.join(", ", unverifiedFeatures));
+        }
         List<String> activeIssues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE)).stream()
                 .filter(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()))
                 .map(KnownIssue::id)
@@ -647,14 +794,17 @@ public final class LongRunningTaskStore {
     }
 
     private void updateTaskMetadata(String taskId, java.util.function.UnaryOperator<LongRunningTaskMetadata> updater) {
-        Path taskFile = taskDirectory(taskId).resolve(TASK_FILE);
-        LongRunningTaskMetadata current = loadTask(taskId);
-        LongRunningTaskMetadata updated = Objects.requireNonNull(updater.apply(current), "updated");
-        try {
-            writeJsonAtomically(taskFile, serializeTask(updated));
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException("Failed to update task metadata for " + taskId, exception);
-        }
+        withTaskMetadataLock(taskId, () -> {
+            Path taskFile = taskDirectory(taskId).resolve(TASK_FILE);
+            LongRunningTaskMetadata current = loadTask(taskId);
+            LongRunningTaskMetadata updated = Objects.requireNonNull(updater.apply(current), "updated");
+            try {
+                writeJsonAtomically(taskFile, serializeTask(updated));
+            } catch (IOException exception) {
+                throw new LongRunningTaskStoreException("Failed to update task metadata for " + taskId, exception);
+            }
+            return updated;
+        });
     }
 
     private LongRunningTaskMetadata writeTaskLifecycle(
@@ -772,6 +922,17 @@ public final class LongRunningTaskStore {
             validateFeatureId(feature.id());
             ensureListItemsPresent(feature.dependsOn(), "feature.dependsOn");
             ensureListItemsPresent(feature.verificationSteps(), "feature.verificationSteps");
+            ensureListItemsPresent(feature.verificationEvidence(), "feature.verificationEvidence");
+            if (!feature.passes() && !feature.verificationEvidence().isEmpty()) {
+                throw new LongRunningTaskStoreException(
+                        "Incomplete feature must not include verification evidence: " + feature.id());
+            }
+            if (feature.passes()
+                    && !feature.verificationSteps().isEmpty()
+                    && feature.verificationEvidence().isEmpty()) {
+                throw new LongRunningTaskStoreException(
+                        "Passed feature must include verification evidence: " + feature.id());
+            }
             if (!ids.add(feature.id())) {
                 throw new LongRunningTaskStoreException("Duplicate feature id: " + feature.id());
             }
@@ -914,12 +1075,23 @@ public final class LongRunningTaskStore {
         feature.verificationSteps().forEach(verificationSteps::add);
         root.set("verification_steps", verificationSteps);
         root.put("passes", feature.passes());
+        ArrayNode verificationEvidence = mapper.createArrayNode();
+        feature.verificationEvidence().forEach(verificationEvidence::add);
+        root.set("verification_evidence", verificationEvidence);
         return root;
     }
 
     private FeatureItem deserializeFeature(JsonNode root) {
         List<String> dependsOn = arrayText(root.path("depends_on"));
         List<String> verificationSteps = arrayText(root.path("verification_steps"));
+        boolean passes = root.path("passes").asBoolean(false);
+        List<String> verificationEvidence = arrayText(root.path("verification_evidence"));
+        if (passes
+                && !root.has("verification_evidence")
+                && verificationEvidence.isEmpty()
+                && !verificationSteps.isEmpty()) {
+            verificationEvidence = verificationSteps;
+        }
         return new FeatureItem(
                 requiredText(root, "id"),
                 requiredText(root, "category"),
@@ -927,7 +1099,8 @@ public final class LongRunningTaskStore {
                 requiredText(root, "description"),
                 dependsOn,
                 verificationSteps,
-                root.path("passes").asBoolean(false));
+                passes,
+                verificationEvidence);
     }
 
     private ObjectNode serializeKnownIssue(KnownIssue issue) {
@@ -1114,6 +1287,32 @@ public final class LongRunningTaskStore {
         Map<String, String> values = new LinkedHashMap<>();
         node.fields().forEachRemaining(entry -> values.put(entry.getKey(), entry.getValue().asText("")));
         return Map.copyOf(values);
+    }
+
+    private static Object appendLock(Path path) {
+        return APPEND_LOCKS.computeIfAbsent(path.toAbsolutePath().normalize(), ignored -> new Object());
+    }
+
+    private <T> T withTaskMetadataLock(String taskId, Supplier<T> action) {
+        String safeTaskId = validateTaskId(taskId);
+        Path lockFile = taskDirectory(safeTaskId).resolve(TASK_STATE_LOCK_FILE);
+        Object processLock = TASK_STATE_LOCKS.computeIfAbsent(
+                lockFile.toAbsolutePath().normalize(), ignored -> new Object());
+        synchronized (processLock) {
+            boolean restoreInterrupt = Thread.interrupted();
+            try (FileChannel channel = FileChannel.open(
+                    lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                 var ignored = channel.lock()) {
+                return action.get();
+            } catch (IOException exception) {
+                throw new LongRunningTaskStoreException(
+                        "Failed to lock task metadata for " + safeTaskId, exception);
+            } finally {
+                if (restoreInterrupt) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
     }
 
     private static void moveIntoPlace(Path tempFile, Path target) throws IOException {

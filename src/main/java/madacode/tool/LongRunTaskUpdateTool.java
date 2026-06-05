@@ -20,18 +20,9 @@ import java.util.Objects;
 
 public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.Input> {
 
-    public record FeatureInput(
-            String id,
-            String category,
-            String priority,
-            String description,
-            List<String> depends_on,
-            List<String> verification_steps) {}
-
     public record Input(
             String action,
             String task_id,
-            List<FeatureInput> features,
             String feature_id,
             String issue_id,
             String description,
@@ -49,9 +40,9 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
 
     @Override
     public String description() {
-        return "Safely update the current long-running task store: seed feature_list.json, "
-                + "mark one feature passed, record or resolve a known issue, update issue status, "
-                + "and append progress during worker execution.";
+        return "Safely update the current long-running task store during worker execution: "
+                + "mark one feature passed, record or resolve a known issue, "
+                + "update issue status, and append progress.";
     }
 
     @Override
@@ -69,7 +60,6 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         ObjectNode properties = mapper.createObjectNode();
         properties.set("action", ToolSchemas.stringEnumProperty(mapper,
                 "Task-store update action",
-                "write_initial_feature_list",
                 "mark_feature_passed",
                 "record_issue",
                 "resolve_issue",
@@ -77,10 +67,6 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
                 "append_progress"));
         properties.set("task_id", ToolSchemas.stringProperty(
                 mapper, "Optional current task id. If present, it must match the active session task."));
-        properties.set("features", ToolSchemas.arrayProperty(
-                mapper,
-                "Initial feature list for write_initial_feature_list. Each item uses id, category, priority, description, depends_on, and verification_steps.",
-                objectItem(mapper)));
         properties.set("feature_id", ToolSchemas.stringProperty(
                 mapper, "Feature id for mark_feature_passed."));
         properties.set("issue_id", ToolSchemas.stringProperty(
@@ -98,7 +84,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         properties.set("discovered_in", ToolSchemas.stringProperty(
                 mapper, "Where the issue was discovered. Defaults to the current long-running stage."));
         properties.set("verification_steps", ToolSchemas.arrayProperty(
-                mapper, "Verification steps for record_issue.",
+                mapper, "Verification steps for record_issue, or verification evidence for mark_feature_passed.",
                 stringItem(mapper)));
         properties.set("text", ToolSchemas.stringProperty(
                 mapper, "Progress text for append_progress."));
@@ -119,7 +105,9 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
             return failed("No initialized long-running task is active for this session.");
         }
-
+        if (!session.isLongRunningWorkerSession()) {
+            return failed("longrun_task_update is only available in a long-running worker session.");
+        }
         LongRunningTaskStore storeForEvent = null;
         String taskIdForEvent = null;
         String action = input.action() == null ? "" : input.action().strip().toLowerCase(Locale.ROOT);
@@ -137,12 +125,11 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
             session.setLongRunningTaskDirectory(store.taskDirectoryPath(taskId).toString());
 
             ToolResult result = switch (action) {
-                case "write_initial_feature_list" -> writeInitialFeatureList(store, taskId, input);
-                case "mark_feature_passed" -> markFeaturePassed(store, taskId, input);
+                case "mark_feature_passed" -> markFeaturePassed(store, taskId, input, session);
                 case "record_issue" -> recordIssue(store, taskId, input, session);
-                case "resolve_issue" -> resolveIssue(store, taskId, input);
-                case "update_issue_status" -> updateIssueStatus(store, taskId, input);
-                case "append_progress" -> appendProgress(store, taskId, input);
+                case "resolve_issue" -> resolveIssue(store, taskId, input, session);
+                case "update_issue_status" -> updateIssueStatus(store, taskId, input, session);
+                case "append_progress" -> appendProgress(store, taskId, input, session);
                 default -> failed("Unsupported long-running task update action: " + safe(input.action()));
             };
             appendTaskUpdateEvent(store, taskId, session, action, result, input);
@@ -158,28 +145,14 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         }
     }
 
-    private ToolResult writeInitialFeatureList(LongRunningTaskStore store, String taskId, Input input) {
-        List<FeatureInput> featureInputs = input.features() == null ? List.of() : input.features();
-        if (featureInputs.isEmpty()) {
-            return failed("features must be non-empty for write_initial_feature_list.");
-        }
-        List<FeatureItem> features = featureInputs.stream()
-                .map(feature -> new FeatureItem(
-                        feature.id(),
-                        feature.category(),
-                        feature.priority(),
-                        feature.description(),
-                        feature.depends_on(),
-                        feature.verification_steps(),
-                        false))
-                .toList();
-        store.writeInitialFeatureList(taskId, features);
-        return succeeded("Initial feature list written for " + taskId + " (" + features.size() + " feature(s)).");
-    }
-
-    private ToolResult markFeaturePassed(LongRunningTaskStore store, String taskId, Input input) {
+    private ToolResult markFeaturePassed(
+            LongRunningTaskStore store, String taskId, Input input, ConversationSession session) {
         String featureId = requireNonBlank(input.feature_id(), "feature_id");
-        FeatureItem feature = store.markFeaturePassed(taskId, featureId);
+        if (input.verification_steps() == null || input.verification_steps().stream().noneMatch(
+                value -> value != null && !value.isBlank())) {
+            return failed("mark_feature_passed requires non-empty verification evidence.");
+        }
+        FeatureItem feature = store.markFeaturePassed(taskId, featureId, input.verification_steps());
         return succeeded("Feature marked passed: " + feature.id());
     }
 
@@ -207,20 +180,23 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         return succeeded("Known issue recorded: " + issue.id() + " (" + issue.status() + ").");
     }
 
-    private ToolResult resolveIssue(LongRunningTaskStore store, String taskId, Input input) {
+    private ToolResult resolveIssue(
+            LongRunningTaskStore store, String taskId, Input input, ConversationSession session) {
         String issueId = requireNonBlank(input.issue_id(), "issue_id");
         KnownIssue issue = store.markIssueResolved(taskId, issueId);
         return succeeded("Known issue resolved: " + issue.id());
     }
 
-    private ToolResult updateIssueStatus(LongRunningTaskStore store, String taskId, Input input) {
+    private ToolResult updateIssueStatus(
+            LongRunningTaskStore store, String taskId, Input input, ConversationSession session) {
         String issueId = requireNonBlank(input.issue_id(), "issue_id");
         String newStatus = requireNonBlank(input.new_status(), "new_status");
         KnownIssue issue = store.updateIssueStatus(taskId, issueId, newStatus);
         return succeeded("Issue " + issue.id() + " status updated to " + issue.status() + ".");
     }
 
-    private ToolResult appendProgress(LongRunningTaskStore store, String taskId, Input input) {
+    private ToolResult appendProgress(
+            LongRunningTaskStore store, String taskId, Input input, ConversationSession session) {
         String text = requireNonBlank(input.text(), "text");
         store.appendProgress(taskId, text.endsWith(System.lineSeparator()) ? text : text + System.lineSeparator());
         return succeeded("Progress appended for " + taskId + ".");
@@ -255,8 +231,8 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
         putIfPresent(details, "issueId", input.issue_id());
         putIfPresent(details, "newStatus", input.new_status());
         putIfPresent(details, "severity", input.severity());
-        if (input.features() != null) {
-            details.put("featureCount", String.valueOf(input.features().size()));
+        if (input.verification_steps() != null) {
+            details.put("verificationEvidence", String.join("; ", input.verification_steps()));
         }
         return Map.copyOf(details);
     }
@@ -277,12 +253,6 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
             throw new IllegalArgumentException("task_id does not match the active long-running task.");
         }
         return active;
-    }
-
-    private static ObjectNode objectItem(ObjectMapper mapper) {
-        ObjectNode item = mapper.createObjectNode();
-        item.put("type", "object");
-        return item;
     }
 
     private static ObjectNode stringItem(ObjectMapper mapper) {

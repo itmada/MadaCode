@@ -58,6 +58,8 @@ public final class LongRunningController {
         }
         validateRequest(session, request);
         session.setPendingLongRunningTransitionRequest(request);
+        enqueueControllerEvent(session, "transition_request_pending", request,
+                Map.of("requested_by", safe(requestedBy)));
         appendEvent(session, "transition_request_pending", request, true,
                 "Pending transition request: " + request.sourceStage() + " -> " + request.targetStage() + ".",
                 Map.of());
@@ -70,6 +72,9 @@ public final class LongRunningController {
         Objects.requireNonNull(session, "session");
         LongRunningTransitionRequest request = session.pendingLongRunningTransitionRequest()
                 .orElseThrow(() -> new IllegalStateException("No pending long-running transition request."));
+        session.flushPendingControllerEvents();
+        appendControllerEvent(session, "transition_request_rejected", request,
+                Map.of("rejected_by", safe(rejectedBy)));
         appendEvent(session, "transition_request_rejected", request, false,
                 "Rejected transition request: " + request.sourceStage() + " -> " + request.targetStage() + ".",
                 Map.of("rejectedBy", safe(rejectedBy)));
@@ -145,6 +150,9 @@ public final class LongRunningController {
         }
 
         appendProgress(store, taskId, request, true);
+        session.flushPendingControllerEvents();
+        appendControllerEvent(session, "transition_applied", request,
+                Map.of("approved_by", safe(approvedBy)));
         appendEvent(session, "transition_applied", request, true,
                 "Applied transition: " + previous + " -> " + target + " (" + request.reason() + ").",
                 Map.of("approvedBy", safe(approvedBy)));
@@ -302,6 +310,42 @@ public final class LongRunningController {
 
     private static void appendControlNotice(ConversationSession session, String text) {
         session.addMessage(Message.system(text));
+    }
+
+    private static void appendControllerEvent(
+            ConversationSession session,
+            String event,
+            LongRunningTransitionRequest request,
+            Map<String, String> extraFields) {
+        session.addControllerEvent("long-running", controllerEventFields(session, event, request, extraFields));
+    }
+
+    private static void enqueueControllerEvent(
+            ConversationSession session,
+            String event,
+            LongRunningTransitionRequest request,
+            Map<String, String> extraFields) {
+        session.enqueueControllerEvent("long-running", controllerEventFields(session, event, request, extraFields));
+    }
+
+    private static LinkedHashMap<String, String> controllerEventFields(
+            ConversationSession session,
+            String event,
+            LongRunningTransitionRequest request,
+            Map<String, String> extraFields) {
+        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
+        fields.put("event", event);
+        fields.put("task", safe(session.longRunningTaskId()));
+        fields.put("transition", request.sourceStage() + " -> " + request.targetStage());
+        fields.put("reason", request.reason());
+        if (request.summary() != null) {
+            fields.put("summary", request.summary());
+        }
+        if (request.planDelta() != null) {
+            fields.put("plan_delta", request.planDelta());
+        }
+        fields.putAll(extraFields);
+        return fields;
     }
 
     private static void requireControlSession(ConversationSession session) {

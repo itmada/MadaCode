@@ -1,6 +1,7 @@
 package madacode.render;
 
 import madacode.core.model.ContentBlock;
+import madacode.core.model.FinishReason;
 import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
 import madacode.render.tool.ToolCardWriter;
@@ -58,6 +59,7 @@ public final class HistoryPrinter {
                               Map<String, ContentBlock.ToolUseBlock> pending) {
         switch (block) {
             case ContentBlock.TextBlock t -> renderText(role, t.text());
+            case ContentBlock.TerminalBlock t -> renderTerminal(t.message(), t.reason());
             case ContentBlock.ThinkingBlock t -> { /* not rendered in scrollback */ }
             case ContentBlock.ToolUseBlock tu -> pending.put(tu.id(), tu);
             case ContentBlock.ToolResultBlock tr -> {
@@ -76,7 +78,19 @@ public final class HistoryPrinter {
         }
     }
 
+    private void renderTerminal(String message, FinishReason reason) {
+        BlockSpacing.begin(screen);
+        if (reason == FinishReason.CANCELLED || reason == FinishReason.PERMISSION_CANCELLED) {
+            screen.scrollback(failure(message));
+        } else {
+            screen.scrollback(errorTag("error") + " " + message);
+        }
+    }
+
     private void renderText(MessageRole role, String text) {
+        if (isInternalControllerEventText(text)) {
+            return;
+        }
         switch (role) {
             case USER -> {
                 BlockSpacing.begin(screen);
@@ -98,5 +112,12 @@ public final class HistoryPrinter {
             }
             case SYSTEM -> BlockSpacing.scrollbackBlock(screen, dim(text));
         }
+    }
+
+    private static boolean isInternalControllerEventText(String text) {
+        return text != null
+                && (text.startsWith("[controller-event][")
+                || text.equals("[controller-event separator]")
+                || text.equals("[controller-event barrier]"));
     }
 }

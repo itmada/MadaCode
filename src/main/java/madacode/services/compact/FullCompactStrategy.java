@@ -169,6 +169,7 @@ public class FullCompactStrategy implements CompactStrategy {
     private String extractBlockText(ContentBlock b) {
         return switch (b) {
             case ContentBlock.TextBlock t -> t.text();
+            case ContentBlock.TerminalBlock t -> t.message();
             case ContentBlock.ThinkingBlock t -> t.thinking();
             case ContentBlock.ToolUseBlock u -> "[tool " + u.name() + "]\n"
                     + u.input().toString();

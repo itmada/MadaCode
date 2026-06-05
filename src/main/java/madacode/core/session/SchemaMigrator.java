@@ -19,7 +19,7 @@ import java.util.function.UnaryOperator;
  */
 final class SchemaMigrator {
 
-    static final int CURRENT = 7;
+    static final int CURRENT = 8;
 
     private static final Map<Integer, UnaryOperator<ObjectNode>> STEPS = Map.of(
             1, SchemaMigrator::v1ToV2,
@@ -27,7 +27,8 @@ final class SchemaMigrator {
             3, SchemaMigrator::v3ToV4,
             4, SchemaMigrator::v4ToV5,
             5, SchemaMigrator::v5ToV6,
-            6, SchemaMigrator::v6ToV7
+            6, SchemaMigrator::v6ToV7,
+            7, SchemaMigrator::v7ToV8
     );
 
     private SchemaMigrator() {}
@@ -120,6 +121,11 @@ final class SchemaMigrator {
             LongRunningStage.fromWire(stageNode.asText())
                     .ifPresent(stage -> root.put("longRunningStage", stage.name()));
         }
+        return root;
+    }
+
+    // ---- v7 -> v8: supports terminal assistant content blocks ----
+    private static ObjectNode v7ToV8(ObjectNode root) {
         return root;
     }
 }

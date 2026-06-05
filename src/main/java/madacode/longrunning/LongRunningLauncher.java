@@ -1,5 +1,8 @@
 package madacode.longrunning;
 
+import madacode.core.model.FinishReason;
+import madacode.core.turn.TurnResult;
+
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
@@ -46,7 +49,19 @@ public final class LongRunningLauncher {
         Objects.requireNonNull(controlSession, "controlSession");
 
         LongRunningTaskStore store = taskStoreFactory.create(projectDir);
+        try (LongRunningTaskLease ignored = store.acquireExecutionLease(taskId)) {
+            return runWithLease(taskId, projectDir, controlSession, maxWorkers, store);
+        } catch (LongRunningTaskLeaseUnavailableException exception) {
+            return new LaunchResult(LaunchStatus.ALREADY_RUNNING, 0, exception.getMessage());
+        }
+    }
 
+    private LaunchResult runWithLease(
+            String taskId,
+            Path projectDir,
+            madacode.core.session.ConversationSession controlSession,
+            int maxWorkers,
+            LongRunningTaskStore store) {
         // Append launcher started event
         appendLauncherEvent(store, taskId, controlSession, "launcher_started",
                 true, "Launcher started for task " + taskId,
@@ -149,16 +164,17 @@ public final class LongRunningLauncher {
 
             // Check if worker produced a report
             if (result.report().isEmpty()) {
+                WorkerNoReportCause cause = WorkerNoReportCause.from(result.turnResult());
                 appendLauncherEvent(store, taskId, controlSession, "worker_finished",
-                        false, "Worker did not produce a report",
-                        Map.of("cycle", String.valueOf(i + 1)));
+                        false, cause.workerMessage(),
+                        cause.workerDetails(i + 1, result.workerSessionId()));
                 appendLauncherEvent(store, taskId, controlSession, "launcher_stopped",
-                        false, "Launcher stopped: worker did not report",
-                        Map.of("reason", "no_report"));
-                var stopFailure = returnTaskToInterrupt(store, taskId, controlSession, i + 1, "no_report");
+                        false, cause.launcherMessage(),
+                        cause.launcherDetails());
+                var stopFailure = returnTaskToInterrupt(store, taskId, controlSession, i + 1, cause.reason());
                 if (stopFailure != null) return stopFailure;
                 return new LaunchResult(LaunchStatus.FAILED, i + 1,
-                        "Worker did not produce a worker_report. The worker session may have failed.");
+                        cause.resultMessage());
             }
 
             WorkerReport report = result.report().get();
@@ -304,6 +320,7 @@ public final class LongRunningLauncher {
      */
     public enum LaunchStatus {
         COMPLETED,
+        ALREADY_RUNNING,
         BLOCKED,
         FAILED,
         NEEDS_USER,
@@ -319,4 +336,95 @@ public final class LongRunningLauncher {
             int workersLaunched,
             String message
     ) {}
+
+    private record WorkerNoReportCause(
+            String reason,
+            String workerMessage,
+            String launcherMessage,
+            String resultMessage,
+            FinishReason finishReason,
+            String finalText) {
+
+        static WorkerNoReportCause from(TurnResult turnResult) {
+            FinishReason finishReason = turnResult == null ? null : turnResult.finishReason();
+            String finalText = sanitizeFinalText(turnResult == null ? null : turnResult.finalText());
+            String suffix = finalText == null || finalText.isBlank()
+                    ? ""
+                    : " " + finalText;
+            if (finishReason == FinishReason.MAX_ITERATIONS) {
+                return new WorkerNoReportCause(
+                        "worker_iteration_budget_exhausted",
+                        "Worker reached max iterations before worker_report",
+                        "Launcher stopped: worker exhausted iteration budget before reporting",
+                        "Worker reached max iterations before worker_report." + suffix,
+                        finishReason,
+                        finalText);
+            }
+            if (finishReason == FinishReason.MODEL_TRUNCATED) {
+                return new WorkerNoReportCause(
+                        "worker_model_truncated",
+                        "Worker response was truncated before worker_report",
+                        "Launcher stopped: worker response was truncated before reporting",
+                        "Worker response was truncated before worker_report.",
+                        finishReason,
+                        finalText);
+            }
+            if (finishReason == FinishReason.API_ERROR) {
+                return new WorkerNoReportCause(
+                        "worker_api_error",
+                        "Worker turn ended with API error before worker_report",
+                        "Launcher stopped: worker API error before reporting",
+                        "Worker turn ended with API error before worker_report." + suffix,
+                        finishReason,
+                        finalText);
+            }
+            if (finishReason == FinishReason.CANCELLED
+                    || finishReason == FinishReason.PERMISSION_CANCELLED) {
+                return new WorkerNoReportCause(
+                        "worker_cancelled",
+                        "Worker turn was cancelled before worker_report",
+                        "Launcher stopped: worker was cancelled before reporting",
+                        "Worker turn was cancelled before worker_report." + suffix,
+                        finishReason,
+                        finalText);
+            }
+            return new WorkerNoReportCause(
+                    "no_report",
+                    "Worker did not produce a report",
+                    "Launcher stopped: worker did not report",
+                    "Worker did not produce a worker_report. The worker session may have failed.",
+                    finishReason,
+                    finalText);
+        }
+
+        Map<String, String> workerDetails(int cycle, String workerSessionId) {
+            return details(Map.of(
+                    "cycle", String.valueOf(cycle),
+                    "reason", reason,
+                    "workerSessionId", workerSessionId == null ? "" : workerSessionId));
+        }
+
+        Map<String, String> launcherDetails() {
+            return details(Map.of("reason", reason));
+        }
+
+        private Map<String, String> details(Map<String, String> base) {
+            java.util.LinkedHashMap<String, String> details = new java.util.LinkedHashMap<>(base);
+            if (finishReason != null) {
+                details.put("finishReason", finishReason.name());
+            }
+            if (finalText != null && !finalText.isBlank()) {
+                details.put("finalText", finalText);
+            }
+            return Map.copyOf(details);
+        }
+
+        private static String sanitizeFinalText(String value) {
+            if (value == null) {
+                return null;
+            }
+            String compact = value.replaceAll("\\s+", " ").trim();
+            return compact.length() <= 240 ? compact : compact.substring(0, 240);
+        }
+    }
 }

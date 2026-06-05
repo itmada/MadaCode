@@ -122,6 +122,10 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
         LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
         try {
             store.validateTaskDirectory(taskId);
+            if (session.longRunningStage() == LongRunningStage.INTERRUPT
+                    && "RUNNING".equals(store.loadTask(taskId).status())) {
+                return failed("Cannot update the plan while another launcher still owns the running task.");
+            }
             session.setLongRunningTaskDirectory(store.taskDirectoryPath(taskId).toString());
 
             ToolResult result = switch (action) {
@@ -171,26 +175,50 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
 
     private ToolResult replaceFeatureList(LongRunningTaskStore store, String taskId, Input input) {
         List<FeatureInput> featureInputs = input.features() == null ? List.of() : input.features();
-        Map<String, Boolean> existingPasses = store.readFeatureList(taskId).stream()
+        Map<String, FeatureItem> existingFeatures = store.readFeatureList(taskId).stream()
                 .collect(java.util.stream.Collectors.toMap(
                         FeatureItem::id,
-                        FeatureItem::passes,
+                        feature -> feature,
                         (left, right) -> left,
                         java.util.LinkedHashMap::new));
         List<FeatureItem> features = featureInputs.stream()
-                .map(feature -> new FeatureItem(
-                        feature.id(),
-                        feature.category(),
-                        feature.priority(),
-                        feature.description(),
-                        feature.depends_on(),
-                        feature.verification_steps(),
-                        feature.passes() == null
-                                ? existingPasses.getOrDefault(feature.id(), false)
-                                : Boolean.TRUE.equals(feature.passes())))
+                .map(feature -> featureItemForReplacement(feature, existingFeatures.get(feature.id())))
                 .toList();
         store.replaceFeatureList(taskId, features);
         return succeeded("Replaced feature list for " + taskId + " (" + features.size() + " feature(s)).");
+    }
+
+    private static FeatureItem featureItemForReplacement(FeatureInput feature, FeatureItem existing) {
+        boolean canPreservePassedState = existing != null
+                && existing.passes()
+                && sameFeatureDefinition(feature, existing);
+        if (Boolean.TRUE.equals(feature.passes()) && !canPreservePassedState) {
+            throw new IllegalArgumentException(
+                    "passes=true can only preserve an unchanged already-passed feature: " + feature.id());
+        }
+        boolean passes = feature.passes() == null ? canPreservePassedState : Boolean.TRUE.equals(feature.passes());
+        List<String> evidence = passes ? existing.verificationEvidence() : List.of();
+        return new FeatureItem(
+                feature.id(),
+                feature.category(),
+                feature.priority(),
+                feature.description(),
+                feature.depends_on(),
+                feature.verification_steps(),
+                passes,
+                evidence);
+    }
+
+    private static boolean sameFeatureDefinition(FeatureInput feature, FeatureItem existing) {
+        return Objects.equals(feature.category(), existing.category())
+                && Objects.equals(feature.priority(), existing.priority())
+                && Objects.equals(feature.description(), existing.description())
+                && Objects.equals(listOrEmpty(feature.depends_on()), existing.dependsOn())
+                && Objects.equals(listOrEmpty(feature.verification_steps()), existing.verificationSteps());
+    }
+
+    private static List<String> listOrEmpty(List<String> values) {
+        return values == null ? List.of() : values;
     }
 
     private ToolResult replaceKnownIssues(LongRunningTaskStore store, String taskId, Input input) {

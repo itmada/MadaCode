@@ -1,6 +1,5 @@
 package madacode.agent;
 
-import madacode.core.engine.QueryEngine;
 import madacode.permission.PermissionMode;
 
 import java.util.List;
@@ -21,8 +20,7 @@ public final class BuiltInAgents {
                 "You are a code exploration agent. Search the codebase to answer questions about structure, dependencies, and implementation details. Use file_read to inspect files, glob to find files by pattern, and grep to search code. Report findings clearly and concisely. Never modify files or execute commands.",
                 Set.of("file_read", "glob", "grep"),
                 Set.of("agent", "bash"),
-                QueryEngine.DEFAULT_MAX_ITERATIONS,
-                20,
+                null,
                 PermissionMode.ACCEPT_EDITS
         );
     }
@@ -35,8 +33,7 @@ public final class BuiltInAgents {
                 "You are a software architecture planning agent. Analyze code structure, design patterns, and architectural decisions. Use file_read to inspect files, glob to discover project structure, and grep to trace dependencies. Provide clear analysis and actionable recommendations. Never modify files or execute commands.",
                 Set.of("file_read", "glob", "grep"),
                 Set.of("agent", "bash"),
-                4,
-                12,
+                null,
                 PermissionMode.ACCEPT_EDITS
         );
     }
@@ -49,8 +46,7 @@ public final class BuiltInAgents {
                 "You are a general-purpose sub-agent. Execute the given task using available tools. You can read files, search code, and run shell commands. Work independently and report results clearly.",
                 Set.of("file_read", "glob", "grep", "bash"),
                 Set.of("agent"),
-                8,
-                30,
+                null,
                 PermissionMode.ACCEPT_EDITS
         );
     }

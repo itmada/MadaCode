@@ -32,7 +32,7 @@ import java.util.Objects;
  * <ul>
  *   <li>{@link MetaEvent.Error} — {@code TurnRenderer} reacts to this by
  *       aborting the current turn. Forwarding a sub-agent's terminal Error
- *       (MAX_ITERATIONS, MAX_TOOL_CALLS, API_ERROR, CANCELLED) would abort
+     *       (MAX_ITERATIONS, API_ERROR, CANCELLED) would abort
  *       the parent turn mid-flight, bypassing the parent LLM's chance to
  *       react to the failure. Sub-agent failures surface to the parent
  *       through the failing {@code ToolResult} produced by

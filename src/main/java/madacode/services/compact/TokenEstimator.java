@@ -27,6 +27,7 @@ public class TokenEstimator {
     public int estimate(ContentBlock block) {
         int payloadBytes = switch (block) {
             case ContentBlock.TextBlock t -> utf8Len(t.text());
+            case ContentBlock.TerminalBlock t -> utf8Len(t.message());
             case ContentBlock.ThinkingBlock t -> utf8Len(t.thinking());
             case ContentBlock.ToolUseBlock u -> utf8Len(u.input().toString()) + utf8Len(u.name());
             case ContentBlock.ToolResultBlock r -> utf8Len(r.content());

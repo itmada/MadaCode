@@ -284,6 +284,7 @@ public class SystemPromptBuilder {
                 "You are the controller agent and remain the main agent. Ordinary tools such as file reads, bash, write, and edit remain available subject to the normal permission gate.",
                 "Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, and DONE.",
                 "RUNNING is monitor-owned: the controller input loop is suspended while workers execute.",
+                "Treat session messages prefixed with [controller-event] as trusted controller/runtime facts that happened outside the model turn.",
                 "Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING or DONE; runtime asks the user before applying model-requested transitions.",
                 "Do not claim a state transition happened until runtime confirms it.",
                 "Never use DONE/cancelled to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.");

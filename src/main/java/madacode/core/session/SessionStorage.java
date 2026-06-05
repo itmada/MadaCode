@@ -282,6 +282,13 @@ public final class SessionStorage {
                 node.put("text", textBlock.text());
                 yield node;
             }
+            case ContentBlock.TerminalBlock terminalBlock -> {
+                ObjectNode node = mapper.createObjectNode();
+                node.put("type", "terminal");
+                node.put("message", terminalBlock.message());
+                node.put("reason", terminalBlock.reason().name());
+                yield node;
+            }
             case ContentBlock.ThinkingBlock thinkingBlock -> {
                 ObjectNode node = mapper.createObjectNode();
                 node.put("type", "thinking");
@@ -559,6 +566,9 @@ public final class SessionStorage {
         String type = requiredText(blockNode, "type");
         return switch (type) {
             case "text" -> new ContentBlock.TextBlock(requiredText(blockNode, "text"));
+            case "terminal" -> new ContentBlock.TerminalBlock(
+                    requiredText(blockNode, "message"),
+                    madacode.core.model.FinishReason.valueOf(requiredText(blockNode, "reason")));
             case "thinking" -> new ContentBlock.ThinkingBlock(requiredText(blockNode, "thinking"));
             case "tool_use" -> new ContentBlock.ToolUseBlock(
                     requiredText(blockNode, "id"),

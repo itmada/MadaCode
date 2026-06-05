@@ -3,6 +3,7 @@ package madacode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
+import madacode.core.model.FinishReason;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.model.Message;
@@ -46,7 +47,8 @@ public class SessionStorageTest {
                                 new ContentBlock.TextBlock("I will inspect the plan."),
                                 new ContentBlock.ToolUseBlock("toolu_1", "glob", toolInput()))),
                         Message.user(List.of(
-                                new ContentBlock.ToolResultBlock("toolu_1", "PLAN.md", true, -1)))));
+                                new ContentBlock.ToolResultBlock("toolu_1", "PLAN.md", true, -1))),
+                        Message.assistantTerminal("(Cancelled: esc)", FinishReason.CANCELLED)));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setPlanMode(true);
         session.setPermissionMode(PermissionMode.BYPASS);
@@ -56,7 +58,7 @@ public class SessionStorageTest {
         ConversationSession restored = storage.load(session.sessionId());
 
         var json = mapper.readTree(storage.transcriptPath(session.sessionId()).toFile());
-        assertEquals(7, json
+        assertEquals(8, json
                 .path("schemaVersion")
                 .asInt());
         assertEquals("long-running", json.path("workflowMode").asText());

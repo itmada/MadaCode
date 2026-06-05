@@ -53,11 +53,12 @@ public class AgentRunner {
 
         SystemPromptBuilder childPromptBuilder = new SystemPromptBuilder(definition.systemPrompt());
 
-        QueryEngine childEngine = QueryEngine.builder(
-                apiClient, childRegistry, childPromptBuilder, parentGate)
-                .maxIterations(definition.maxIterations())
-                .maxToolCalls(definition.maxToolCalls())
-                .build();
+        QueryEngine.Builder engineBuilder = QueryEngine.builder(
+                apiClient, childRegistry, childPromptBuilder, parentGate);
+        if (definition.maxIterations() != null) {
+            engineBuilder.maxIterations(definition.maxIterations());
+        }
+        QueryEngine childEngine = engineBuilder.build();
 
         ConversationSession parentSession = parentContext.session();
         ConversationSession childSession = new ConversationSession(parentContext.workingDirectory());

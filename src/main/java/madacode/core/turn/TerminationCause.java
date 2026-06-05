@@ -23,8 +23,6 @@ public enum TerminationCause {
     MAX_ITERATIONS,
     /** Model response was truncated by the upstream max_tokens limit. */
     MODEL_TRUNCATED,
-    /** Model loop hit the configured tool-call ceiling. */
-    MAX_TOOL_CALLS,
     /** An exception escaped the runner that wasn't already classified. */
     RUNTIME_ERROR,
     /** Upstream API failed in a way the runner handled gracefully (returned, didn't throw). */

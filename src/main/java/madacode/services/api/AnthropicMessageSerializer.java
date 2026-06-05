@@ -90,8 +90,14 @@ final class AnthropicMessageSerializer {
 
     private ObjectNode messageWithContentBlocks(String role, Message message) {
         List<ContentBlock> blocks = message.contentBlocks();
-        if (blocks.size() == 1 && blocks.getFirst() instanceof ContentBlock.TextBlock textBlock) {
-            return textMessage(role, textBlock.text());
+        if (blocks.size() == 1) {
+            ContentBlock block = blocks.getFirst();
+            if (block instanceof ContentBlock.TextBlock textBlock) {
+                return textMessage(role, textBlock.text());
+            }
+            if (block instanceof ContentBlock.TerminalBlock terminalBlock) {
+                return textMessage(role, terminalBlock.message());
+            }
         }
         ObjectNode m = mapper.createObjectNode();
         m.put("role", role);
@@ -109,6 +115,12 @@ final class AnthropicMessageSerializer {
                 ObjectNode n = mapper.createObjectNode();
                 n.put("type", "text");
                 n.put("text", text.text());
+                yield n;
+            }
+            case ContentBlock.TerminalBlock terminal -> {
+                ObjectNode n = mapper.createObjectNode();
+                n.put("type", "text");
+                n.put("text", terminal.message());
                 yield n;
             }
             case ContentBlock.ThinkingBlock thinking -> {

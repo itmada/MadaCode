@@ -26,6 +26,10 @@ public final class Message {
         return textMessage(MessageRole.ASSISTANT, content);
     }
 
+    public static Message assistantTerminal(String message, FinishReason reason) {
+        return new Message(MessageRole.ASSISTANT, List.of(new ContentBlock.TerminalBlock(message, reason)));
+    }
+
     public static Message assistant(List<ContentBlock> contentBlocks) {
         return new Message(MessageRole.ASSISTANT, contentBlocks);
     }
@@ -51,6 +55,7 @@ public final class Message {
     private static String contentBlockToText(ContentBlock block) {
         return switch (block) {
             case ContentBlock.TextBlock text -> text.text();
+            case ContentBlock.TerminalBlock terminal -> terminal.message();
             case ContentBlock.ThinkingBlock thinking -> "";
             case ContentBlock.ToolUseBlock toolUse -> "";
             case ContentBlock.ToolResultBlock toolResult -> toolResult.content();

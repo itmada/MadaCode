@@ -89,6 +89,12 @@ public final class BundledSkillLoader implements SkillLoader {
         }
 
         Map<String, Object> fm = parsed.frontmatter();
+        if (fm.containsKey("max_tool_calls")) {
+            AppEvents.publisher().publish(DiagnosticEvent.warn(
+                    EventContext.bootstrap("BundledSkillLoader"),
+                    mdPath + ": max_tool_calls is no longer supported; skipping skill"));
+            return null;
+        }
 
         String name = SkillFrontmatterParser.stringField(fm, "name");
         if (name == null || name.isBlank()) name = dirName;
@@ -108,10 +114,30 @@ public final class BundledSkillLoader implements SkillLoader {
                 SkillFrontmatterParser.stringListField(fm, "allowed_tools"));
         List<String> disallowed = ToolNameNormalizer.normalize(
                 SkillFrontmatterParser.stringListField(fm, "disallowed_tools"));
-        int maxIter = SkillFrontmatterParser.intField(fm, "max_iterations", 15);
-        int maxCalls = SkillFrontmatterParser.intField(fm, "max_tool_calls", 50);
+        Integer maxIter = optionalPositiveInt(fm, "max_iterations", mdPath);
 
         return new Skill(name, desc, when, tags, source, parsed.body(),
-                mdPath, dirPath, mode, allowed, disallowed, maxIter, maxCalls);
+                mdPath, dirPath, mode, allowed, disallowed, maxIter);
+    }
+
+    private static Integer optionalPositiveInt(Map<String, Object> fm, String field, Path source) {
+        if (!fm.containsKey(field)) {
+            return null;
+        }
+        Object raw = fm.get(field);
+        if (raw instanceof String s) {
+            try {
+                int value = Integer.parseInt(s);
+                if (value > 0) {
+                    return value;
+                }
+            } catch (NumberFormatException ignored) {
+                // Warn below with the original value.
+            }
+        }
+        AppEvents.publisher().publish(DiagnosticEvent.warn(
+                EventContext.bootstrap("BundledSkillLoader"),
+                source + ": " + field + " must be a positive integer; leaving unbounded"));
+        return null;
     }
 }

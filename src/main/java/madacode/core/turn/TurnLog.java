@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -76,7 +77,7 @@ public final class TurnLog {
                 try {
                     events.add(mapper.readValue(line, TurnEvent.class));
                 } catch (JsonProcessingException ignored) {
-                    // Skip lines that can't be parsed (e.g., written by an older format)
+                    obsoleteMaxToolCallsFinished(line).ifPresent(events::add);
                 }
             }
         } catch (IOException e) {
@@ -150,6 +151,38 @@ public final class TurnLog {
     }
 
     // ---- Jackson helpers ---------------------------------------------------
+
+    private Optional<TurnEvent> obsoleteMaxToolCallsFinished(String line) {
+        try {
+            JsonNode root = mapper.readTree(line);
+            if (!"finished".equals(root.path("event").asText())) {
+                return Optional.empty();
+            }
+            JsonNode terminal = root.path("terminal");
+            if (!"MAX_TOOL_CALLS".equals(terminal.path("cause").asText())) {
+                return Optional.empty();
+            }
+            return Optional.of(new TurnEvent.Finished(
+                    root.path("turnId").asText("obsolete_max_tool_calls"),
+                    parseInstantOrNow(root.path("at").asText(null)),
+                    TerminalState.failed(
+                            "obsolete MAX_TOOL_CALLS terminal state removed; "
+                                    + "tool-call count limits are no longer supported")));
+        } catch (JsonProcessingException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Instant parseInstantOrNow(String value) {
+        if (value == null || value.isBlank()) {
+            return Instant.now();
+        }
+        try {
+            return Instant.parse(value);
+        } catch (RuntimeException ignored) {
+            return Instant.now();
+        }
+    }
 
     private static class InstantSerializer extends JsonSerializer<Instant> {
         @Override

@@ -173,11 +173,32 @@ final class SessionAssembly {
         }
         try {
             LongRunningTaskStore store = new LongRunningTaskStore(session.workingDirectory());
-            if ("RUNNING".equals(store.loadTask(session.longRunningTaskId()).status())) {
-                store.markTaskInterrupted(session.longRunningTaskId());
+            var task = store.loadTask(session.longRunningTaskId());
+            switch (task.status()) {
+                case "DONE" -> {
+                    session.setLongRunningStage(LongRunningStage.DONE);
+                    session.setLongRunningReason(task.reason());
+                }
+                case "INTERRUPT" -> {
+                    session.setLongRunningStage(LongRunningStage.INTERRUPT);
+                    session.setLongRunningReason(task.reason());
+                }
+                case "RUNNING" -> {
+                    try (var ignored = store.acquireExecutionLease(session.longRunningTaskId())) {
+                        var interrupted = store.markTaskInterrupted(session.longRunningTaskId(), "process_restarted");
+                        session.setLongRunningStage(LongRunningStage.INTERRUPT);
+                        session.setLongRunningReason(interrupted.reason());
+                    } catch (madacode.longrunning.LongRunningTaskLeaseUnavailableException exception) {
+                        session.setLongRunningStage(LongRunningStage.INTERRUPT);
+                        session.setLongRunningReason("already_running_elsewhere");
+                    }
+                }
+                case "DRAFT" -> {
+                    session.setLongRunningStage(LongRunningStage.DRAFT);
+                    session.setLongRunningReason(task.reason());
+                }
+                default -> throw new IllegalStateException("Unsupported task status: " + task.status());
             }
-            session.setLongRunningStage(LongRunningStage.INTERRUPT);
-            session.setLongRunningReason("user_interrupted");
         } catch (RuntimeException ignored) {
             session.setLongRunningStage(LongRunningStage.INTERRUPT);
             session.setLongRunningReason("recovery_failed");

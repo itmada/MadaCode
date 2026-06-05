@@ -16,8 +16,7 @@ public record Skill(
         String mode,                  // "inline" (default) or "fork"
         List<String> allowedTools,
         List<String> disallowedTools,
-        int maxIterations,
-        int maxToolCalls) {
+        Integer maxIterations) {
 
     public Skill {
         Objects.requireNonNull(name, "name");
@@ -31,7 +30,8 @@ public record Skill(
         mode = mode == null || mode.isBlank() ? "inline" : mode;
         allowedTools = allowedTools == null ? List.of() : List.copyOf(allowedTools);
         disallowedTools = disallowedTools == null ? List.of() : List.copyOf(disallowedTools);
-        maxIterations = maxIterations <= 0 ? 15 : maxIterations;
-        maxToolCalls = maxToolCalls <= 0 ? 50 : maxToolCalls;
+        if (maxIterations != null && maxIterations <= 0) {
+            throw new IllegalArgumentException("maxIterations must be positive, was " + maxIterations);
+        }
     }
 }

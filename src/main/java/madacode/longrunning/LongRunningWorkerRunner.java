@@ -84,6 +84,9 @@ public class LongRunningWorkerRunner {
         workerSession.setLongRunningTaskId(taskId);
         workerSession.setLongRunningTaskDirectory(taskDir.toString());
         workerSession.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
+        LongRunningWorkerMonitorBridge monitorBridge =
+                new LongRunningWorkerMonitorBridge(store, taskId, workerSession);
+        workerSession.addListener(monitorBridge);
 
         // Build worker-specific system prompt
         String workerPrompt = LongRunningWorkerPrompt.build();
@@ -96,22 +99,28 @@ public class LongRunningWorkerRunner {
         // Run the worker turn through the managed turn executor so worker
         // sessions get the same turn log and terminal-state accounting as
         // foreground turns, without attaching foreground UI listeners.
-        String workerInput = "[worker-start] Execute exactly one long-running worker cycle for task " + taskId + ".";
+        String workerInput = "[worker-start] Execute exactly one long-running worker cycle for task "
+                + taskId + ". Rebuild context from the task store and workspace, choose one bounded work item, "
+                + "update progress, verify your work, and report the outcome.";
         TurnResult turnResult;
-        try (TurnExecutor workerExecutor = new TurnExecutor(
-                new QueryEngineTurnRunner(workerEngine),
-                new TurnLog(turnLogRoot))) {
-            TurnHandle handle = workerExecutor.submit(workerSession, workerInput);
-            try {
-                turnResult = waitForWorkerTurn(handle);
-            } catch (ExecutionException e) {
-                Throwable cause = e.getCause() == null ? e : e.getCause();
-                throw cause instanceof RuntimeException re ? re : new RuntimeException(cause);
-            } catch (InterruptedException e) {
-                handle.cancel().accept("long-running launcher interrupted");
-                Thread.currentThread().interrupt();
-                throw new RuntimeException("Worker interrupted", e);
+        try {
+            try (TurnExecutor workerExecutor = new TurnExecutor(
+                    new QueryEngineTurnRunner(workerEngine),
+                    new TurnLog(turnLogRoot))) {
+                TurnHandle handle = workerExecutor.submit(workerSession, workerInput);
+                try {
+                    turnResult = waitForWorkerTurn(handle);
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause() == null ? e : e.getCause();
+                    throw cause instanceof RuntimeException re ? re : new RuntimeException(cause);
+                } catch (InterruptedException e) {
+                    handle.cancel().accept("long-running launcher interrupted");
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Worker interrupted", e);
+                }
             }
+        } finally {
+            workerSession.removeListener(monitorBridge);
         }
 
         // Save the worker session

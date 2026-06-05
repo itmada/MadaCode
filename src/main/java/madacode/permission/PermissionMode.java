@@ -29,7 +29,7 @@ public enum PermissionMode {
      *  still apply — BYPASS only suppresses prompting, never overrides
      *  deny rules. */
     LONG_RUNNING_WORKSPACE("long-running-workspace",
-            "Auto-allow file edits in the workspace; prompt for other writes", 2),
+            "Auto-allow workspace edits and scoped worker bash", 2),
     BYPASS("all-pass",
             "Suppress interactive approval; structural safety rules still apply", 3);
 

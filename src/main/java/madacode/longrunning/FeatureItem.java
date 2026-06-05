@@ -10,7 +10,19 @@ public record FeatureItem(
         String description,
         List<String> dependsOn,
         List<String> verificationSteps,
-        boolean passes) {
+        boolean passes,
+        List<String> verificationEvidence) {
+
+    public FeatureItem(
+            String id,
+            String category,
+            String priority,
+            String description,
+            List<String> dependsOn,
+            List<String> verificationSteps,
+            boolean passes) {
+        this(id, category, priority, description, dependsOn, verificationSteps, passes, List.of());
+    }
 
     public FeatureItem {
         id = requireNonBlank(id, "id");
@@ -19,6 +31,7 @@ public record FeatureItem(
         description = requireNonBlank(description, "description");
         dependsOn = List.copyOf(Objects.requireNonNullElse(dependsOn, List.of()));
         verificationSteps = List.copyOf(Objects.requireNonNullElse(verificationSteps, List.of()));
+        verificationEvidence = List.copyOf(Objects.requireNonNullElse(verificationEvidence, List.of()));
     }
 
     private static String requireNonBlank(String value, String field) {

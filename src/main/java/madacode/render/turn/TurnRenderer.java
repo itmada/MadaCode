@@ -173,6 +173,8 @@ public final class TurnRenderer implements SessionListener {
                 renderable.append(text.text());
                 renderable.finalizeText();
                 turnView.add(renderable);
+            } else if (block instanceof ContentBlock.TerminalBlock) {
+                // Terminal messages are displayed by MetaEvent.Error in live turns.
             }
         }
     }
@@ -274,7 +276,7 @@ public final class TurnRenderer implements SessionListener {
      * scrollback in order, then display the error message.
      *
      * <p>This is the single cleanup path for turn-terminal errors
-     * (cancellation, API error, max iterations/tool calls). Per-tool failures
+     * (cancellation, API error, max iterations). Per-tool failures
      * such as an unknown tool are NOT routed here — they surface on their own
      * tool card and let the turn continue.
      * Error display is owned exclusively by TurnRenderer during turns.

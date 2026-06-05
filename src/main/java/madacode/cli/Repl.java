@@ -44,7 +44,9 @@ import madacode.permission.PermissionGate;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -202,11 +204,15 @@ public abstract class Repl {
     protected boolean startLongRunningRuntime() {
         String taskId = session.longRunningTaskId();
         if (taskId == null || taskId.isBlank()) {
+            recordLongRunningControllerEvent("worker_runtime_start_failed",
+                    Map.of("reason", "no_active_task"));
             screen.scrollback("No active long-running task.");
             markLongRunningInterrupted("runtime_start_failed");
             return false;
         }
         if (longRunningRuntime == null) {
+            recordLongRunningControllerEvent("worker_runtime_start_failed",
+                    Map.of("reason", "runtime_unavailable"));
             screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
             markLongRunningInterrupted("runtime_start_failed");
             return false;
@@ -219,6 +225,12 @@ public abstract class Repl {
                     session,
                     longRunningCompletions::add);
         } catch (RuntimeException exception) {
+            recordLongRunningControllerEvent("worker_runtime_start_failed",
+                    Map.of(
+                            "reason", "runtime_exception",
+                            "detail", exception.getMessage() == null
+                                    ? exception.getClass().getSimpleName()
+                                    : exception.getMessage()));
             screen.scrollback("Failed to start long-running runtime: "
                     + (exception.getMessage() == null
                     ? exception.getClass().getSimpleName()
@@ -227,14 +239,18 @@ public abstract class Repl {
             return false;
         }
         if (!started) {
+            recordLongRunningControllerEvent("worker_runtime_already_running", Map.of());
             screen.scrollback("Long-running workers are already running for this task.");
+        } else {
+            recordLongRunningControllerEvent("worker_runtime_started", Map.of());
         }
-        return true;
+        return started;
     }
 
     private static String longRunningResultSummary(LongRunningLauncher.LaunchResult result) {
         String statusTag = switch (result.status()) {
             case COMPLETED -> "[completed]";
+            case ALREADY_RUNNING -> "[already-running]";
             case BLOCKED -> "[blocked]";
             case FAILED -> "[failed]";
             case NEEDS_USER -> "[needs-user]";
@@ -272,7 +288,8 @@ public abstract class Repl {
             summary = longRunningResultSummary(result);
             LongRunningStage fallbackStage = switch (result.status()) {
                 case COMPLETED -> LongRunningStage.DONE;
-                case BLOCKED, FAILED, NEEDS_USER, INTERRUPTED, MAX_WORKERS_EXHAUSTED -> LongRunningStage.INTERRUPT;
+                case ALREADY_RUNNING, BLOCKED, FAILED, NEEDS_USER, INTERRUPTED, MAX_WORKERS_EXHAUSTED ->
+                        LongRunningStage.INTERRUPT;
             };
             if (fallbackStage == LongRunningStage.INTERRUPT) {
                 markTaskInterruptedIfNeeded(completion.taskId(), result.status());
@@ -281,8 +298,22 @@ public abstract class Repl {
                     .filter(stage -> stage == LongRunningStage.DONE || stage == LongRunningStage.INTERRUPT)
                     .orElse(fallbackStage);
         }
-        screen.scrollback(summary);
+        screen.scrollback("");
+        screen.scrollback(Tk.dim(summary));
         session.setLongRunningStage(targetStage);
+        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
+        fields.put("summary", summary);
+        fields.put("result_stage", targetStage.name());
+        if (completion.result() != null) {
+            fields.put("launcher_status", completion.result().status().name());
+            fields.put("workers_launched", String.valueOf(completion.result().workersLaunched()));
+        }
+        if (completion.error() != null) {
+            fields.put("error", completion.error().getMessage() == null
+                    ? completion.error().getClass().getSimpleName()
+                    : completion.error().getMessage());
+        }
+        recordLongRunningControllerEvent("worker_runtime_finished", fields);
         session.addMessage(Message.system("[long-running] " + summary));
         persistSession();
     }
@@ -294,6 +325,8 @@ public abstract class Repl {
         if (taskId == null || taskId.isBlank()) {
             return;
         }
+        recordLongRunningControllerEvent("task_marked_interrupted",
+                Map.of("reason", reason == null ? "" : reason));
         try {
             new LongRunningTaskStore(session.workingDirectory()).markTaskInterrupted(taskId, reason);
         } catch (RuntimeException exception) {
@@ -322,6 +355,9 @@ public abstract class Repl {
         if (taskId == null || taskId.isBlank()) {
             return;
         }
+        if (status == LongRunningLauncher.LaunchStatus.ALREADY_RUNNING) {
+            return;
+        }
         try {
             LongRunningTaskStore store = new LongRunningTaskStore(session.workingDirectory());
             String currentStatus = store.loadTask(taskId).status();
@@ -336,6 +372,7 @@ public abstract class Repl {
 
     private static String interruptReasonFor(LongRunningLauncher.LaunchStatus status) {
         return switch (status) {
+            case ALREADY_RUNNING -> "already_running";
             case BLOCKED -> "worker_blocked";
             case FAILED -> "worker_failed";
             case NEEDS_USER -> "needs_user";
@@ -371,13 +408,20 @@ public abstract class Repl {
     }
 
     private void handlePendingLongRunningTransitionRequest(LongRunningTransitionRequest request) {
+        recordLongRunningTransitionPromptEvent("transition_confirmation_requested", request);
         boolean approved = promptChannel.confirm(longRunningTransitionPrompt(request));
+        recordLongRunningTransitionPromptEvent(
+                approved ? "transition_confirmation_approved" : "transition_confirmation_rejected",
+                request);
         try {
             if (approved) {
                 LongRunningController.AppliedTransition applied =
                         longRunningController.applyPendingRequest(session, "user", interruptController);
                 if (applied.targetStage() == LongRunningStage.RUNNING) {
-                    startLongRunningRuntime();
+                    if (startLongRunningRuntime()) {
+                        screen.scrollback("");
+                        screen.scrollback("[long-running] Worker runtime started; monitor active.");
+                    }
                 }
             } else {
                 longRunningController.rejectPendingRequest(session, "user");
@@ -401,6 +445,32 @@ public abstract class Repl {
             return "Mark this long-running task DONE?" + suffix;
         }
         return "Apply long-running transition " + source + " -> " + target + "?" + suffix;
+    }
+
+    protected final void recordLongRunningControllerEvent(String event, Map<String, String> fields) {
+        LinkedHashMap<String, String> ordered = new LinkedHashMap<>();
+        ordered.put("event", event);
+        ordered.put("task", safeTaskId(session.longRunningTaskId()));
+        LongRunningStage stage = session.longRunningStage();
+        if (stage != null) {
+            ordered.put("stage", stage.name());
+        }
+        if (fields != null) {
+            ordered.putAll(fields);
+        }
+        session.addControllerEvent("long-running", ordered);
+    }
+
+    private void recordLongRunningTransitionPromptEvent(
+            String event,
+            LongRunningTransitionRequest request) {
+        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
+        fields.put("transition", request.sourceStage() + " -> " + request.targetStage());
+        fields.put("reason", request.reason());
+        if (request.summary() != null) {
+            fields.put("summary", request.summary());
+        }
+        recordLongRunningControllerEvent(event, fields);
     }
 
     private Optional<ModeExecution> runAfterTurnHook(ModeExecution.AfterTurn afterTurn) {

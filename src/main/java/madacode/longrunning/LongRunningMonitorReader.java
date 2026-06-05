@@ -32,8 +32,8 @@ public final class LongRunningMonitorReader {
         try {
             LongRunningTaskStore store = taskStoreFactory.create(projectDir);
             LongRunningTaskMetadata metadata = store.loadTask(taskId);
-            List<LongRunningTaskEvent> events = store.readEvents(taskId);
-            return snapshot(taskId, metadata.status(), events, interrupting);
+            List<LongRunningTaskEvent> events = store.readRecentEvents(taskId, 500);
+            return snapshot(taskId, metadata.status(), events, defaultTarget(store, taskId), interrupting);
         } catch (RuntimeException exception) {
             return unavailable(taskId, "Monitor unavailable: " + safeMessage(exception), interrupting);
         }
@@ -43,13 +43,15 @@ public final class LongRunningMonitorReader {
             String taskId,
             String stage,
             List<LongRunningTaskEvent> events,
+            String defaultTarget,
             boolean interrupting) {
         String workerSessionId = null;
         Integer cycle = null;
         Integer limit = null;
-        String currentTarget = null;
+        String currentTarget = defaultTarget;
         String currentAction = null;
         List<String> recent = new ArrayList<>();
+        boolean lastRecentWasInspect = false;
 
         for (LongRunningTaskEvent event : events) {
             Map<String, String> details = event.details();
@@ -57,20 +59,43 @@ public final class LongRunningMonitorReader {
                 cycle = parseInt(details.get("cycle"), cycle);
                 limit = parseInt(details.get("allowedCycles"), limit);
                 workerSessionId = null;
-                currentTarget = null;
+                currentTarget = defaultTarget;
                 currentAction = "Worker cycle running...";
             } else if ("worker_finished".equals(event.type())) {
                 workerSessionId = firstNonBlank(details.get("workerSessionId"), workerSessionId);
                 currentAction = firstNonBlank(event.message(), currentAction);
             } else if ("worker_report".equals(event.type())) {
                 workerSessionId = firstNonBlank(details.get("workerSessionId"), workerSessionId);
-                currentTarget = targetFromReport(details);
+                currentTarget = firstNonBlank(targetFromReport(details), defaultTarget);
                 currentAction = "Report " + workerStatus(event) + ": " + safeText(event.message());
             } else if ("launcher_stopped".equals(event.type())) {
                 currentAction = safeText(event.message());
+            } else if ("task_update".equals(event.type())) {
+                currentTarget = firstNonBlank(targetFromReport(details), currentTarget);
+            } else if ("worker_tool_started".equals(event.type())) {
+                workerSessionId = firstNonBlank(details.get("workerSessionId"), workerSessionId);
+                currentAction = currentActionFromTool(event);
+            } else if ("worker_tool_progress".equals(event.type())) {
+                workerSessionId = firstNonBlank(details.get("workerSessionId"), workerSessionId);
+                if (toolProgressEventLine(event) != null) {
+                    currentAction = safeText(event.message());
+                }
+            } else if ("worker_tool_result".equals(event.type())
+                    || "worker_tool_completed".equals(event.type())) {
+                workerSessionId = firstNonBlank(details.get("workerSessionId"), workerSessionId);
+                if (Boolean.FALSE.equals(event.success())) {
+                    currentAction = toolResultEventLine(event);
+                }
             }
 
-            eventLine(event).ifPresent(recent::add);
+            java.util.Optional<String> line = eventLine(event);
+            if (line.isPresent()) {
+                boolean inspect = "inspect".equals(event.action());
+                if (!(inspect && lastRecentWasInspect)) {
+                    recent.add(line.get());
+                }
+                lastRecentWasInspect = inspect;
+            }
         }
 
         if (recent.size() > MAX_RECENT_EVENTS) {
@@ -94,6 +119,9 @@ public final class LongRunningMonitorReader {
             case "worker_started" -> "Worker cycle " + valueOr(event.details().get("cycle"), "?") + " started";
             case "worker_finished" -> "Worker finished: " + safeText(event.message());
             case "worker_report" -> "Report " + workerStatus(event) + ": " + safeText(event.message());
+            case "worker_tool_started" -> toolStartedEventLine(event);
+            case "worker_tool_progress" -> toolProgressEventLine(event);
+            case "worker_tool_result", "worker_tool_completed" -> toolResultEventLine(event);
             case "launcher_started" -> "Launcher started";
             case "launcher_stopped" -> "Launcher stopped: " + safeText(event.message());
             case "task_execution_started" -> "Task execution started";
@@ -103,6 +131,53 @@ public final class LongRunningMonitorReader {
             return java.util.Optional.empty();
         }
         return java.util.Optional.of(TIME_FORMAT.format(event.timestamp()) + " " + action);
+    }
+
+    private static String currentActionFromTool(LongRunningTaskEvent event) {
+        String action = event.action();
+        String message = safeText(event.message());
+        return switch (action == null ? "" : action) {
+            case "bash" -> "正在运行: " + stripVerb(message, "Run ");
+            case "edit" -> message;
+            case "inspect" -> "Inspecting project files";
+            case "task_update" -> "Updating task store";
+            default -> message.isBlank() ? "Working..." : message;
+        };
+    }
+
+    private static String toolStartedEventLine(LongRunningTaskEvent event) {
+        String action = event.action();
+        String message = safeText(event.message());
+        return switch (action == null ? "" : action) {
+            case "inspect" -> "Inspect project files";
+            case "bash" -> "Run " + stripVerb(message, "Run ");
+            case "edit" -> message;
+            case "task_update" -> "Update task store";
+            default -> message.isBlank() ? null : message;
+        };
+    }
+
+    private static String toolProgressEventLine(LongRunningTaskEvent event) {
+        String action = event.action();
+        String message = safeText(event.message());
+        if (message.isBlank()) {
+            return null;
+        }
+        if ("bash".equals(action) && looksLikeImportantBashProgress(message)) {
+            return message;
+        }
+        return null;
+    }
+
+    private static String toolResultEventLine(LongRunningTaskEvent event) {
+        if (!Boolean.FALSE.equals(event.success())) {
+            return null;
+        }
+        String message = safeText(event.message());
+        if (message.isBlank()) {
+            return null;
+        }
+        return "bash".equals(event.action()) ? stripVerb(message, "Run ") : message;
     }
 
     private static LongRunningMonitorSnapshot unavailable(String taskId, String message, boolean interrupting) {
@@ -116,6 +191,22 @@ public final class LongRunningMonitorReader {
                 message,
                 List.of(message),
                 interrupting);
+    }
+
+    private static String defaultTarget(LongRunningTaskStore store, String taskId) {
+        String activeIssue = store.readKnownIssues(taskId).stream()
+                .filter(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()))
+                .findFirst()
+                .map(issue -> "Issue " + issue.id() + " " + issue.description())
+                .orElse(null);
+        if (activeIssue != null) {
+            return fit(activeIssue, 80);
+        }
+        return store.readFeatureList(taskId).stream()
+                .filter(feature -> !feature.passes())
+                .findFirst()
+                .map(feature -> fit(feature.id() + " " + feature.description(), 80))
+                .orElse(null);
     }
 
     private static String targetFromReport(Map<String, String> details) {
@@ -154,6 +245,41 @@ public final class LongRunningMonitorReader {
     private static String safeText(String value) {
         String normalized = blankToNull(value);
         return normalized == null ? "" : normalized.replaceAll("\\s+", " ");
+    }
+
+    private static String stripVerb(String value, String prefix) {
+        String normalized = safeText(value);
+        return normalized.startsWith(prefix) ? normalized.substring(prefix.length()) : normalized;
+    }
+
+    private static boolean looksLikeFailure(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        return lower.contains("failed")
+                || lower.contains("failure")
+                || lower.contains("error")
+                || lower.contains("exception")
+                || lower.contains("timed out")
+                || lower.contains("cannot ")
+                || lower.contains("not found");
+    }
+
+    private static boolean looksLikeImportantBashProgress(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        return looksLikeFailure(value)
+                || lower.contains("tests run:")
+                || lower.contains("build success")
+                || lower.contains("build failure")
+                || lower.contains("compilation failure")
+                || lower.contains("assertion")
+                || lower.contains("failures:");
+    }
+
+    private static String fit(String value, int maxLength) {
+        String text = safeText(value);
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, Math.max(0, maxLength - 1)) + "…";
     }
 
     private static String valueOr(String value, String fallback) {

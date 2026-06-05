@@ -1,5 +1,7 @@
 package madacode.longrunning;
 
+import madacode.tui.theme.Tk;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -9,28 +11,55 @@ public final class LongRunningMonitorRenderer {
 
     public List<String> render(LongRunningMonitorSnapshot snapshot) {
         List<String> lines = new ArrayList<>();
-        lines.add(RULE);
-        lines.add("Long-running: " + snapshot.stage());
-        lines.add(taskLine(snapshot));
+        lines.add(Tk.dim(RULE));
+        lines.add(Tk.dim("Long-running: ") + styledStage(snapshot.stage()));
+        lines.add(Tk.dim(taskLine(snapshot)));
         lines.add("");
-        lines.add("Now");
-        lines.add(snapshot.currentTarget() == null ? "Selecting target..." : snapshot.currentTarget());
-        lines.add(snapshot.currentAction() == null
+        lines.add(Tk.dim("Target"));
+        lines.add(Tk.bold(snapshot.currentTarget() == null ? "Selecting target..." : snapshot.currentTarget()));
+        lines.add("");
+        lines.add(Tk.dim("Activity"));
+        String activity = snapshot.currentAction() == null
                 ? (snapshot.interrupting() ? "Stopping current worker safely..." : "Working...")
-                : snapshot.currentAction());
+                : snapshot.currentAction();
+        lines.add(snapshot.interrupting() ? Tk.failure(activity) : activity);
         lines.add("");
-        lines.add("Events");
+        lines.add(Tk.dim("Events"));
         if (snapshot.recentEvents().isEmpty()) {
-            lines.add("Waiting for worker events...");
+            lines.add(Tk.dim("Waiting for worker events..."));
         } else {
-            lines.addAll(snapshot.recentEvents());
+            snapshot.recentEvents().stream()
+                    .map(LongRunningMonitorRenderer::eventLine)
+                    .forEach(lines::add);
         }
         lines.add("");
-        lines.add(snapshot.interrupting()
+        lines.add(Tk.dim(snapshot.interrupting()
                 ? "Interrupt requested; stopping current worker..."
-                : "Esc / Ctrl+C interrupt");
-        lines.add(RULE);
+                : "Esc / Ctrl+C interrupt"));
+        lines.add(Tk.dim(RULE));
         return lines;
+    }
+
+    private static String styledStage(String stage) {
+        return switch (stage == null ? "" : stage) {
+            case "RUNNING" -> Tk.running("RUNNING");
+            case "DONE" -> Tk.success("DONE");
+            case "INTERRUPT" -> Tk.info("INTERRUPT");
+            default -> Tk.dim(stage == null ? "RUNNING" : stage);
+        };
+    }
+
+    private static String eventLine(String line) {
+        if (line != null && line.length() > 6
+                && Character.isDigit(line.charAt(0))
+                && Character.isDigit(line.charAt(1))
+                && line.charAt(2) == ':'
+                && Character.isDigit(line.charAt(3))
+                && Character.isDigit(line.charAt(4))
+                && line.charAt(5) == ' ') {
+            return Tk.dim(line.substring(0, 5)) + line.substring(5);
+        }
+        return line == null ? "" : line;
     }
 
     private static String taskLine(LongRunningMonitorSnapshot snapshot) {
