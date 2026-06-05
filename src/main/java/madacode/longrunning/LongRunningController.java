@@ -90,9 +90,8 @@ public final class LongRunningController {
         Objects.requireNonNull(session, "session");
         LongRunningTransitionRequest request = session.pendingLongRunningTransitionRequest()
                 .orElseThrow(() -> new IllegalStateException("No pending long-running transition request."));
-        AppliedTransition applied = applyTransition(session, request, approvedBy, interruptController);
         session.clearPendingLongRunningTransitionRequest();
-        return applied;
+        return applyTransition(session, request, approvedBy, interruptController);
     }
 
     public AppliedTransition requestAndApply(
@@ -113,9 +112,17 @@ public final class LongRunningController {
             String approvedBy,
             InterruptController interruptController) {
         requireControlSession(session);
+        LongRunningStage previous = effectiveStage(session);
+        LongRunningStage requestSource = request.sourceStage().normalized();
+        if (previous != requestSource) {
+            throw new IllegalStateException(
+                    "Stale long-running transition request: requested from "
+                            + requestSource + " but current stage is " + previous
+                            + ". Request a new transition for the current stage.");
+        }
+        validateRequest(session, request);
         LongRunningTaskStore store = taskStore(session);
         String taskId = requireTaskId(session);
-        LongRunningStage previous = effectiveStage(session);
         LongRunningStage target = request.targetStage().normalized();
 
         switch (target) {

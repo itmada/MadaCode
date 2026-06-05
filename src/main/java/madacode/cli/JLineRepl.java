@@ -196,8 +196,10 @@ public final class JLineRepl extends Repl {
 
             while (true) {
                 drainLongRunningRuntimeCompletions();
+                drainPendingLongRunningControllerTurns();
                 if (isLongRunningMonitorActive()) {
                     runLongRunningMonitorLoop();
+                    drainPendingLongRunningControllerTurns();
                     loadHistory();
                     continue;
                 }
@@ -261,9 +263,11 @@ public final class JLineRepl extends Repl {
 
                 if (!handleLine(line)) return;
                 drainLongRunningRuntimeCompletions();
+                drainPendingLongRunningControllerTurns();
                 loadHistory();
             }
             drainLongRunningRuntimeCompletions();
+            drainPendingLongRunningControllerTurns();
             persistSession();
         } finally {
             session.removeListener(turnRenderer);

@@ -47,6 +47,9 @@ public final class LongRunningWorkerPrompt {
                 Workers never mark DONE or cancel the task directly; when completion preconditions are satisfied, call worker_report with status=task_completed and the launcher will mark the task complete.
                 Never edit logs/events.jsonl directly; the harness records structured events automatically.
 
+                Do not assume your code works just by reading it. You must physically run relevant tests, build scripts, or execution commands in bash to verify your implementation end-to-end before marking a feature as passed.
+                Before ending the cycle and calling worker_report, you MUST commit your working code changes to git with a descriptive commit message. This ensures the environment is in a clean state for the next worker.
+
                 Before ending, call worker_report exactly once with:
                 - task_id: the active task id
                 - status: one of progress_made, task_completed, blocked, failed, needs_user

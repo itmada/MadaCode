@@ -41,7 +41,7 @@ public final class ToolExecutor {
     private static final Set<String> PLAN_MODE_ALLOWED = Set.of(
             "enter_plan_mode", "exit_plan_mode", "plan_create", "plan_get", "plan_list",
             "plan_update", "todo_write", "skill", "ask_user_question", "agent",
-            "longrun_task_update");
+            "longrun_plan_update", "longrun_state_transition_request", "longrun_task_update");
 
     private final ToolRegistry toolRegistry;
     private final ToolInputValidator inputValidator;

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -107,7 +108,7 @@ public final class LongRunningTaskStore {
                 writeJsonAtomically(stagingDirectory.resolve(CHECKPOINT_FILE), mapper.createObjectNode());
                 writeStringAtomically(stagingDirectory.resolve(INIT_SCRIPT_FILE), DEFAULT_INIT_SCRIPT);
                 writeStringAtomically(stagingDirectory.resolve(LOGS_DIR).resolve(EVENTS_FILE), "");
-                moveIntoPlace(stagingDirectory, taskDirectory);
+                moveDirectoryIntoPlace(stagingDirectory, taskDirectory);
                 moved = true;
             } finally {
                 if (!moved) {
@@ -1321,6 +1322,27 @@ public final class LongRunningTaskStore {
         } catch (AtomicMoveNotSupportedException ignored) {
             Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    private static void moveDirectoryIntoPlace(Path stagingDirectory, Path targetDirectory) throws IOException {
+        try {
+            Files.move(stagingDirectory, targetDirectory, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            try {
+                Files.move(stagingDirectory, targetDirectory);
+            } catch (FileAlreadyExistsException exception) {
+                throw taskDirectoryAlreadyExists(targetDirectory, exception);
+            }
+        } catch (FileAlreadyExistsException exception) {
+            throw taskDirectoryAlreadyExists(targetDirectory, exception);
+        }
+    }
+
+    private static LongRunningTaskStoreException taskDirectoryAlreadyExists(
+            Path targetDirectory,
+            FileAlreadyExistsException exception) {
+        return new LongRunningTaskStoreException(
+                "Task directory already exists for " + targetDirectory.getFileName(), exception);
     }
 
     private void writeJsonAtomically(Path target, JsonNode payload) throws IOException {

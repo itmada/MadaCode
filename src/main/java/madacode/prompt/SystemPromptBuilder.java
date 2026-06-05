@@ -295,6 +295,7 @@ public class SystemPromptBuilder {
         items.add("Current stage: DRAFT.");
         items.add("Maintain the task store draft with longrun_plan_update: task.json plan summary, feature_list.json, known_issues.json, and progress.txt.");
         items.add("Clarify requirements, refine scope, and keep the draft plan durable as it changes.");
+        items.add("If the project lacks standard startup scripts, try to create an `init.sh` or document the exact build/test commands in the plan, so future workers know exactly how to test their changes quickly.");
         items.add("You may also perform ordinary controller-agent work requested by the user, including inspecting files, running commands, editing files, or deleting files with normal permission approval.");
         items.add("When the draft is ready to run, call longrun_state_transition_request target_status=RUNNING with a concise summary; runtime will ask the user to confirm.");
         items.add("If the user wants to cancel the long-running lifecycle, request target_status=DONE with reason=user_requested_cancel.");

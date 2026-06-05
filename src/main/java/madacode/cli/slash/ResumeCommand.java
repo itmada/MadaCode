@@ -4,6 +4,7 @@ import madacode.cli.session.SessionPointer;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.core.session.SessionStorageException;
+import madacode.longrunning.LongRunningSessionRecovery;
 
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +57,7 @@ final class ResumeCommand implements SlashCommand {
             ctx.screen().scrollback("Already in that session.");
             return new SlashAction.Handled();
         }
+        LongRunningSessionRecovery.recover(resolved.get());
         try {
             ctx.storage().save(ctx.session());
         } catch (SessionStorageException e) {

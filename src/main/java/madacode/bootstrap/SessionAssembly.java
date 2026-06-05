@@ -4,15 +4,13 @@ import madacode.cli.CliArgs;
 import madacode.cli.session.SessionPointer;
 import madacode.cli.session.StartupSessionLauncher;
 import madacode.core.session.ConversationSession;
-import madacode.core.session.LongRunningStage;
-import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.longrunning.LongRunningControlSessionFactory;
-import madacode.longrunning.LongRunningTaskStore;
+import madacode.longrunning.LongRunningSessionRecovery;
 import madacode.tui.WelcomeCard;
 import madacode.tui.inline.InlineChoicePrompt;
 
@@ -52,7 +50,7 @@ final class SessionAssembly {
                             "No session found matching: " + r.sessionId(), 1);
                 }
                 ConversationSession session = found.get();
-                recoverLongRunningSession(session);
+                LongRunningSessionRecovery.recover(session);
                 SessionPointer.write(session.sessionId());
                 yield session;
             }
@@ -61,7 +59,7 @@ final class SessionAssembly {
                         SessionPointer.read().flatMap(storage::loadIfExists);
                 if (byPointer.isPresent()) {
                     ConversationSession session = byPointer.get();
-                    recoverLongRunningSession(session);
+                    LongRunningSessionRecovery.recover(session);
                     yield session;
                 }
                 Optional<SessionSummary> recent = storage.findMostRecent();
@@ -71,7 +69,7 @@ final class SessionAssembly {
                             "(no previous session pointer — loading most recent)"));
                     ConversationSession session = storage.load(
                             recent.get().sessionId());
-                    recoverLongRunningSession(session);
+                    LongRunningSessionRecovery.recover(session);
                     SessionPointer.write(session.sessionId());
                     yield session;
                 }
@@ -117,7 +115,7 @@ final class SessionAssembly {
         return switch (choice) {
             case StartupSessionLauncher.Choice.Resume r -> {
                 ConversationSession session = storage.load(r.sessionId());
-                recoverLongRunningSession(session);
+                LongRunningSessionRecovery.recover(session);
                 SessionPointer.write(session.sessionId());
                 yield session;
             }
@@ -162,46 +160,4 @@ final class SessionAssembly {
         return Optional.empty();
     }
 
-    static void recoverLongRunningSession(ConversationSession session) {
-        if (session == null
-                || session.workflowMode() != SessionMode.LONG_RUNNING
-                || session.isLongRunningWorkerSession()
-                || session.longRunningStage() != LongRunningStage.RUNNING
-                || session.longRunningTaskId() == null
-                || session.longRunningTaskId().isBlank()) {
-            return;
-        }
-        try {
-            LongRunningTaskStore store = new LongRunningTaskStore(session.workingDirectory());
-            var task = store.loadTask(session.longRunningTaskId());
-            switch (task.status()) {
-                case "DONE" -> {
-                    session.setLongRunningStage(LongRunningStage.DONE);
-                    session.setLongRunningReason(task.reason());
-                }
-                case "INTERRUPT" -> {
-                    session.setLongRunningStage(LongRunningStage.INTERRUPT);
-                    session.setLongRunningReason(task.reason());
-                }
-                case "RUNNING" -> {
-                    try (var ignored = store.acquireExecutionLease(session.longRunningTaskId())) {
-                        var interrupted = store.markTaskInterrupted(session.longRunningTaskId(), "process_restarted");
-                        session.setLongRunningStage(LongRunningStage.INTERRUPT);
-                        session.setLongRunningReason(interrupted.reason());
-                    } catch (madacode.longrunning.LongRunningTaskLeaseUnavailableException exception) {
-                        session.setLongRunningStage(LongRunningStage.INTERRUPT);
-                        session.setLongRunningReason("already_running_elsewhere");
-                    }
-                }
-                case "DRAFT" -> {
-                    session.setLongRunningStage(LongRunningStage.DRAFT);
-                    session.setLongRunningReason(task.reason());
-                }
-                default -> throw new IllegalStateException("Unsupported task status: " + task.status());
-            }
-        } catch (RuntimeException ignored) {
-            session.setLongRunningStage(LongRunningStage.INTERRUPT);
-            session.setLongRunningReason("recovery_failed");
-        }
-    }
 }

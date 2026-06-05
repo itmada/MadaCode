@@ -70,6 +70,8 @@ public abstract class Repl {
     final ModeRouter modeRouter;
     final LongRunningLauncher launcher;
     final LongRunningRuntime longRunningRuntime;
+    final ConcurrentLinkedQueue<String> pendingLongRunningControllerTurns =
+            new ConcurrentLinkedQueue<>();
     final LongRunningController longRunningController;
     final UserPromptChannel promptChannel;
     final PermissionGate permissionGate;
@@ -277,6 +279,7 @@ public abstract class Repl {
         }
         String summary;
         LongRunningStage targetStage;
+        boolean handoffToController = false;
         if (completion.error() != null) {
             Throwable error = completion.error();
             summary = "[failed] Long-running launcher failed: "
@@ -286,6 +289,7 @@ public abstract class Repl {
         } else {
             LongRunningLauncher.LaunchResult result = completion.result();
             summary = longRunningResultSummary(result);
+            handoffToController = result.status() == LongRunningLauncher.LaunchStatus.COMPLETED;
             LongRunningStage fallbackStage = switch (result.status()) {
                 case COMPLETED -> LongRunningStage.DONE;
                 case ALREADY_RUNNING, BLOCKED, FAILED, NEEDS_USER, INTERRUPTED, MAX_WORKERS_EXHAUSTED ->
@@ -298,8 +302,12 @@ public abstract class Repl {
                     .filter(stage -> stage == LongRunningStage.DONE || stage == LongRunningStage.INTERRUPT)
                     .orElse(fallbackStage);
         }
-        screen.scrollback("");
-        screen.scrollback(Tk.dim(summary));
+        if (handoffToController) {
+            pendingLongRunningControllerTurns.add(longRunningCompletionPrompt(summary));
+        } else {
+            screen.scrollback("");
+            screen.scrollback(Tk.dim(summary));
+        }
         session.setLongRunningStage(targetStage);
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
         fields.put("summary", summary);
@@ -314,8 +322,27 @@ public abstract class Repl {
                     : completion.error().getMessage());
         }
         recordLongRunningControllerEvent("worker_runtime_finished", fields);
-        session.addMessage(Message.system("[long-running] " + summary));
+        if (!handoffToController) {
+            session.addMessage(Message.system("[long-running] " + summary));
+        }
         persistSession();
+    }
+
+    private static String longRunningCompletionPrompt(String summary) {
+        return """
+                [controller-event][long-running]
+                当前 long-running 任务的 worker agent 已经完成。
+
+                这是 worker/launcher 返回的结果：
+                %s
+                """.formatted(summary);
+    }
+
+    protected final void drainPendingLongRunningControllerTurns() {
+        String prompt;
+        while ((prompt = pendingLongRunningControllerTurns.poll()) != null) {
+            runManagedTurn(turnExecutor.submit(session, prompt));
+        }
     }
 
     protected final void markLongRunningInterrupted(String reason) {
