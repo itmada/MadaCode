@@ -33,7 +33,9 @@ import java.util.stream.Stream;
 
 public class MadaApiClient implements ApiClient {
 
-    private static final int DEFAULT_MAX_TOKENS = 4096;
+    private static final int DEFAULT_MAX_TOKENS = 32_000;
+    private static final int MAX_TOKENS_UPPER_LIMIT = 64_000;
+    private static final String MAX_OUTPUT_TOKENS_ENV = "MADA_MAX_OUTPUT_TOKENS";
     private static final java.time.Duration DEFAULT_TIMEOUT = java.time.Duration.ofSeconds(300);
     private static final String FINE_GRAINED_TOOL_STREAMING_BETA =
             "fine-grained-tool-streaming-2025-05-14";
@@ -80,7 +82,8 @@ public class MadaApiClient implements ApiClient {
             String modelName = state.currentModel().name();
 
             long start = System.nanoTime();
-            DiagnosticEventLogger.apiRequest(modelName, messages.size());
+            int maxTokens = resolveMaxTokens();
+            DiagnosticEventLogger.apiRequest(modelName, messages.size(), maxTokens);
 
             // Fine-grained tool streaming (FGTS) is only correctly implemented by the
             // first-party Anthropic API. Proxies/relays and Bedrock/Vertex either reject
@@ -91,7 +94,7 @@ public class MadaApiClient implements ApiClient {
             boolean fineGrainedToolStreaming = provider.supportsFineGrainedToolStreaming();
 
             String requestBody = serializer.buildRequestBody(
-                    modelName, DEFAULT_MAX_TOKENS, messages, systemPrompt, tools,
+                    modelName, maxTokens, messages, systemPrompt, tools,
                     fineGrainedToolStreaming);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -163,6 +166,36 @@ public class MadaApiClient implements ApiClient {
     private String truncate(String value, int maxLength) {
         if (value.length() <= maxLength) return value;
         return value.substring(0, maxLength);
+    }
+
+    private int resolveMaxTokens() {
+        String configured = firstNonBlank(
+                System.getenv(MAX_OUTPUT_TOKENS_ENV),
+                System.getProperty(MAX_OUTPUT_TOKENS_ENV));
+        if (configured == null) {
+            return DEFAULT_MAX_TOKENS;
+        }
+        try {
+            int parsed = Integer.parseInt(configured.trim());
+            if (parsed <= 0) {
+                return DEFAULT_MAX_TOKENS;
+            }
+            return Math.min(parsed, MAX_TOKENS_UPPER_LIMIT);
+        } catch (NumberFormatException e) {
+            return DEFAULT_MAX_TOKENS;
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     ApiResponse parseStreamingResponse(

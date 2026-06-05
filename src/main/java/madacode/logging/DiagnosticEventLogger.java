@@ -95,9 +95,10 @@ public final class DiagnosticEventLogger {
                 .formatted(session.sessionId(), path, session.messages().size()));
     }
 
-    public static void apiRequest(String model, int messageCount) {
+    public static void apiRequest(String model, int messageCount, int maxTokens) {
         debug(EventContext.bootstrap("ApiClient"),
-                "api_request model=%s messages=%d".formatted(model, messageCount));
+                "api_request model=%s messages=%d maxTokens=%d"
+                        .formatted(model, messageCount, maxTokens));
     }
 
     public static void apiResponse(int statusCode, long durationMs) {
