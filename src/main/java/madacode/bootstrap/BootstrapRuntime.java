@@ -2,6 +2,7 @@ package madacode.bootstrap;
 
 import madacode.agent.AgentRegistry;
 import madacode.cli.InterruptController;
+import madacode.cli.session.SessionPointer;
 import madacode.cli.UserPromptChannel;
 import madacode.cli.editor.SessionHistory;
 import madacode.cli.slash.SlashCommandRegistry;
@@ -18,6 +19,7 @@ import madacode.provider.ProviderRegistry;
 import madacode.services.api.ApiClient;
 import madacode.services.compact.CompactPlanner;
 import madacode.skill.SkillRegistry;
+import madacode.storage.RuntimePaths;
 import madacode.tool.ToolRegistry;
 import madacode.tui.JLineScreen;
 
@@ -33,6 +35,7 @@ record EnvironmentRuntime(
         ApiClient api,
         Path homeDir,
         Path projectDir,
+        RuntimePaths paths,
         boolean memoryEnabled) {}
 
 record TerminalRuntime(
@@ -59,6 +62,7 @@ record EngineRuntime(
 
 record SessionRuntime(
         SessionStorage storage,
+        SessionPointer pointer,
         ConversationSession session) {}
 
 record InteractionRuntime(

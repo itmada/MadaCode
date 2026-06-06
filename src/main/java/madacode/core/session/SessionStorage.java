@@ -29,8 +29,6 @@ import java.util.Objects;
 
 public final class SessionStorage {
 
-    private static final String DEFAULT_DIRECTORY = ".mada/sessions";
-
     private final Path rootDirectory;
     private final ObjectMapper mapper;
 
@@ -50,11 +48,6 @@ public final class SessionStorage {
     SessionStorage(Path rootDirectory, ObjectMapper mapper) {
         this.rootDirectory = Objects.requireNonNull(rootDirectory, "rootDirectory").toAbsolutePath().normalize();
         this.mapper = Objects.requireNonNull(mapper, "mapper");
-    }
-
-    public static SessionStorage defaultStorage() {
-        Path home = Path.of(System.getProperty("user.home"));
-        return new SessionStorage(home.resolve(DEFAULT_DIRECTORY));
     }
 
     public Path transcriptPath(String sessionId) {

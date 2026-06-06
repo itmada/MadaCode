@@ -83,24 +83,6 @@ public class SessionStorageTest {
     }
 
     @Test
-    void defaultStorageUsesMadaSessionsDirectory() {
-        String previousHome = System.getProperty("user.home");
-        try {
-            System.setProperty("user.home", tempDir.toString());
-
-            Path transcriptPath = SessionStorage.defaultStorage().transcriptPath("session-abc");
-
-            assertEquals(tempDir.resolve(".mada/sessions/session-abc.json"), transcriptPath);
-        } finally {
-            if (previousHome == null) {
-                System.clearProperty("user.home");
-            } else {
-                System.setProperty("user.home", previousHome);
-            }
-        }
-    }
-
-    @Test
     void loadTreatsMissingSchemaVersionAsVersionOne() throws Exception {
         SessionStorage storage = new SessionStorage(tempDir);
         String transcript = """

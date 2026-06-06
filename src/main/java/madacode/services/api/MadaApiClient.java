@@ -10,6 +10,7 @@ import madacode.core.model.StopReason;
 import madacode.core.model.TokenUsage;
 import madacode.core.model.ToolCall;
 import madacode.logging.DiagnosticEventLogger;
+import madacode.logging.ModelResponseLogWriter;
 import madacode.provider.ActiveState;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
@@ -44,9 +45,12 @@ public class MadaApiClient implements ApiClient {
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
     private final AnthropicMessageSerializer serializer;
+    private final ModelResponseLogWriter modelResponseLogWriter;
 
-    public MadaApiClient(ProviderRegistry registry) {
+    public MadaApiClient(ProviderRegistry registry, ModelResponseLogWriter modelResponseLogWriter) {
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.modelResponseLogWriter = Objects.requireNonNull(
+                modelResponseLogWriter, "modelResponseLogWriter");
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(DEFAULT_TIMEOUT)
                 .build();
@@ -137,22 +141,27 @@ public class MadaApiClient implements ApiClient {
             cancellationToken.onCancel(responseBody::close);
 
             try (Stream<String> responseLines = responseBody) {
+                boolean logFullModelResponse = modelResponseLogWriter.isEnabled();
                 if (response.statusCode() != 200) {
                     List<String> rawResponseLines = responseLines.toList();
-                    DiagnosticEventLogger.apiModelResponseFull(
-                            modelName, response.statusCode(), rawResponseLines);
+                    if (logFullModelResponse) {
+                        logModelResponseFull(modelName, response.statusCode(), rawResponseLines);
+                    }
                     String body = rawResponseLines.stream().collect(Collectors.joining(System.lineSeparator()));
                     DiagnosticEventLogger.apiError(response.statusCode(), truncate(body, 200));
                     throw ApiClientException.http(response.statusCode(), body);
                 }
 
-                List<String> rawResponseLines = new ArrayList<>();
+                List<String> rawResponseLines = logFullModelResponse
+                        ? new ArrayList<>()
+                        : null;
                 try {
                     return parseStreamingResponse(
                             responseLines, sink, start, cancellationToken, tools, rawResponseLines);
                 } finally {
-                    DiagnosticEventLogger.apiModelResponseFull(
-                            modelName, response.statusCode(), rawResponseLines);
+                    if (rawResponseLines != null) {
+                        logModelResponseFull(modelName, response.statusCode(), rawResponseLines);
+                    }
                 }
             }
 
@@ -166,6 +175,16 @@ public class MadaApiClient implements ApiClient {
     private String truncate(String value, int maxLength) {
         if (value.length() <= maxLength) return value;
         return value.substring(0, maxLength);
+    }
+
+    private void logModelResponseFull(String modelName, int statusCode, List<String> rawResponseLines) {
+        String body = String.join(System.lineSeparator(), rawResponseLines);
+        DiagnosticEventLogger.apiModelResponseFull(
+                modelName,
+                statusCode,
+                rawResponseLines.size(),
+                body.length(),
+                modelResponseLogWriter.write(modelName, statusCode, rawResponseLines));
     }
 
     private int resolveMaxTokens() {
@@ -413,8 +432,7 @@ public class MadaApiClient implements ApiClient {
                     "Tool input stream ended without JSON input for "
                             + accumulator.name + " (id=" + accumulator.id
                             + ", required=" + requiredFields + "). "
-                            + "This usually means the provider did not stream tool arguments "
-                            + "for the tool call. Use a compatible Anthropic endpoint or split large writes.");
+                            + toolInputFailureHint());
         }
         JsonNode inputNode;
         try {
@@ -440,10 +458,16 @@ public class MadaApiClient implements ApiClient {
                             + accumulator.name + " (id=" + accumulator.id
                             + ", missing=" + missingRequired + ", chars=" + inputJson.length()
                             + ", deltas=" + accumulator.deltaCount + "). "
-                            + "This usually means the provider dropped or truncated tool arguments "
-                            + "for the tool call. Use a compatible Anthropic endpoint or split large writes.");
+                            + toolInputFailureHint());
         }
         return inputObject;
+    }
+
+    private static String toolInputFailureHint() {
+        return "This can happen when max_tokens is too low, the provider truncated tool arguments, "
+                + "or the endpoint does not stream tool input deltas correctly. "
+                + "Increase MADA_MAX_OUTPUT_TOKENS if the tool input is large, use a compatible "
+                + "Anthropic endpoint, or split large writes.";
     }
 
     private Map<String, Set<String>> requiredFieldsByTool(Collection<Tool<?>> tools) {

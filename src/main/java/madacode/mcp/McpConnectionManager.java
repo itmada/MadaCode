@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -31,20 +32,22 @@ public class McpConnectionManager implements AutoCloseable {
 
     private final Map<String, McpServer> servers = new ConcurrentHashMap<>();
     private final McpToolBridge toolBridge;
+    private final Path configPath;
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    public McpConnectionManager(ToolRegistry registry) {
+    public McpConnectionManager(ToolRegistry registry, Path configPath) {
         this.toolBridge = new McpToolBridge(registry);
+        this.configPath = configPath;
     }
 
     /**
-     * Loads {@code ~/.mada/mcp.json}, starts each non-disabled server in
+     * Loads configured MCP servers, starts each non-disabled server in
      * parallel, discovers tools, and registers them.
      *
      * @return list of tool names successfully registered
      */
     public List<String> initialize() {
-        McpConfig config = McpConfigLoader.load();
+        McpConfig config = McpConfigLoader.load(configPath);
         if (config.servers().isEmpty()) return List.of();
 
         // Create McpServer instances

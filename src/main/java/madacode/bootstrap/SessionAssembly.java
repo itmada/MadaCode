@@ -24,22 +24,23 @@ final class SessionAssembly {
     }
 
     static SessionRuntime resolve(EnvironmentRuntime environment, TerminalRuntime terminal) {
-        SessionStorage storage = SessionStorage.defaultStorage();
+        SessionStorage storage = new SessionStorage(environment.paths().workspaceSessionsDir());
+        SessionPointer pointer = new SessionPointer(environment.paths().workspaceLastSessionFile());
 
         if (environment.args() instanceof CliArgs.Interactive) {
-            return new SessionRuntime(storage,
-                    resolveStartupSession(environment, storage, terminal));
+            return new SessionRuntime(storage, pointer,
+                    resolveStartupSession(environment, storage, pointer, terminal));
         }
-        return new SessionRuntime(storage,
-                resolveSession(environment.args(), storage));
+        return new SessionRuntime(storage, pointer,
+                resolveSession(environment, storage, pointer));
     }
 
     private static ConversationSession resolveSession(
-            CliArgs args, SessionStorage storage) {
-        return switch (args) {
+            EnvironmentRuntime environment, SessionStorage storage, SessionPointer pointer) {
+        return switch (environment.args()) {
             case CliArgs.NewSession n -> {
                 ConversationSession session = new ConversationSession();
-                SessionPointer.write(session.sessionId());
+                pointer.write(session.sessionId());
                 yield session;
             }
             case CliArgs.Resume r -> {
@@ -51,12 +52,12 @@ final class SessionAssembly {
                 }
                 ConversationSession session = found.get();
                 LongRunningSessionRecovery.recover(session);
-                SessionPointer.write(session.sessionId());
+                pointer.write(session.sessionId());
                 yield session;
             }
             case CliArgs.Continue c -> {
                 Optional<ConversationSession> byPointer =
-                        SessionPointer.read().flatMap(storage::loadIfExists);
+                        pointer.read().flatMap(storage::loadIfExists);
                 if (byPointer.isPresent()) {
                     ConversationSession session = byPointer.get();
                     LongRunningSessionRecovery.recover(session);
@@ -70,25 +71,25 @@ final class SessionAssembly {
                     ConversationSession session = storage.load(
                             recent.get().sessionId());
                     LongRunningSessionRecovery.recover(session);
-                    SessionPointer.write(session.sessionId());
+                    pointer.write(session.sessionId());
                     yield session;
                 }
                 AppEvents.publisher().publish(UserVisibleEvent.info(
                         EventContext.bootstrap("Session"),
                         "(no previous session — starting new)"));
                 ConversationSession session = new ConversationSession();
-                SessionPointer.write(session.sessionId());
+                pointer.write(session.sessionId());
                 yield session;
             }
             case CliArgs.Interactive i -> {
                 ConversationSession session = new ConversationSession();
-                SessionPointer.write(session.sessionId());
+                pointer.write(session.sessionId());
                 yield session;
             }
             case CliArgs.LongRunningSession l -> {
                 ConversationSession session =
-                        new LongRunningControlSessionFactory().create(Path.of(System.getProperty("user.dir")));
-                SessionPointer.write(session.sessionId());
+                        new LongRunningControlSessionFactory().create(environment.projectDir());
+                pointer.write(session.sessionId());
                 yield session;
             }
             case CliArgs.ListSessions l -> throw new IllegalStateException("LIST/HELP handled in main()");
@@ -99,6 +100,7 @@ final class SessionAssembly {
     private static ConversationSession resolveStartupSession(
             EnvironmentRuntime environment,
             SessionStorage storage,
+            SessionPointer pointer,
             TerminalRuntime terminal) {
         var active = environment.providerRegistry().active();
         String provider = active.provider().name();
@@ -116,12 +118,12 @@ final class SessionAssembly {
             case StartupSessionLauncher.Choice.Resume r -> {
                 ConversationSession session = storage.load(r.sessionId());
                 LongRunningSessionRecovery.recover(session);
-                SessionPointer.write(session.sessionId());
+                pointer.write(session.sessionId());
                 yield session;
             }
             case StartupSessionLauncher.Choice.NewSession n -> {
                 ConversationSession session = new ConversationSession();
-                SessionPointer.write(session.sessionId());
+                pointer.write(session.sessionId());
                 yield session;
             }
             case StartupSessionLauncher.Choice.Exit e -> {

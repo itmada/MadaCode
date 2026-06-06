@@ -1,6 +1,7 @@
 package madacode.cli.slash;
 
 import madacode.cli.session.SessionChooser;
+import madacode.cli.session.SessionPointer;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
 import madacode.core.session.SessionStorage;
@@ -22,6 +23,7 @@ public record SlashContext(
         ProviderRegistry providerRegistry,
         CompactPlanner compactPlanner,
         SessionContext sessionContext,
+        SessionPointer sessionPointer,
         Optional<SessionChooser> sessionChooser,
         Optional<ModelChooser> modelChooser,
         Optional<ModeChooser> modeChooser,
@@ -31,6 +33,7 @@ public record SlashContext(
 
     public SlashContext {
         Objects.requireNonNull(providerRegistry, "providerRegistry");
+        Objects.requireNonNull(sessionPointer, "sessionPointer");
         sessionChooser = sessionChooser == null ? Optional.empty() : sessionChooser;
         modelChooser = modelChooser == null ? Optional.empty() : modelChooser;
         modeChooser = modeChooser == null ? Optional.empty() : modeChooser;

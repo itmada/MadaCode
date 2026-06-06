@@ -38,11 +38,6 @@ public final class ProviderLoader {
         this.file = file;
     }
 
-    public static ProviderLoader defaultLoader() {
-        return new ProviderLoader(
-                Path.of(System.getProperty("user.home"), ".mada", "providers.json"));
-    }
-
     public Path file() {
         return file;
     }

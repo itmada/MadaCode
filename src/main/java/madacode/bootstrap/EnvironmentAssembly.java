@@ -5,22 +5,46 @@ import madacode.provider.ProviderLoader;
 import madacode.provider.ProviderRegistry;
 import madacode.provider.ProviderStateStore;
 import madacode.provider.TemplateCreatedException;
+import madacode.logging.ModelResponseLogWriter;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiErrorClassifier;
 import madacode.services.api.MadaApiClient;
 import madacode.services.api.RetryOptions;
 import madacode.services.api.RetryingApiClient;
+import madacode.storage.RuntimePaths;
 
 import java.nio.file.Path;
+import java.util.Objects;
 
 final class EnvironmentAssembly {
+
+    private static final String MANAGED_DEBUG_DIR_PROPERTY = "madacode.managed.MADA_DEBUG_DIR";
 
     private EnvironmentAssembly() {
     }
 
-    static EnvironmentRuntime create(CliArgs args, TerminalRuntime terminal) {
-        ProviderStateStore stateStore = ProviderStateStore.defaultStore();
-        ProviderLoader loader = ProviderLoader.defaultLoader();
+    static RuntimePaths pathsForCurrentProject() {
+        Path homeDir = Path.of(System.getProperty("user.home"));
+        Path projectDir = Path.of("").toAbsolutePath();
+        return RuntimePaths.forProject(homeDir, projectDir);
+    }
+
+    static void configureEarlyLogPaths(RuntimePaths paths) {
+        if (firstNonBlank(System.getenv("MADA_DEBUG_DIR")) != null) {
+            return;
+        }
+        String current = System.getProperty("MADA_DEBUG_DIR");
+        String managed = System.getProperty(MANAGED_DEBUG_DIR_PROPERTY);
+        if (current == null || Objects.equals(current, managed)) {
+            String next = paths.workspaceDebugDir().toString();
+            System.setProperty("MADA_DEBUG_DIR", next);
+            System.setProperty(MANAGED_DEBUG_DIR_PROPERTY, next);
+        }
+    }
+
+    static EnvironmentRuntime create(CliArgs args, TerminalRuntime terminal, RuntimePaths paths) {
+        ProviderStateStore stateStore = ProviderStateStore.forFile(paths.globalStateFile());
+        ProviderLoader loader = new ProviderLoader(paths.globalProvidersFile());
         var providers = loadProviders(loader, terminal);
         ProviderRegistry registry = new ProviderRegistry(providers, stateStore);
 
@@ -30,16 +54,15 @@ final class EnvironmentAssembly {
             registry.setActiveProvider(override, false);
         }
 
-        Path homeDir = Path.of(System.getProperty("user.home"));
-        Path projectDir = Path.of("").toAbsolutePath();
         boolean memoryEnabled = !args.noMemory();
         return new EnvironmentRuntime(
                 args,
                 registry,
                 loader,
-                createApiClient(registry),
-                homeDir,
-                projectDir,
+                createApiClient(registry, paths),
+                paths.homeDir(),
+                paths.projectDir(),
+                paths,
                 memoryEnabled);
     }
 
@@ -56,10 +79,29 @@ final class EnvironmentAssembly {
         }
     }
 
-    private static ApiClient createApiClient(ProviderRegistry registry) {
+    private static ApiClient createApiClient(ProviderRegistry registry, RuntimePaths paths) {
         return new RetryingApiClient(
-                new MadaApiClient(registry),
+                new MadaApiClient(registry, new ModelResponseLogWriter(modelResponseLogDir(paths))),
                 RetryOptions.defaults(),
                 new ApiErrorClassifier());
+    }
+
+    private static Path modelResponseLogDir(RuntimePaths paths) {
+        String configured = firstNonBlank(
+                System.getenv("MADA_MODEL_RESPONSE_LOG_DIR"),
+                System.getProperty("MADA_MODEL_RESPONSE_LOG_DIR"));
+        return configured == null ? paths.workspaceModelResponsesDir() : Path.of(configured);
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

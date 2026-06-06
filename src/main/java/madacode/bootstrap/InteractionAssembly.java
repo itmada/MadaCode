@@ -43,7 +43,7 @@ final class InteractionAssembly {
                 terminal.interrupts(), terminal.interrupts()::interrupt);
 
         var turnRunner = new QueryEngineTurnRunner(engine.engine(), channel);
-        var turnLog = new TurnLog(environment.homeDir().resolve(".mada/sessions"));
+        var turnLog = new TurnLog(environment.paths().workspaceSessionsDir());
         var turnExecutor = resources.own(new TurnExecutor(turnRunner, turnLog));
         recoverUnfinishedTurns(turnExecutor, session);
 

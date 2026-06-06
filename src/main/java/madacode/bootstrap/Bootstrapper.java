@@ -30,9 +30,11 @@ public final class Bootstrapper {
         BootstrapResources resources = new BootstrapResources();
         try {
             TerminalRuntime terminal = TerminalAssembly.create(resources);
-            EventsRuntime events = EventsAssembly.install(terminal, resources);
-            EnvironmentRuntime environment = EnvironmentAssembly.create(args, terminal);
-            PermissionGate permission = PermissionAssembly.create(terminal);
+            var paths = EnvironmentAssembly.pathsForCurrentProject();
+            EnvironmentAssembly.configureEarlyLogPaths(paths);
+            EventsRuntime events = EventsAssembly.install(paths, terminal, resources);
+            EnvironmentRuntime environment = EnvironmentAssembly.create(args, terminal, paths);
+            PermissionGate permission = PermissionAssembly.create(environment, terminal);
             ToolRuntime tools = ToolAssembly.create(environment, resources, permission);
             EngineRuntime engine = EngineAssembly.create(environment, tools, permission);
             SessionRuntime session = SessionAssembly.resolve(environment, terminal);

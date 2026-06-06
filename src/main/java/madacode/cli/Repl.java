@@ -5,6 +5,7 @@ import madacode.cli.mode.LongRunningModeHandler;
 import madacode.cli.mode.ModeExecution;
 import madacode.cli.mode.ModeRouter;
 import madacode.cli.session.SessionChooser;
+import madacode.cli.session.SessionPointer;
 import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashContext;
@@ -113,6 +114,7 @@ public abstract class Repl {
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
         this.sessionModeSyncListener = new SessionModeSyncListener(sessionContext, session);
         this.slashHandler = SlashCommandHandler.builder(sessionStorage, screen)
+                .sessionPointer(config.sessionPointer)
                 .sessionChooser(config.sessionChooser)
                 .registry(Objects.requireNonNull(config.slashRegistry, "slashRegistry"))
                 .queryEngine(queryEngine)
@@ -690,5 +692,7 @@ public abstract class Repl {
         UserPromptChannel promptChannel;
         PermissionGate permissionGate;
         Path workerTurnLogRoot;
+        SessionPointer sessionPointer;
+        Path inlineMemoryFile;
     }
 }

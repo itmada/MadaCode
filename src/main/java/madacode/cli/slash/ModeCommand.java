@@ -1,6 +1,5 @@
 package madacode.cli.slash;
 
-import madacode.cli.session.SessionPointer;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorageException;
@@ -73,7 +72,7 @@ final class ModeCommand implements SlashCommand {
             }
             ConversationSession fresh =
                     new LongRunningControlSessionFactory().create(ctx.session().workingDirectory());
-            SessionPointer.write(fresh.sessionId());
+            ctx.sessionPointer().write(fresh.sessionId());
             SlashFeedback.muted(ctx.screen(),
                     "Long-running mode ready. Stage: DRAFT. Workers start after you confirm RUNNING.");
             return new SlashAction.SwitchSession(fresh, true);

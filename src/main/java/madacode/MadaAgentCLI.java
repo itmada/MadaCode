@@ -11,8 +11,10 @@ import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.events.FatalEvent;
 import madacode.events.UserVisibleEvent;
+import madacode.storage.RuntimePaths;
 
 import java.util.List;
+import java.nio.file.Path;
 
 /**
  * Application entry point. Parses CLI args, then delegates to
@@ -35,7 +37,8 @@ public final class MadaAgentCLI {
 
         switch (cli) {
             case CliArgs.Help h -> printUsage();
-            case CliArgs.ListSessions l -> printSessionList(SessionStorage.defaultStorage());
+            case CliArgs.ListSessions l -> printSessionList(
+                    new SessionStorage(currentRuntimePaths().workspaceSessionsDir()));
             default -> {
                 try {
                     new Bootstrapper(cli).createRepl().run();
@@ -96,6 +99,12 @@ public final class MadaAgentCLI {
                                       Skip approval prompts (DANGEROUS — use only in
                                       trusted automation contexts; safety rules still apply)
                   --provider <name>    Start with a specific provider from providers.json""");
+    }
+
+    private static RuntimePaths currentRuntimePaths() {
+        Path homeDir = Path.of(System.getProperty("user.home"));
+        Path projectDir = Path.of("").toAbsolutePath();
+        return RuntimePaths.forProject(homeDir, projectDir);
     }
 
     private static void printSessionList(SessionStorage storage) {

@@ -12,17 +12,11 @@ import java.nio.file.Path;
 public final class McpConfigLoader {
 
     private static final Logger log = LoggerFactory.getLogger(McpConfigLoader.class);
-    private static final Path CONFIG_PATH =
-            Path.of(System.getProperty("user.home"), ".mada", "mcp.json");
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private McpConfigLoader() {
-    }
-
-    public static McpConfig load() {
-        return load(CONFIG_PATH);
     }
 
     static McpConfig load(Path path) {

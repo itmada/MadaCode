@@ -53,13 +53,13 @@ final class ToolAssembly {
 
     private static SkillRegistry initSkills(EnvironmentRuntime environment) {
         SkillStateStore stateStore = new SkillStateStore(
-                environment.homeDir().resolve(".mada/skills.json"));
+                environment.paths().globalSkillsStateFile());
         stateStore.load();
 
         SkillRegistry registry = new SkillRegistry(stateStore,
                 new BundledSkillLoader(),
                 new DiskSkillLoader(
-                        environment.homeDir().resolve(".mada/skills"),
+                        environment.paths().globalSkillsDir(),
                         SkillSource.USER),
                 new DiskSkillLoader(
                         environment.projectDir().resolve(".mada/skills"),
@@ -79,7 +79,7 @@ final class ToolAssembly {
     private static AgentRegistry initAgents(EnvironmentRuntime environment) {
         AgentRegistry registry = AgentRegistry.loaded(
                 new BuiltInAgentLoader(),
-                new DiskAgentLoader(environment.homeDir().resolve(".mada/agents")),
+                new DiskAgentLoader(environment.paths().globalAgentsDir()),
                 new DiskAgentLoader(environment.projectDir().resolve(".mada/agents")));
 
         int total = registry.all().size();

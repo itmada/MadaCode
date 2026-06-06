@@ -17,6 +17,7 @@ import madacode.render.UserInputRenderer;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
 import madacode.cli.session.SessionChooser;
+import madacode.cli.session.SessionPointer;
 import madacode.cli.session.SessionSelectModels;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashComposer;
@@ -65,6 +66,7 @@ public final class JLineRepl extends Repl {
     private final LineReader lineReader;
     private final SessionHistory sessionHistory;
     private final SlashComposer slashComposer;
+    private final Path inlineMemoryFile;
     private AtomicReference<ConversationSession> currentSessionRef;
 
     private JLineRepl(Config config,
@@ -79,6 +81,7 @@ public final class JLineRepl extends Repl {
         this.lineReader = lineReader;
         this.sessionHistory = sessionHistory;
         this.slashComposer = slashComposer;
+        this.inlineMemoryFile = config.inlineMemoryFile;
     }
 
     public static Terminal createTerminal() {
@@ -102,6 +105,8 @@ public final class JLineRepl extends Repl {
                                    CompactPlanner compactPlanner,
                                    PermissionGate permissionGate,
                                    Path workerTurnLogRoot,
+                                   SessionPointer sessionPointer,
+                                   Path inlineMemoryFile,
                                    UserPromptChannel promptChannel,
                                    InterruptController interruptController) {
         NotificationCenter notifications = new NotificationCenter(screen);
@@ -131,7 +136,7 @@ public final class JLineRepl extends Repl {
                 slashRegistry,
                 () -> new SlashContext(
                         currentSessionRef.get(), screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
-                        compactPlanner, ctx, Optional.ofNullable(sessionChooser),
+                        compactPlanner, ctx, sessionPointer, Optional.ofNullable(sessionChooser),
                         Optional.of(modelChooser), Optional.of(modeChooser), Optional.of(permissionChooser),
                         Optional.of(themeChooser), Optional.of(providerChooser)),
                 screen, screen, terminal);
@@ -179,6 +184,8 @@ public final class JLineRepl extends Repl {
         config.expandableHistory = expandableHistory;
         config.permissionGate = permissionGate;
         config.workerTurnLogRoot = workerTurnLogRoot;
+        config.sessionPointer = sessionPointer;
+        config.inlineMemoryFile = inlineMemoryFile;
         config.promptChannel = promptChannel;
 
         JLineRepl repl = new JLineRepl(config, terminal, screen, lineReader, sessionHistory, slashComposer);
@@ -253,7 +260,7 @@ public final class JLineRepl extends Repl {
                 }
                 if (stripped.startsWith("#") && stripped.length() > 1) {
                     try {
-                        appendInlineMemory(stripped.substring(1).stripLeading(), screen, session.workingDirectory());
+                        appendInlineMemory(stripped.substring(1).stripLeading(), screen, inlineMemoryFile);
                     } catch (IOException e) {
                         screen.scrollback(Tk.errorTag("memory") + " " + e.getMessage());
                     }
@@ -451,26 +458,15 @@ public final class JLineRepl extends Repl {
         }
     }
 
-    private static void appendInlineMemory(String text, Screen screen, Path cwd) throws IOException {
+    private static void appendInlineMemory(String text, Screen screen, Path target) throws IOException {
         if (text == null || text.isBlank()) {
             screen.scrollback(Tk.warnTag("memory") + " Nothing to save.");
             return;
         }
-        Path target = memoryFileFor(cwd);
         Files.createDirectories(target.getParent());
         String entry = text.strip() + System.lineSeparator();
         Files.writeString(target, entry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         screen.scrollback(Tk.infoTag("memory") + " Saved to " + target);
-    }
-
-    static Path memoryFileFor(Path cwd) {
-        String raw = cwd == null ? "default" : cwd.toAbsolutePath().normalize().toString();
-        String project = raw.replaceAll("[^A-Za-z0-9._-]+", "-")
-                .replaceAll("^-+", "")
-                .replaceAll("-+$", "");
-        if (project.isBlank()) project = "default";
-        return Path.of(System.getProperty("user.home"), ".mada", "projects",
-                project, "memory", "MEMORY.md");
     }
 
     private static SlashContext.ModelChooser inlineModelChooser(

@@ -27,10 +27,6 @@ public class AuditSink implements Sink<AuditEvent> {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
-    public static Path defaultPath() {
-        return Path.of(System.getProperty("user.home"), ".mada", "permissions", "audit.jsonl");
-    }
-
     public Path auditPath() {
         return auditPath;
     }

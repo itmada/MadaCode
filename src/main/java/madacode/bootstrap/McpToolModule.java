@@ -5,7 +5,6 @@ import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.mcp.McpConnectionManager;
 import madacode.mcp.McpServer;
-import madacode.tool.MadaPaths;
 import madacode.tool.McpListResourcesTool;
 import madacode.tool.McpReadResourceTool;
 import madacode.tool.blob.FilesystemBlobStore;
@@ -16,7 +15,9 @@ final class McpToolModule implements ToolModule {
     @Override
     public void install(ToolContext context) {
         McpConnectionManager mcpManager = context.resources().own(
-                new McpConnectionManager(context.registry()));
+                new McpConnectionManager(
+                        context.registry(),
+                        context.environment().paths().globalMcpConfigFile()));
         mcpManager.initialize();
         long total = mcpManager.allServers().stream()
                 .filter(s -> s.status() != McpServer.Status.DISABLED)
@@ -30,7 +31,8 @@ final class McpToolModule implements ToolModule {
                     "MCP servers loaded: " + ready + "/" + total + " ready"));
         }
         context.mcpManager(mcpManager);
-        McpBlobStore blobStore = new FilesystemBlobStore(MadaPaths.blobsDir());
+        McpBlobStore blobStore = new FilesystemBlobStore(
+                context.environment().paths().globalBlobsDir());
         context.register(new McpListResourcesTool(mcpManager));
         context.register(new McpReadResourceTool(mcpManager, blobStore));
     }

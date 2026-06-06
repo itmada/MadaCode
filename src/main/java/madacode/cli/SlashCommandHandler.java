@@ -1,6 +1,7 @@
 package madacode.cli;
 
 import madacode.cli.session.SessionChooser;
+import madacode.cli.session.SessionPointer;
 import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommand;
 import madacode.cli.slash.SlashCommandRegistry;
@@ -22,6 +23,7 @@ public class SlashCommandHandler {
 
     private final SessionStorage storage;
     private final Screen screen;
+    private final SessionPointer sessionPointer;
     private final Optional<SessionChooser> sessionChooser;
     private final SlashCommandRegistry registry;
     private final QueryEngine queryEngine;
@@ -38,6 +40,7 @@ public class SlashCommandHandler {
     private SlashCommandHandler(Builder builder) {
         this.storage = Objects.requireNonNull(builder.storage, "storage");
         this.screen = Objects.requireNonNull(builder.screen, "screen");
+        this.sessionPointer = Objects.requireNonNull(builder.sessionPointer, "sessionPointer");
         this.sessionChooser = Optional.ofNullable(builder.sessionChooser);
         this.registry = Objects.requireNonNull(builder.registry, "registry");
         this.queryEngine = builder.queryEngine;
@@ -59,6 +62,7 @@ public class SlashCommandHandler {
     public static final class Builder {
         private final SessionStorage storage;
         private final Screen screen;
+        private SessionPointer sessionPointer;
         private SessionChooser sessionChooser;
         private SlashCommandRegistry registry;
         private QueryEngine queryEngine;
@@ -75,6 +79,11 @@ public class SlashCommandHandler {
         private Builder(SessionStorage storage, Screen screen) {
             this.storage = storage;
             this.screen = screen;
+        }
+
+        public Builder sessionPointer(SessionPointer sessionPointer) {
+            this.sessionPointer = sessionPointer;
+            return this;
         }
 
         public Builder sessionChooser(SessionChooser sessionChooser) {
@@ -166,6 +175,7 @@ public class SlashCommandHandler {
                 providerRegistry,
                 compactPlanner,
                 sessionContext,
+                sessionPointer,
                 sessionChooser,
                 modelChooser,
                 modeChooser,

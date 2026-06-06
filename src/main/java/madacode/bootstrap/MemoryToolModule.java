@@ -13,7 +13,8 @@ final class MemoryToolModule implements ToolModule {
             context.memory(MemoryLoader.disabled());
             return;
         }
-        MemoryStore memoryStore = MemoryStore.defaultStore();
+        MemoryStore memoryStore = new MemoryStore(
+                context.environment().paths().globalMemoryDir());
         context.register(new MemorySaveTool(memoryStore));
         context.memory(new MemoryLoader(new MadaMdLoader(), memoryStore, true));
     }

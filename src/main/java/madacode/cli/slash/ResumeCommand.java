@@ -1,6 +1,5 @@
 package madacode.cli.slash;
 
-import madacode.cli.session.SessionPointer;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionStorage.SessionSummary;
 import madacode.core.session.SessionStorageException;
@@ -63,7 +62,7 @@ final class ResumeCommand implements SlashCommand {
         } catch (SessionStorageException e) {
             ctx.screen().scrollback("[warn] Failed to save current session: " + e.getMessage());
         }
-        SessionPointer.write(resolved.get().sessionId());
+        ctx.sessionPointer().write(resolved.get().sessionId());
         return new SlashAction.SwitchSession(resolved.get());
     }
 }

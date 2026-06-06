@@ -20,7 +20,7 @@ public class MemoryLoader {
     }
 
     public static MemoryLoader disabled() {
-        return new MemoryLoader(new MadaMdLoader(), MemoryStore.defaultStore(), false);
+        return new MemoryLoader(new MadaMdLoader(), null, false);
     }
 
     public Optional<String> renderForSystemPrompt(Path cwd) {

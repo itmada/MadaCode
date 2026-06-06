@@ -9,17 +9,10 @@ import madacode.permission.BashSafetyPermissionRule;
 import madacode.permission.PermissionDecision;
 
 import java.nio.file.Path;
-import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
-import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicLong;
 
 public final class DiagnosticEventLogger {
-
-    private static final AtomicLong MODEL_RESPONSE_LOG_SEQUENCE = new AtomicLong();
 
     private DiagnosticEventLogger() {
     }
@@ -106,19 +99,21 @@ public final class DiagnosticEventLogger {
                 "api_response status=%d durationMs=%d".formatted(statusCode, durationMs));
     }
 
-    public static void apiModelResponseFull(String model, int statusCode, Collection<String> responseLines) {
-        Collection<String> lines = responseLines == null ? java.util.List.of() : responseLines;
-        String body = String.join(System.lineSeparator(), lines);
-        Path path = writeModelResponseLog(model, statusCode, body);
+    public static void apiModelResponseFull(
+            String model,
+            int statusCode,
+            int lineCount,
+            int charCount,
+            Path path) {
         if (path == null) {
             warn(EventContext.bootstrap("ApiClient"),
                     "api_model_response_full model=%s status=%d lines=%d chars=%d path=<write-failed>"
-                            .formatted(sanitize(model), statusCode, lines.size(), body.length()));
+                            .formatted(sanitize(model), statusCode, lineCount, charCount));
             return;
         }
         debug(EventContext.bootstrap("ApiClient"),
                 "api_model_response_full model=%s status=%d lines=%d chars=%d path=%s"
-                        .formatted(sanitize(model), statusCode, lines.size(), body.length(), path));
+                        .formatted(sanitize(model), statusCode, lineCount, charCount, path));
     }
 
     public static void apiError(int statusCode, String bodyPreview) {
@@ -153,6 +148,12 @@ public final class DiagnosticEventLogger {
                                 sanitize(toolName),
                                 sanitize(toolUseId),
                                 inputChars));
+    }
+
+    public static boolean isModelResponseFullLoggingEnabled() {
+        return isTruthy(firstNonBlank(
+                System.getenv("MADA_MODEL_RESPONSE_LOG"),
+                System.getProperty("MADA_MODEL_RESPONSE_LOG")));
     }
 
     public static void apiRetry(int attempt, int maxRetries, String type, long backoffMs) {
@@ -206,41 +207,6 @@ public final class DiagnosticEventLogger {
         AppEvents.publisher().publish(DiagnosticEvent.error(context, message, error));
     }
 
-    private static Path writeModelResponseLog(String model, int statusCode, String body) {
-        try {
-            Path directory = modelResponseLogDirectory();
-            Files.createDirectories(directory);
-            String timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
-                    .replace(':', '-');
-            long sequence = MODEL_RESPONSE_LOG_SEQUENCE.incrementAndGet();
-            String safeModel = safeFilename(model == null || model.isBlank() ? "unknown-model" : model);
-            Path target = directory.resolve("%s-%06d-status%d-%s.sse"
-                    .formatted(timestamp, sequence, statusCode, safeModel));
-            Files.writeString(target, body == null ? "" : body,
-                    StandardOpenOption.CREATE_NEW,
-                    StandardOpenOption.WRITE);
-            return target;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static Path modelResponseLogDirectory() {
-        String configured = firstNonBlank(
-                System.getenv("MADA_MODEL_RESPONSE_LOG_DIR"),
-                System.getProperty("MADA_MODEL_RESPONSE_LOG_DIR"));
-        if (configured != null) {
-            return Path.of(configured);
-        }
-        String debugDir = firstNonBlank(
-                System.getenv("MADA_DEBUG_DIR"),
-                System.getProperty("MADA_DEBUG_DIR"));
-        Path base = debugDir == null
-                ? Path.of(System.getProperty("user.home"), ".mada", "debug")
-                : Path.of(debugDir);
-        return base.resolve("model-responses");
-    }
-
     private static String firstNonBlank(String... values) {
         if (values == null) {
             return null;
@@ -253,12 +219,14 @@ public final class DiagnosticEventLogger {
         return null;
     }
 
-    private static String safeFilename(String value) {
-        String sanitized = value.replaceAll("[^A-Za-z0-9._-]", "_");
-        if (sanitized.length() <= 80) {
-            return sanitized;
+    private static boolean isTruthy(String value) {
+        if (value == null) {
+            return false;
         }
-        return sanitized.substring(0, 80);
+        return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "1", "true", "yes", "on" -> true;
+            default -> false;
+        };
     }
 
     private static String sanitize(String value) {

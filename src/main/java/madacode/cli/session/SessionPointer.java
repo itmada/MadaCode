@@ -3,44 +3,47 @@ package madacode.cli.session;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Persists the most recently active session ID to {@code ~/.mada/last-session}
+ * Persists the most recently active session ID to the current workspace bucket
  * so {@code --continue} can pick up where the user left off.
  */
 public final class SessionPointer {
 
-    private static final Path PATH =
-            Path.of(System.getProperty("user.home"), ".mada", "last-session");
+    private final Path file;
 
-    private SessionPointer() {
+    public SessionPointer(Path file) {
+        this.file = Objects.requireNonNull(file, "file")
+                .toAbsolutePath()
+                .normalize();
     }
 
-    public static Optional<String> read() {
+    public Optional<String> read() {
         try {
-            if (!Files.isRegularFile(PATH)) {
+            if (!Files.isRegularFile(file)) {
                 return Optional.empty();
             }
-            String value = Files.readString(PATH).strip();
+            String value = Files.readString(file).strip();
             return value.isBlank() ? Optional.empty() : Optional.of(value);
         } catch (IOException e) {
             return Optional.empty();
         }
     }
 
-    public static void write(String sessionId) {
+    public void write(String sessionId) {
         try {
-            Files.createDirectories(PATH.getParent());
-            Files.writeString(PATH, sessionId.strip());
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, sessionId.strip());
         } catch (IOException e) {
             // best-effort
         }
     }
 
-    public static void clear() {
+    public void clear() {
         try {
-            Files.deleteIfExists(PATH);
+            Files.deleteIfExists(file);
         } catch (IOException e) {
             // best-effort
         }

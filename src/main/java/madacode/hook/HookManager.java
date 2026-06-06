@@ -13,16 +13,10 @@ import java.util.concurrent.TimeUnit;
 
 public class HookManager {
 
-    private static final Path DEFAULT_CONFIG = Path.of(
-            System.getProperty("user.home"), ".mada", "hooks.json");
     private static final long DEFAULT_TIMEOUT_MS = 5000;
 
     private final HookConfig config;
     private final ObjectMapper mapper;
-
-    public HookManager() {
-        this(DEFAULT_CONFIG);
-    }
 
     public HookManager(Path configPath) {
         this.mapper = new ObjectMapper();

@@ -27,7 +27,7 @@ final class EngineAssembly {
                         new SystemPromptBuilder(tools.memory(), tools.skillRegistry()),
                         permission)
                 .compactPlanner(compaction)
-                .hookManager(new HookManager())
+                .hookManager(new HookManager(environment.paths().globalHooksFile()))
                 .build();
         return new EngineRuntime(engine, permission, compaction);
     }

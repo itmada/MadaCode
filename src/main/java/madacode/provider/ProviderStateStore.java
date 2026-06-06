@@ -35,10 +35,6 @@ public final class ProviderStateStore {
         return new ProviderStateStore(file);
     }
 
-    public static ProviderStateStore defaultStore() {
-        return forFile(Path.of(System.getProperty("user.home"), ".mada", "state.json"));
-    }
-
     /** In-memory store for tests. */
     public static ProviderStateStore inMemory() {
         return new ProviderStateStore(null);

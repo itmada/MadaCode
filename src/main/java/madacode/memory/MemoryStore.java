@@ -12,17 +12,10 @@ public class MemoryStore {
 
     static final String INDEX_FILENAME = "MEMORY.md";
 
-    private static final Path DEFAULT_DIR =
-            Path.of(System.getProperty("user.home"), ".mada", "memory");
-
     private final Path root;
 
     public MemoryStore(Path root) {
         this.root = root;
-    }
-
-    public static MemoryStore defaultStore() {
-        return new MemoryStore(DEFAULT_DIR);
     }
 
     public Optional<String> readIndex() {
