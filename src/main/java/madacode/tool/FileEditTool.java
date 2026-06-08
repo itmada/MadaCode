@@ -28,7 +28,10 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
     @Override
     public String description() {
         return "Performs exact string replacements in an existing file. "
-                + "Provide the text to find and the text to replace it with.";
+                + "Read the file first. old_string must match the file exactly, including indentation and whitespace. "
+                + "Use the smallest clearly unique old_string, usually a few adjacent lines. "
+                + "If old_string is not unique, include more surrounding context or set replace_all only when every occurrence should change. "
+                + "Prefer editing existing files over creating new files.";
     }
 
     @Override

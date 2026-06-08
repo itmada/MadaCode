@@ -31,7 +31,10 @@ public class FileReadTool implements Tool<FileReadTool.Input> {
 
     @Override
     public String description() {
-        return "Reads text files with line-based pagination. Returns numbered lines.";
+        return "Reads text files with line-based pagination. Returns numbered lines. "
+                + "Read a file before editing it. Prefer reading the whole relevant file when practical; "
+                + "use offset/limit for large files or known locations. Do not include line-number prefixes "
+                + "when copying text into edit old_string. If the path is a directory, use glob or bash ls instead.";
     }
 
     @Override

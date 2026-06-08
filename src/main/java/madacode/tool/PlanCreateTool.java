@@ -37,6 +37,10 @@ public class PlanCreateTool implements Tool<PlanCreateTool.Input> {
     public String description() {
         return "Creates plan items to track progress on complex work. "
                 + "Decompose the user's request into executable subtasks. "
+                + "Use for work with three or more meaningful steps, multiple files or modules, dependencies, blockers, "
+                + "verification phases, or when the user explicitly asks for a plan. "
+                + "Do not create a plan for a simple one-step edit, a purely informational question, "
+                + "a trivial command execution, or a task that can be completed immediately without tracking. "
                 + "Each plan item can declare dependencies via blockedBy (blockedBy item ids). "
                 + "Keep exactly one plan item IN_PROGRESS unless parallel work is justified. "
                 + "Do not start a plan item until its blockedBy dependencies are COMPLETED. "

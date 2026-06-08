@@ -1,13 +1,13 @@
 package madacode.prompt;
 
 import madacode.core.session.ConversationSession;
-import madacode.longrunning.LongRunningToolPolicy;
 import madacode.memory.MemoryLoader;
 import madacode.skill.Skill;
 import madacode.skill.SkillRegistry;
 import madacode.plan.PlanItem;
 import madacode.plan.PlanStatus;
 import madacode.tool.Tool;
+import madacode.tool.ToolVisibility;
 
 import java.nio.file.Path;
 import java.util.Collection;
@@ -69,6 +69,7 @@ public class SystemPromptBuilder {
 
         appendSection(sb, "Identity", identitySection());
         appendSection(sb, "System", systemSection());
+        appendSection(sb, "Environment", environmentSection(cwd));
         appendSection(sb, "Working In Codebases", codebaseSection());
         appendSection(sb, "Tools", toolsSection(safeTools, session));
         appendSection(sb, "Executing Actions", actionsSection());
@@ -164,14 +165,29 @@ public class SystemPromptBuilder {
         );
     }
 
+    private static String environmentSection(Path cwd) {
+        if (cwd == null) {
+            return null;
+        }
+        Path normalized = cwd.toAbsolutePath().normalize();
+        return bullets(
+                "Primary working directory: " + normalized,
+                "When referring to files, use absolute paths or paths clearly rooted in the working directory.",
+                "When answering questions about this project, inspect the local repository before relying on general assumptions."
+        );
+    }
+
     private static String codebaseSection() {
         return bullets(
                 "Read relevant files before proposing or making code changes. Let the existing code style and architecture guide the implementation.",
+                "Do not propose changes to code you have not read unless clearly framed as a hypothesis.",
+                "If the user's request appears based on a mistaken assumption, say so briefly and verify against the codebase.",
                 "Keep changes tightly scoped to the user's request. Do not add unrelated features, broad refactors, or speculative abstractions.",
+                "Prefer the smallest complete change that satisfies the request. Complete means integrated, not merely sketched.",
                 "Prefer editing existing files over creating new files unless a new file is clearly the right shape for the feature or test.",
                 "Do not overwrite or revert user work unless the user explicitly asks. If unexpected changes affect the task, work with them and explain any blocker.",
                 "Add comments sparingly. Use comments for non-obvious constraints or reasoning, not to narrate what clear code already says.",
-                "Validate at system boundaries and preserve security. If you introduce an unsafe pattern, fix it before reporting completion.",
+                "Validate at system boundaries and preserve security. Do not add defensive code for impossible internal states. If you introduce an unsafe pattern, fix it before reporting completion.",
                 "Verify meaningful changes with focused tests or commands when practical. If verification cannot be run, say so plainly."
         );
     }
@@ -188,6 +204,7 @@ public class SystemPromptBuilder {
         java.util.List<String> items = new java.util.ArrayList<>();
         items.add("Available tools: " + names);
         items.add("Use dedicated tools for their intended purpose instead of shell commands when they are available; this makes work easier to review.");
+        items.add("Do not repeat an identical denied or failed tool call. First reason about why it failed or was denied, then adjust.");
         if (toolNames.contains("file_read")) {
             items.add("Use file_read to inspect files instead of cat, head, tail, or sed.");
         }
@@ -212,14 +229,19 @@ public class SystemPromptBuilder {
         if (toolNames.contains("add_provider")) {
             items.add("For add_provider, collect non-secret provider details with free-text ask_user_question prompts when needed; never collect auth tokens through model-visible text.");
         }
+        if (toolNames.contains("tool_search")) {
+            items.add("Some optional tools may be deferred to keep the prompt small. If a needed capability is missing, use tool_search with keywords or select:<tool_name>; matched tools become available on the next model request.");
+        }
+        if (toolNames.contains("bash")) {
+            items.add("Use bash for tests, builds, package scripts, git inspection, and shell operations without a dedicated tool.");
+        }
         items.add("When multiple tool calls are independent, they may be issued together. Keep dependent actions sequential.");
         return bullets(items);
     }
 
     public static Collection<Tool<?>> visibleToolsForSession(Collection<Tool<?>> tools,
                                                              ConversationSession session) {
-        Collection<Tool<?>> safeTools = tools == null ? java.util.List.of() : tools;
-        return LongRunningToolPolicy.filterVisibleTools(safeTools, session);
+        return ToolVisibility.visibleToolsForSession(tools, session);
     }
 
     private static Collection<Tool<?>> visibleToolsForPrompt(Collection<Tool<?>> tools,
@@ -254,6 +276,7 @@ public class SystemPromptBuilder {
         return bullets(
                 "Lead with the outcome. Then mention the most important files changed, decisions made, or facts found.",
                 "For code changes, include verification performed. If tests or checks failed or were not run, say that explicitly.",
+                "Report verification honestly. Never claim tests pass when they were not run or when output shows failures.",
                 "Keep final responses compact unless the user asked for deep explanation. A small change usually needs one short paragraph plus a verification line.",
                 "Use file references with paths when they help the user navigate. Include line numbers when referring to specific code.",
                 "Do not claim work is complete unless the requested work is actually handled."

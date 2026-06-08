@@ -46,7 +46,13 @@ public class BashTool implements Tool<BashTool.Input> {
 
     @Override
     public String description() {
-        return "Runs shell commands after permission approval.";
+        return "Runs shell commands after permission approval. "
+                + "Use for tests, builds, package scripts, git inspection, and system commands. "
+                + "Prefer project-provided wrappers such as ./mvnw instead of system commands when present. "
+                + "Do not use destructive commands such as rm, reset --hard, clean, force-push, or branch deletion "
+                + "unless the user explicitly requested them or approves after you explain the risk. "
+                + "If a command fails, inspect the error before retrying or changing approach. "
+                + "Avoid interactive commands unless the user will run them directly.";
     }
 
     @Override

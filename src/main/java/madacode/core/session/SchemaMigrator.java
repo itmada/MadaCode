@@ -19,7 +19,7 @@ import java.util.function.UnaryOperator;
  */
 final class SchemaMigrator {
 
-    static final int CURRENT = 8;
+    static final int CURRENT = 9;
 
     private static final Map<Integer, UnaryOperator<ObjectNode>> STEPS = Map.of(
             1, SchemaMigrator::v1ToV2,
@@ -28,7 +28,8 @@ final class SchemaMigrator {
             4, SchemaMigrator::v4ToV5,
             5, SchemaMigrator::v5ToV6,
             6, SchemaMigrator::v6ToV7,
-            7, SchemaMigrator::v7ToV8
+            7, SchemaMigrator::v7ToV8,
+            8, SchemaMigrator::v8ToV9
     );
 
     private SchemaMigrator() {}
@@ -126,6 +127,14 @@ final class SchemaMigrator {
 
     // ---- v7 -> v8: supports terminal assistant content blocks ----
     private static ObjectNode v7ToV8(ObjectNode root) {
+        return root;
+    }
+
+    // ---- v8 -> v9: persist deferred tools loaded by tool_search ----
+    private static ObjectNode v8ToV9(ObjectNode root) {
+        if (!root.has("loadedDeferredTools")) {
+            root.putArray("loadedDeferredTools");
+        }
         return root;
     }
 }

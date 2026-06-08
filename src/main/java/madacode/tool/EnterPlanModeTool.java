@@ -1,13 +1,14 @@
 package madacode.tool;
 
 import madacode.core.session.ConversationSession;
-import madacode.core.model.Message;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.ToolResult;
 import madacode.core.engine.ToolUseContext;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.util.Map;
 
 public class EnterPlanModeTool implements Tool<EnterPlanModeTool.Input> {
 
@@ -58,7 +59,9 @@ public class EnterPlanModeTool implements Tool<EnterPlanModeTool.Input> {
         ConversationSession session = context.session();
         session.setPlanMode(true);
         session.fireMetaEvent(new MetaEvent.PlanModeEntered());
-        session.addMessage(Message.system("[plan mode entered]"));
+        session.addControllerEvent("plan-mode", Map.of(
+                "event", "entered",
+                "status", "active"));
         return new ToolResult(name(), true, PLAN_MODE_INSTRUCTIONS);
     }
 }

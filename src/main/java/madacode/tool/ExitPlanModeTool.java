@@ -1,7 +1,6 @@
 package madacode.tool;
 
 import madacode.cli.UserPromptChannel;
-import madacode.core.model.Message;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.ToolResult;
@@ -9,6 +8,8 @@ import madacode.core.engine.ToolUseContext;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.util.Map;
 
 public class ExitPlanModeTool implements Tool<ExitPlanModeTool.Input> {
 
@@ -71,13 +72,19 @@ public class ExitPlanModeTool implements Tool<ExitPlanModeTool.Input> {
         if (channel.confirm(prompt)) {
             session.setPlanMode(false);
             session.fireMetaEvent(new MetaEvent.PlanModeExited());
-            session.addMessage(Message.system("[plan mode exited — approved]"));
+            session.addControllerEvent("plan-mode", Map.of(
+                    "event", "exited",
+                    "status", "inactive",
+                    "decision", "approved"));
             return new ToolResult(name(), true,
                     "Plan approved. Plan mode exited. Proceed with implementation.");
         }
 
         session.fireMetaEvent(new MetaEvent.PlanRejected(planSummary));
-        session.addMessage(Message.system("[plan rejected — staying in plan mode]"));
+        session.addControllerEvent("plan-mode", Map.of(
+                "event", "rejected",
+                "status", "active",
+                "decision", "rejected"));
         return new ToolResult(name(), false,
                 "Plan rejected by user. Plan mode is still active.");
     }

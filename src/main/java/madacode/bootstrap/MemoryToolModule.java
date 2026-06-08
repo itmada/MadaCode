@@ -1,6 +1,6 @@
 package madacode.bootstrap;
 
-import madacode.memory.MadaMdLoader;
+import madacode.memory.AgentsMdLoader;
 import madacode.memory.MemoryLoader;
 import madacode.memory.MemoryStore;
 import madacode.tool.MemorySaveTool;
@@ -16,6 +16,6 @@ final class MemoryToolModule implements ToolModule {
         MemoryStore memoryStore = new MemoryStore(
                 context.environment().paths().globalMemoryDir());
         context.register(new MemorySaveTool(memoryStore));
-        context.memory(new MemoryLoader(new MadaMdLoader(), memoryStore, true));
+        context.memory(new MemoryLoader(new AgentsMdLoader(), memoryStore, true));
     }
 }

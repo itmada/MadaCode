@@ -49,6 +49,8 @@ public final class LongRunningWorkerPrompt {
 
                 Do not assume your code works just by reading it. You must physically run relevant tests, build scripts, or execution commands in bash to verify your implementation end-to-end before marking a feature as passed.
                 Before ending the cycle and calling worker_report, you MUST commit your working code changes to git with a descriptive commit message. This ensures the environment is in a clean state for the next worker.
+                If no code files changed, do not create an empty commit just to satisfy the commit rule; report progress, blocked, or needs_user with verification instead.
+                If verification cannot run because required tools, services, credentials, or environment are unavailable, report needs_user or blocked with the exact missing requirement.
 
                 Before ending, call worker_report exactly once with:
                 - task_id: the active task id

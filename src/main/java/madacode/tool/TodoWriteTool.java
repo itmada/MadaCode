@@ -27,6 +27,9 @@ public class TodoWriteTool implements Tool<TodoWriteTool.Input> {
     public String description() {
         return "Write a short-lived checklist for the current turn. "
                 + "Use for small steps within a task, not for multi-step project planning. "
+                + "Skip this tool for a single straightforward task, a trivial command, or a purely conversational answer. "
+                + "Keep at most one item in_progress while actively working. "
+                + "Mark items completed immediately after finishing them, not batched at the end. "
                 + "The list is replaced entirely on each call. "
                 + "It resets between turns — rewrite each turn as needed.";
     }

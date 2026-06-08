@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -80,6 +81,8 @@ public class ConversationSession {
     private final List<SessionListener> listeners = new CopyOnWriteArrayList<>();
     private volatile StreamingAssistantHandle currentStream;
     private final ReadFileState readFileState = new ReadFileState();
+    private final AtomicReference<Set<String>> loadedDeferredToolsRef =
+            new AtomicReference<>(Set.of());
 
     public ConversationSession() {
         this(UUID.randomUUID().toString(), Instant.now(),
@@ -358,6 +361,53 @@ public class ConversationSession {
 
     public ReadFileState readFileState() {
         return readFileState;
+    }
+
+    public Set<String> loadedDeferredTools() {
+        return loadedDeferredToolsRef.get();
+    }
+
+    public void loadDeferredTool(String toolName) {
+        if (toolName == null || toolName.isBlank()) {
+            return;
+        }
+        loadedDeferredToolsRef.updateAndGet(current -> {
+            if (current.contains(toolName)) {
+                return current;
+            }
+            Set<String> next = new HashSet<>(current);
+            next.add(toolName);
+            return Set.copyOf(next);
+        });
+    }
+
+    public void loadDeferredTools(Collection<String> toolNames) {
+        if (toolNames == null || toolNames.isEmpty()) {
+            return;
+        }
+        loadedDeferredToolsRef.updateAndGet(current -> {
+            Set<String> next = new HashSet<>(current);
+            for (String toolName : toolNames) {
+                if (toolName != null && !toolName.isBlank()) {
+                    next.add(toolName);
+                }
+            }
+            return Set.copyOf(next);
+        });
+    }
+
+    public void replaceLoadedDeferredTools(Collection<String> toolNames) {
+        if (toolNames == null || toolNames.isEmpty()) {
+            loadedDeferredToolsRef.set(Set.of());
+            return;
+        }
+        Set<String> next = new HashSet<>();
+        for (String toolName : toolNames) {
+            if (toolName != null && !toolName.isBlank()) {
+                next.add(toolName);
+            }
+        }
+        loadedDeferredToolsRef.set(Set.copyOf(next));
     }
 
     public Instant createdAt() {

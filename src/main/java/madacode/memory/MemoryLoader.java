@@ -5,22 +5,22 @@ import java.util.Optional;
 
 /**
  * Top-level orchestrator for context injection.
- * Assembles mada.md (human-written project rules) and MEMORY.md (agent-written notes).
+ * Assembles AGENTS.md (human-written project rules) and MEMORY.md (agent-written notes).
  */
 public class MemoryLoader {
 
-    private final MadaMdLoader madaMdLoader;
+    private final AgentsMdLoader agentsMdLoader;
     private final MemoryStore memoryStore;
     private final boolean enabled;
 
-    public MemoryLoader(MadaMdLoader madaMdLoader, MemoryStore memoryStore, boolean enabled) {
-        this.madaMdLoader = madaMdLoader;
+    public MemoryLoader(AgentsMdLoader agentsMdLoader, MemoryStore memoryStore, boolean enabled) {
+        this.agentsMdLoader = agentsMdLoader;
         this.memoryStore = memoryStore;
         this.enabled = enabled;
     }
 
     public static MemoryLoader disabled() {
-        return new MemoryLoader(new MadaMdLoader(), null, false);
+        return new MemoryLoader(new AgentsMdLoader(), null, false);
     }
 
     public Optional<String> renderForSystemPrompt(Path cwd) {
@@ -30,10 +30,10 @@ public class MemoryLoader {
 
         StringBuilder sb = new StringBuilder();
 
-        for (var loaded : madaMdLoader.load(cwd)) {
-            sb.append("<mada-md source=\"").append(loaded.source()).append("\">\n");
+        for (var loaded : agentsMdLoader.load(cwd)) {
+            sb.append("<agents-md source=\"").append(loaded.source()).append("\">\n");
             sb.append(loaded.content()).append("\n");
-            sb.append("</mada-md>\n\n");
+            sb.append("</agents-md>\n\n");
         }
 
         memoryStore.readIndex().ifPresent(idx -> {

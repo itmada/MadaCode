@@ -25,6 +25,8 @@ public class PlanUpdateTool implements Tool<PlanUpdateTool.Input> {
     public String description() {
         return "Update a plan item's status. "
                 + "Use when starting or completing a plan item. "
+                + "Mark an item completed only after it is truly done; do not mark completed if tests fail, "
+                + "implementation is partial, or a blocker remains. "
                 + "Cannot transition a plan item to IN_PROGRESS if it has incomplete blockedBy dependencies. "
                 + "This is a planning checklist — status changes here do not trigger background execution.";
     }

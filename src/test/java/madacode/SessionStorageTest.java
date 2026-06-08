@@ -53,14 +53,16 @@ public class SessionStorageTest {
         session.setPlanMode(true);
         session.setPermissionMode(PermissionMode.BYPASS);
         session.setLongRunningStage(LongRunningStage.DRAFT);
+        session.loadDeferredTool("web_fetch");
 
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
 
         var json = mapper.readTree(storage.transcriptPath(session.sessionId()).toFile());
-        assertEquals(8, json
+        assertEquals(9, json
                 .path("schemaVersion")
                 .asInt());
+        assertEquals("web_fetch", json.path("loadedDeferredTools").path(0).asText());
         assertEquals("long-running", json.path("workflowMode").asText());
         assertEquals("all-pass", json.path("permissionMode").asText());
         assertEquals(session.sessionId(), restored.sessionId());
@@ -72,6 +74,7 @@ public class SessionStorageTest {
         assertNull(restored.longRunningTaskDirectory());
         assertEquals(session.permissionMode(), restored.permissionMode());
         assertEquals(session.longRunningStage(), restored.longRunningStage());
+        assertEquals(session.loadedDeferredTools(), restored.loadedDeferredTools());
         assertEquals(session.messages().size(), restored.messages().size());
 
         for (int i = 0; i < session.messages().size(); i++) {

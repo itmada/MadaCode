@@ -1,25 +1,16 @@
 package madacode.core.engine;
 
-import madacode.core.model.ContentBlock;
-import madacode.core.model.FinishReason;
-import madacode.core.model.Message;
-import madacode.core.model.MetaEvent;
-import madacode.core.model.StopReason;
-import madacode.core.model.ToolCall;
-import madacode.core.model.ToolResult;
-import madacode.core.session.AssistantTurnWriter;
 import madacode.core.session.ConversationSession;
-import madacode.core.turn.CancellationException;
 import madacode.core.turn.CancellationToken;
-import madacode.core.turn.Turn;
-import madacode.core.turn.TurnResult;
-import madacode.core.turn.TurnRunner;
-
 import madacode.cli.UnavailablePromptChannel;
 import madacode.cli.UserPromptChannel;
+import madacode.tool.Tool;
 
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class ToolUseContext {
 
@@ -29,6 +20,7 @@ public final class ToolUseContext {
     private final int maxDepth;
     private final CancellationToken cancellationToken;
     private final UserPromptChannel userPrompts;
+    private final Set<String> exposedToolNames;
 
     public ToolUseContext(Path workingDirectory, ConversationSession session) {
         this(workingDirectory, session, 0, 1, CancellationToken.never(), UnavailablePromptChannel.INSTANCE);
@@ -52,10 +44,21 @@ public final class ToolUseContext {
                           int maxDepth,
                           CancellationToken cancellationToken,
                           UserPromptChannel userPrompts) {
+        this(workingDirectory, session, depth, maxDepth, cancellationToken, userPrompts, null);
+    }
+
+    private ToolUseContext(Path workingDirectory,
+                           ConversationSession session,
+                           int depth,
+                           int maxDepth,
+                           CancellationToken cancellationToken,
+                           UserPromptChannel userPrompts,
+                           Set<String> exposedToolNames) {
         this.workingDirectory = Objects.requireNonNull(workingDirectory, "workingDirectory");
         this.session = Objects.requireNonNull(session, "session");
         this.cancellationToken = Objects.requireNonNull(cancellationToken, "cancellationToken");
         this.userPrompts = Objects.requireNonNull(userPrompts, "userPrompts");
+        this.exposedToolNames = exposedToolNames == null ? null : Set.copyOf(exposedToolNames);
         if (depth < 0) {
             throw new IllegalArgumentException("depth must be >= 0, was " + depth);
         }
@@ -98,6 +101,32 @@ public final class ToolUseContext {
 
     public boolean canSpawnSubAgent() {
         return depth < maxDepth;
+    }
+
+    /**
+     * Returns a copy of this context bound to the tool declarations that were
+     * actually sent with the current model request. Tool execution uses this
+     * snapshot as a hard boundary, so tools loaded or hidden after the request
+     * cannot be smuggled into the same tool batch.
+     */
+    public ToolUseContext withExposedTools(Collection<Tool<?>> tools) {
+        Set<String> names = tools == null
+                ? Set.of()
+                : tools.stream().map(Tool::name).collect(Collectors.toUnmodifiableSet());
+        return new ToolUseContext(
+                workingDirectory, session, depth, maxDepth,
+                cancellationToken, userPrompts, names);
+    }
+
+    public boolean hasExposedToolSnapshot() {
+        return exposedToolNames != null;
+    }
+
+    public boolean wasToolExposed(String canonicalToolName) {
+        if (exposedToolNames == null) {
+            return true;
+        }
+        return exposedToolNames.contains(canonicalToolName);
     }
 
     public ToolUseContext childContext(ConversationSession childSession) {

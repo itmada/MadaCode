@@ -34,7 +34,9 @@ public class AskUserQuestionTool implements Tool<AskUserQuestionTool.Input> {
     @Override
     public String description() {
         return "Ask the user one or more clarifying questions. "
-                + "Use when requirements are ambiguous or you need to choose between approaches. "
+                + "Use only when a required decision cannot be inferred safely after investigation. "
+                + "Ask specific questions with concrete tradeoffs. "
+                + "If recommending an option, put it first and mark it as recommended. "
                 + "Supports single-choice, multi-select, and free-text (no options) questions.";
     }
 

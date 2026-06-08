@@ -20,11 +20,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import madacode.hook.HookManager;
 import madacode.logging.DiagnosticEventLogger;
-import madacode.longrunning.LongRunningToolPolicy;
 import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
+import madacode.tool.ToolVisibility;
 import madacode.tool.validation.ToolInputCoercion;
 import madacode.tool.validation.ToolInputValidator;
 import madacode.tool.validation.ValidationResult;
@@ -41,7 +41,8 @@ public final class ToolExecutor {
     private static final Set<String> PLAN_MODE_ALLOWED = Set.of(
             "enter_plan_mode", "exit_plan_mode", "plan_create", "plan_get", "plan_list",
             "plan_update", "todo_write", "skill", "ask_user_question", "agent",
-            "longrun_plan_update", "longrun_state_transition_request", "longrun_task_update");
+            "tool_search", "longrun_plan_update", "longrun_state_transition_request",
+            "longrun_task_update");
 
     private final ToolRegistry toolRegistry;
     private final ToolInputValidator inputValidator;
@@ -98,10 +99,10 @@ public final class ToolExecutor {
             return result;
         }
 
-        // Long-running tool policy: hard execution guard that matches the
-        // visibility rules in SystemPromptBuilder. Even if a tool call slips
-        // through prompt filtering, it is rejected here.
-        String denialReason = LongRunningToolPolicy.executionDenialReason(tool, session);
+        // Visibility is a hard execution boundary. QueryEngine binds each tool
+        // batch to the exact declarations sent with the model request, so tools
+        // loaded after that request cannot be called until the next iteration.
+        String denialReason = ToolVisibility.exposedToolDenialReason(tool, context);
         if (denialReason != null) {
             ToolResult result = new ToolResult(tool.name(), false, denialReason);
             emitCompleted(session, toolCall.id(), tool.name(), toolCall.input(), result, 0);

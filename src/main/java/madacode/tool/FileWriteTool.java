@@ -23,7 +23,9 @@ public class FileWriteTool implements Tool<FileWriteTool.Input> {
     public String description() {
         return "Writes a file to the local filesystem. "
                 + "Creates the file if it doesn't exist, overwrites it if it does. "
-                + "File path must be absolute.";
+                + "File path must be absolute. Use this for new files or full-file replacement only. "
+                + "Prefer edit for targeted changes to existing files. Do not create files unless needed for the user's task. "
+                + "Preserve the repository's style, formatting, and naming conventions.";
     }
 
     @Override

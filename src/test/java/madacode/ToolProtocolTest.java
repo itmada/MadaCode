@@ -16,6 +16,7 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.turn.TurnResult;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.permission.PermissionGate;
+import madacode.tool.ToolSearchTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,10 @@ import java.util.List;
 import java.util.Queue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ToolProtocolTest {
 
@@ -53,6 +57,7 @@ public class ToolProtocolTest {
                 new SystemPromptBuilder(),
                 PermissionGate.permissive());
         ConversationSession session = new ConversationSession();
+        session.loadDeferredTool(tool.name());
 
         TurnResult result = queryEngine.runTurn(session, "run capture");
 
@@ -66,9 +71,49 @@ public class ToolProtocolTest {
         assertEquals("hello", toolUseBlock.input().path("value").asText());
     }
 
+    @Test
+    void toolLoadedBySearchCannotRunInSameModelRequest() {
+        ObjectNode searchInput = mapper.createObjectNode();
+        searchInput.put("query", "select:capture");
+        ObjectNode captureInput = mapper.createObjectNode();
+        captureInput.put("value", "hello");
+
+        FakeApiClient apiClient = new FakeApiClient();
+        apiClient.enqueue(new ApiClient.ApiResponse(
+                "I will load and call a tool.",
+                List.of(
+                        new ToolCall("toolu_search", "tool_search", searchInput),
+                        new ToolCall("toolu_capture", "capture", captureInput))));
+        apiClient.enqueue(new ApiClient.ApiResponse("done", List.of()));
+
+        CapturingTool capture = new CapturingTool();
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(capture);
+        registry.register(new ToolSearchTool(registry));
+
+        QueryEngine queryEngine = new QueryEngine(
+                apiClient,
+                registry,
+                new SystemPromptBuilder(),
+                PermissionGate.permissive());
+        ConversationSession session = new ConversationSession();
+
+        TurnResult result = queryEngine.runTurn(session, "load and run capture");
+
+        assertEquals(FinishReason.COMPLETED, result.finishReason());
+        assertEquals(2, result.iterations());
+        assertNull(capture.capturedInput);
+        Message toolResults = session.messages().get(3);
+        ContentBlock.ToolResultBlock captureResult =
+                assertInstanceOf(ContentBlock.ToolResultBlock.class, toolResults.contentBlocks().get(1));
+        assertFalse(captureResult.success());
+        assertTrue(captureResult.content().contains("not exposed"));
+        assertTrue(session.loadedDeferredTools().contains("capture"));
+    }
+
     private final class CapturingTool implements Tool<ObjectNode> {
-            @Override
-            public Class<ObjectNode> inputType() { return ObjectNode.class; }
+        @Override
+        public Class<ObjectNode> inputType() { return ObjectNode.class; }
 
         private ObjectNode capturedInput;
 

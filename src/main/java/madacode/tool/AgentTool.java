@@ -40,7 +40,12 @@ public class AgentTool implements Tool<AgentTool.Input> {
 
     @Override
     public String description() {
-        return "Delegates work to a sub-agent. Available: " + availableTypes() + ".";
+        return "Delegates work to a sub-agent. Available: " + availableTypes() + ". "
+                + "Use sub-agents for broad codebase exploration, independent investigations that can run in parallel, "
+                + "or specialized read-only review and planning passes. Do not use sub-agents to read one known file, "
+                + "perform a small targeted edit, or duplicate work already delegated. When writing the prompt, assume "
+                + "the sub-agent has no useful context unless you provide it. Include the goal, relevant files, what you "
+                + "already know, what to avoid, and the expected output shape.";
     }
 
     @Override

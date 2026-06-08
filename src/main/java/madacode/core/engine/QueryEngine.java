@@ -149,6 +149,7 @@ public class QueryEngine {
             var visibleTools = SystemPromptBuilder.visibleToolsForSession(toolRegistry.tools(), session);
             String systemPrompt = systemPromptBuilder.build(
                     visibleTools, session.workingDirectory(), session);
+            ToolUseContext executionCtx = ctx.withExposedTools(visibleTools);
 
             ApiClient.ApiResponse response;
             try (AssistantTurnWriter writer = AssistantTurnWriter.open(session)) {
@@ -191,7 +192,7 @@ public class QueryEngine {
                 return new TurnResult(response.assistantText(), finishReason, iteration + 1);
             }
 
-            List<ToolResult> results = toolOrchestrator.run(toolCalls, ctx);
+            List<ToolResult> results = toolOrchestrator.run(toolCalls, executionCtx);
             List<ContentBlock> toolResultBlocks = new ArrayList<>(results.size());
             for (int j = 0; j < toolCalls.size(); j++) {
                 ToolResult result = results.get(j);

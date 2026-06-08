@@ -7,6 +7,7 @@ import madacode.tool.ExitPlanModeTool;
 import madacode.tool.LongRunPlanUpdateTool;
 import madacode.tool.LongRunStateTransitionRequestTool;
 import madacode.tool.LongRunTaskUpdateTool;
+import madacode.tool.ToolSearchTool;
 import madacode.tool.WorkerReportTool;
 
 final class InteractionToolModule implements ToolModule {
@@ -22,5 +23,6 @@ final class InteractionToolModule implements ToolModule {
         context.register(new LongRunTaskUpdateTool());
         context.register(new WorkerReportTool());
         context.register(new AddProviderTool(env.providerRegistry(), env.providerLoader()));
+        context.register(new ToolSearchTool(context.registry()));
     }
 }

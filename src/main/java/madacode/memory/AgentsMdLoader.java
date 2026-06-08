@@ -6,27 +6,27 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MadaMdLoader {
+public class AgentsMdLoader {
 
     private static final Path USER_GLOBAL = Path.of(
-            System.getProperty("user.home"), ".mada", "MADA.md");
+            System.getProperty("user.home"), ".mada", "AGENTS.md");
 
     public List<LoadedFile> load(Path cwd) {
         List<LoadedFile> result = new ArrayList<>();
 
-        // 1. User-global: ~/.mada/MADA.md
+        // 1. User-global: ~/.mada/AGENTS.md
         if (Files.isRegularFile(USER_GLOBAL)) {
             readIfPresent(USER_GLOBAL, "user-global", result);
         }
 
-        // 2. Project-root: walk up from cwd to find the nearest MADA.md
+        // 2. Project-root: walk up from cwd to find the nearest AGENTS.md
         Path projectRoot = walkUp(cwd);
         if (projectRoot != null && !projectRoot.equals(USER_GLOBAL)) {
             readIfPresent(projectRoot, "project-root", result);
         }
 
         // 3. Cwd-level: if different from project root and user global
-        Path cwdFile = cwd.resolve("MADA.md");
+        Path cwdFile = cwd.resolve("AGENTS.md");
         if (Files.isRegularFile(cwdFile)
                 && !cwdFile.toAbsolutePath().normalize().equals(projectRoot)
                 && !cwdFile.toAbsolutePath().normalize().equals(USER_GLOBAL.toAbsolutePath().normalize())) {
@@ -41,7 +41,7 @@ public class MadaMdLoader {
     private Path walkUp(Path start) {
         Path current = start.toAbsolutePath().normalize().getParent();
         while (current != null) {
-            Path candidate = current.resolve("MADA.md");
+            Path candidate = current.resolve("AGENTS.md");
             if (Files.isRegularFile(candidate)) {
                 return candidate.toAbsolutePath().normalize();
             }

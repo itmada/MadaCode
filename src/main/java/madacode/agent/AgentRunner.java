@@ -11,6 +11,7 @@ import madacode.permission.PermissionMode;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.core.engine.ToolExecutor;
+import madacode.util.ToolNameNormalizer;
 
 import java.util.Objects;
 import java.util.Set;
@@ -63,6 +64,8 @@ public class AgentRunner {
         ConversationSession parentSession = parentContext.session();
         ConversationSession childSession = new ConversationSession(parentContext.workingDirectory());
         childSession.setPlanMode(parentSession.isPlanMode());
+        childSession.loadDeferredTools(parentSession.loadedDeferredTools());
+        childSession.loadDeferredTools(canonicalToolNames(definition.allowedTools()));
 
         PermissionMode childMode = resolveChildMode(
                 definition.permissionMode(),
@@ -93,20 +96,41 @@ public class AgentRunner {
 
     private ToolRegistry buildChildRegistry(AgentDefinition definition) {
         ToolRegistry childRegistry = new ToolRegistry();
+        Set<String> allowedTools = canonicalToolNames(definition.allowedTools());
+        Set<String> disallowedTools = canonicalToolNames(definition.disallowedTools());
         fullRegistry.tools().stream()
                 .filter(t -> {
                     if ("agent".equals(t.name())) {
                         return false;
                     }
-                    if (definition.disallowedTools().contains(t.name())) {
+                    if (disallowedTools.contains(t.name())) {
                         return false;
                     }
-                    if (!definition.allowedTools().isEmpty()) {
-                        return definition.allowedTools().contains(t.name());
+                    if (!allowedTools.isEmpty()) {
+                        return allowedTools.contains(t.name());
                     }
                     return true;
                 })
                 .forEach(childRegistry::register);
         return childRegistry;
+    }
+
+    private Set<String> canonicalToolNames(Set<String> names) {
+        if (names == null || names.isEmpty()) {
+            return Set.of();
+        }
+        return names.stream()
+                .map(this::canonicalToolName)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private String canonicalToolName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return fullRegistry.find(name)
+                .map(Tool::name)
+                .orElse(ToolNameNormalizer.normalize(name));
     }
 }

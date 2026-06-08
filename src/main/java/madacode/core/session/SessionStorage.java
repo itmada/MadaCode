@@ -206,6 +206,12 @@ public final class SessionStorage {
         }
         root.set("history", historyNode);
 
+        ArrayNode loadedDeferredToolsNode = mapper.createArrayNode();
+        for (String toolName : session.loadedDeferredTools().stream().sorted().toList()) {
+            loadedDeferredToolsNode.add(toolName);
+        }
+        root.set("loadedDeferredTools", loadedDeferredToolsNode);
+
         return root;
     }
 
@@ -377,6 +383,17 @@ public final class SessionStorage {
                 session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
             }
         }
+        List<String> loadedDeferredTools = new ArrayList<>();
+        JsonNode loadedDeferredToolsNode = migrated.path("loadedDeferredTools");
+        if (loadedDeferredToolsNode.isArray()) {
+            for (JsonNode entry : loadedDeferredToolsNode) {
+                String toolName = entry.asText("");
+                if (!toolName.isBlank()) {
+                    loadedDeferredTools.add(toolName);
+                }
+            }
+        }
+        session.replaceLoadedDeferredTools(loadedDeferredTools);
         return session;
     }
 

@@ -33,7 +33,7 @@ public final class LongRunningToolPolicy {
     private static final String PLAN_UPDATE_TOOL = "longrun_plan_update";
     private static final String TRANSITION_REQUEST_TOOL = "longrun_state_transition_request";
     private static final Set<String> WORKER_ORDINARY_TOOLS = Set.of(
-            "file_read", "glob", "grep", "write", "edit", "bash");
+            "file_read", "glob", "grep", "file_write", "file_edit", "bash");
 
     private LongRunningToolPolicy() {}
 
