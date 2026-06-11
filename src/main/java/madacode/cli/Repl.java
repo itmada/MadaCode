@@ -70,36 +70,36 @@ public abstract class Repl {
     private volatile LongRunningTaskStore longRunningTaskStore;
 
     Repl(Config config) {
-        this.queryEngine = Objects.requireNonNull(config.queryEngine, "queryEngine");
-        this.turnExecutor = Objects.requireNonNull(config.turnExecutor, "turnExecutor");
-        this.session = Objects.requireNonNull(config.session, "session");
-        this.screen = Objects.requireNonNull(config.screen, "screen");
-        this.sessionStorage = Objects.requireNonNull(config.sessionStorage, "sessionStorage");
-        this.turnRenderer = Objects.requireNonNull(config.turnRenderer, "turnRenderer");
-        this.historyPrinter = new HistoryPrinter(screen, config.expandableHistory);
-        this.sessionContext = config.sessionContext;
-        this.providerRegistry = config.providerRegistry;
-        this.notifications = config.notifications;
-        this.modeRouter = config.modeRouter != null
-                ? config.modeRouter
+        this.queryEngine = config.queryEngine();
+        this.turnExecutor = config.turnExecutor();
+        this.session = config.session();
+        this.screen = config.screen();
+        this.sessionStorage = config.sessionStorage();
+        this.turnRenderer = config.turnRenderer();
+        this.historyPrinter = new HistoryPrinter(screen, config.expandableHistory());
+        this.sessionContext = config.sessionContext();
+        this.providerRegistry = config.providerRegistry();
+        this.notifications = config.notifications();
+        this.modeRouter = config.modeRouter() != null
+                ? config.modeRouter()
                 : new ModeRouter(
                         new CommonModeHandler(turnExecutor),
                         new LongRunningModeHandler(turnExecutor, this::longRunningTaskStore));
-        LongRunningRuntime longRunningRuntime = config.longRunningRuntime != null
-                ? config.longRunningRuntime
+        LongRunningRuntime longRunningRuntime = config.longRunningRuntime() != null
+                ? config.longRunningRuntime()
                 : LongRunningReplCoordinator.createRuntime(
-                        config.launcher,
-                        config.permissionGate,
+                        config.launcher(),
+                        config.permissionGate(),
                         queryEngine,
                         sessionStorage,
                         () -> session,
-                        config.workerTurnLogRoot,
+                        config.workerTurnLogRoot(),
                         this::longRunningTaskStore);
-        LongRunningController longRunningController = config.longRunningController != null
-                ? config.longRunningController
+        LongRunningController longRunningController = config.longRunningController() != null
+                ? config.longRunningController()
                 : new LongRunningController(this::longRunningTaskStore);
-        this.promptChannel = config.promptChannel != null
-                ? config.promptChannel
+        this.promptChannel = config.promptChannel() != null
+                ? config.promptChannel()
                 : UnavailablePromptChannel.INSTANCE;
         this.longRunningCoordinator = new LongRunningReplCoordinator(
                 () -> session,
@@ -111,23 +111,23 @@ public abstract class Repl {
                 prompt -> runManagedTurn(turnExecutor.submit(session, prompt)),
                 this::persistSession,
                 this::longRunningTaskStore);
-        this.shutdownTargets = config.shutdownTargets != null
-                ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
+        this.shutdownTargets = config.shutdownTargets() != null
+                ? new ArrayList<>(config.shutdownTargets()) : new ArrayList<>();
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
         this.sessionModeSyncListener = new SessionModeSyncListener(sessionContext, session);
         this.slashHandler = SlashCommandHandler.builder(sessionStorage, screen)
-                .sessionPointer(config.sessionPointer)
-                .sessionChooser(config.sessionChooser)
-                .registry(Objects.requireNonNull(config.slashRegistry, "slashRegistry"))
+                .sessionPointer(config.sessionPointer())
+                .sessionChooser(config.sessionChooser())
+                .registry(config.slashRegistry())
                 .queryEngine(queryEngine)
-                .providerRegistry(config.providerRegistry)
-                .compactPlanner(config.compactPlanner)
+                .providerRegistry(config.providerRegistry())
+                .compactPlanner(config.compactPlanner())
                 .sessionContext(sessionContext)
-                .modelChooser(config.modelChooser)
-                .modeChooser(config.modeChooser)
-                .permissionChooser(config.permissionChooser)
-                .themeChooser(config.themeChooser)
-                .providerChooser(config.providerChooser)
+                .modelChooser(config.modelChooser())
+                .modeChooser(config.modeChooser())
+                .permissionChooser(config.permissionChooser())
+                .themeChooser(config.themeChooser())
+                .providerChooser(config.providerChooser())
                 .notifications(notifications)
                 .build();
         session.addListener(turnRenderer);
@@ -401,34 +401,140 @@ public abstract class Repl {
         shutdownTargets.add(target);
     }
 
-    static final class Config {
-        QueryEngine queryEngine;
-        TurnExecutor turnExecutor;
-        ConversationSession session;
-        Screen screen;
-        SessionStorage sessionStorage;
-        SlashCommandRegistry slashRegistry;
-        TurnRenderer turnRenderer;
-        ExpandableHistory expandableHistory;
-        SessionChooser sessionChooser;
-        ProviderRegistry providerRegistry;
-        CompactPlanner compactPlanner;
-        SessionContext sessionContext;
-        SlashContext.ModelChooser modelChooser;
-        SlashContext.ModeChooser modeChooser;
-        SlashContext.PermissionChooser permissionChooser;
-        SlashContext.ThemeChooser themeChooser;
-        SlashContext.ProviderChooser providerChooser;
-        NotificationCenter notifications;
-        List<AutoCloseable> shutdownTargets;
-        ModeRouter modeRouter;
-        LongRunningLauncher launcher;
-        LongRunningRuntime longRunningRuntime;
-        LongRunningController longRunningController;
-        UserPromptChannel promptChannel;
-        PermissionGate permissionGate;
-        Path workerTurnLogRoot;
-        SessionPointer sessionPointer;
-        Path inlineMemoryFile;
+    record Config(
+            QueryEngine queryEngine,
+            TurnExecutor turnExecutor,
+            ConversationSession session,
+            Screen screen,
+            SessionStorage sessionStorage,
+            SlashCommandRegistry slashRegistry,
+            TurnRenderer turnRenderer,
+            ExpandableHistory expandableHistory,
+            SessionChooser sessionChooser,
+            ProviderRegistry providerRegistry,
+            CompactPlanner compactPlanner,
+            SessionContext sessionContext,
+            SlashContext.ModelChooser modelChooser,
+            SlashContext.ModeChooser modeChooser,
+            SlashContext.PermissionChooser permissionChooser,
+            SlashContext.ThemeChooser themeChooser,
+            SlashContext.ProviderChooser providerChooser,
+            NotificationCenter notifications,
+            List<AutoCloseable> shutdownTargets,
+            ModeRouter modeRouter,
+            LongRunningLauncher launcher,
+            LongRunningRuntime longRunningRuntime,
+            LongRunningController longRunningController,
+            UserPromptChannel promptChannel,
+            PermissionGate permissionGate,
+            Path workerTurnLogRoot,
+            SessionPointer sessionPointer,
+            Path inlineMemoryFile) {
+
+        Config {
+            Objects.requireNonNull(queryEngine, "queryEngine");
+            Objects.requireNonNull(turnExecutor, "turnExecutor");
+            Objects.requireNonNull(session, "session");
+            Objects.requireNonNull(screen, "screen");
+            Objects.requireNonNull(sessionStorage, "sessionStorage");
+            Objects.requireNonNull(slashRegistry, "slashRegistry");
+            Objects.requireNonNull(turnRenderer, "turnRenderer");
+        }
+
+        static Builder builder() {
+            return new Builder();
+        }
+
+        static final class Builder {
+            private QueryEngine queryEngine;
+            private TurnExecutor turnExecutor;
+            private ConversationSession session;
+            private Screen screen;
+            private SessionStorage sessionStorage;
+            private SlashCommandRegistry slashRegistry;
+            private TurnRenderer turnRenderer;
+            private ExpandableHistory expandableHistory;
+            private SessionChooser sessionChooser;
+            private ProviderRegistry providerRegistry;
+            private CompactPlanner compactPlanner;
+            private SessionContext sessionContext;
+            private SlashContext.ModelChooser modelChooser;
+            private SlashContext.ModeChooser modeChooser;
+            private SlashContext.PermissionChooser permissionChooser;
+            private SlashContext.ThemeChooser themeChooser;
+            private SlashContext.ProviderChooser providerChooser;
+            private NotificationCenter notifications;
+            private List<AutoCloseable> shutdownTargets;
+            private ModeRouter modeRouter;
+            private LongRunningLauncher launcher;
+            private LongRunningRuntime longRunningRuntime;
+            private LongRunningController longRunningController;
+            private UserPromptChannel promptChannel;
+            private PermissionGate permissionGate;
+            private Path workerTurnLogRoot;
+            private SessionPointer sessionPointer;
+            private Path inlineMemoryFile;
+
+            Builder queryEngine(QueryEngine queryEngine) { this.queryEngine = queryEngine; return this; }
+            Builder turnExecutor(TurnExecutor turnExecutor) { this.turnExecutor = turnExecutor; return this; }
+            Builder session(ConversationSession session) { this.session = session; return this; }
+            Builder screen(Screen screen) { this.screen = screen; return this; }
+            Builder sessionStorage(SessionStorage sessionStorage) { this.sessionStorage = sessionStorage; return this; }
+            Builder slashRegistry(SlashCommandRegistry slashRegistry) { this.slashRegistry = slashRegistry; return this; }
+            Builder turnRenderer(TurnRenderer turnRenderer) { this.turnRenderer = turnRenderer; return this; }
+            Builder expandableHistory(ExpandableHistory expandableHistory) { this.expandableHistory = expandableHistory; return this; }
+            Builder sessionChooser(SessionChooser sessionChooser) { this.sessionChooser = sessionChooser; return this; }
+            Builder providerRegistry(ProviderRegistry providerRegistry) { this.providerRegistry = providerRegistry; return this; }
+            Builder compactPlanner(CompactPlanner compactPlanner) { this.compactPlanner = compactPlanner; return this; }
+            Builder sessionContext(SessionContext sessionContext) { this.sessionContext = sessionContext; return this; }
+            Builder modelChooser(SlashContext.ModelChooser modelChooser) { this.modelChooser = modelChooser; return this; }
+            Builder modeChooser(SlashContext.ModeChooser modeChooser) { this.modeChooser = modeChooser; return this; }
+            Builder permissionChooser(SlashContext.PermissionChooser permissionChooser) { this.permissionChooser = permissionChooser; return this; }
+            Builder themeChooser(SlashContext.ThemeChooser themeChooser) { this.themeChooser = themeChooser; return this; }
+            Builder providerChooser(SlashContext.ProviderChooser providerChooser) { this.providerChooser = providerChooser; return this; }
+            Builder notifications(NotificationCenter notifications) { this.notifications = notifications; return this; }
+            Builder shutdownTargets(List<AutoCloseable> shutdownTargets) { this.shutdownTargets = shutdownTargets; return this; }
+            Builder modeRouter(ModeRouter modeRouter) { this.modeRouter = modeRouter; return this; }
+            Builder launcher(LongRunningLauncher launcher) { this.launcher = launcher; return this; }
+            Builder longRunningRuntime(LongRunningRuntime longRunningRuntime) { this.longRunningRuntime = longRunningRuntime; return this; }
+            Builder longRunningController(LongRunningController longRunningController) { this.longRunningController = longRunningController; return this; }
+            Builder promptChannel(UserPromptChannel promptChannel) { this.promptChannel = promptChannel; return this; }
+            Builder permissionGate(PermissionGate permissionGate) { this.permissionGate = permissionGate; return this; }
+            Builder workerTurnLogRoot(Path workerTurnLogRoot) { this.workerTurnLogRoot = workerTurnLogRoot; return this; }
+            Builder sessionPointer(SessionPointer sessionPointer) { this.sessionPointer = sessionPointer; return this; }
+            Builder inlineMemoryFile(Path inlineMemoryFile) { this.inlineMemoryFile = inlineMemoryFile; return this; }
+
+            Config build() {
+                return new Config(
+                        queryEngine,
+                        turnExecutor,
+                        session,
+                        screen,
+                        sessionStorage,
+                        slashRegistry,
+                        turnRenderer,
+                        expandableHistory,
+                        sessionChooser,
+                        providerRegistry,
+                        compactPlanner,
+                        sessionContext,
+                        modelChooser,
+                        modeChooser,
+                        permissionChooser,
+                        themeChooser,
+                        providerChooser,
+                        notifications,
+                        shutdownTargets,
+                        modeRouter,
+                        launcher,
+                        longRunningRuntime,
+                        longRunningController,
+                        promptChannel,
+                        permissionGate,
+                        workerTurnLogRoot,
+                        sessionPointer,
+                        inlineMemoryFile);
+            }
+        }
     }
 }

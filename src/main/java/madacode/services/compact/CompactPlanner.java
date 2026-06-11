@@ -22,6 +22,10 @@ public class CompactPlanner {
         this.strategies = List.copyOf(strategies);
     }
 
+    public boolean shouldCompact(ConversationSession session) {
+        return budget.isOverSoft(estimator.estimate(session.messages()));
+    }
+
     public boolean planAndApply(ConversationSession session, Consumer<MetaEvent> eventSink,
                                 CancellationToken cancellationToken) {
         int est = estimator.estimate(session.messages());

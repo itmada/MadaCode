@@ -151,7 +151,7 @@ public class QueryEngine {
             if (cancel.isCancelled()) {
                 return completeWithCancellation(session, cancel.reason(), iteration, elapsedMs(turnStart));
             }
-            if (compactPlanner != null) {
+            if (compactPlanner != null && compactPlanner.shouldCompact(session)) {
                 compactPlanner.planAndApply(session, session::fireMetaEvent, cancel);
                 // Compact may take seconds (model API call). If the user cancelled
                 // during it, honor it now rather than firing a doomed turn request.

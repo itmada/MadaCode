@@ -81,7 +81,7 @@ public final class JLineRepl extends Repl {
         this.lineReader = lineReader;
         this.sessionHistory = sessionHistory;
         this.slashComposer = slashComposer;
-        this.inlineMemoryFile = config.inlineMemoryFile;
+        this.inlineMemoryFile = config.inlineMemoryFile();
     }
 
     public static Terminal createTerminal() {
@@ -163,30 +163,31 @@ public final class JLineRepl extends Repl {
         screen.setResizeListener(turnView::markDirty);
         TurnRenderer turnRenderer = new TurnRenderer(turnView, screen);
 
-        Config config = new Config();
-        config.queryEngine = queryEngine;
-        config.turnExecutor = turnExecutor;
-        config.session = session;
-        config.screen = screen;
-        config.sessionStorage = sessionStorage;
-        config.slashRegistry = slashRegistry;
-        config.turnRenderer = turnRenderer;
-        config.sessionChooser = sessionChooser;
-        config.providerRegistry = providerRegistry;
-        config.compactPlanner = compactPlanner;
-        config.sessionContext = ctx;
-        config.modelChooser = modelChooser;
-        config.modeChooser = modeChooser;
-        config.permissionChooser = permissionChooser;
-        config.themeChooser = themeChooser;
-        config.providerChooser = providerChooser;
-        config.notifications = notifications;
-        config.expandableHistory = expandableHistory;
-        config.permissionGate = permissionGate;
-        config.workerTurnLogRoot = workerTurnLogRoot;
-        config.sessionPointer = sessionPointer;
-        config.inlineMemoryFile = inlineMemoryFile;
-        config.promptChannel = promptChannel;
+        Config config = Config.builder()
+                .queryEngine(queryEngine)
+                .turnExecutor(turnExecutor)
+                .session(session)
+                .screen(screen)
+                .sessionStorage(sessionStorage)
+                .slashRegistry(slashRegistry)
+                .turnRenderer(turnRenderer)
+                .sessionChooser(sessionChooser)
+                .providerRegistry(providerRegistry)
+                .compactPlanner(compactPlanner)
+                .sessionContext(ctx)
+                .modelChooser(modelChooser)
+                .modeChooser(modeChooser)
+                .permissionChooser(permissionChooser)
+                .themeChooser(themeChooser)
+                .providerChooser(providerChooser)
+                .notifications(notifications)
+                .expandableHistory(expandableHistory)
+                .permissionGate(permissionGate)
+                .workerTurnLogRoot(workerTurnLogRoot)
+                .sessionPointer(sessionPointer)
+                .inlineMemoryFile(inlineMemoryFile)
+                .promptChannel(promptChannel)
+                .build();
 
         JLineRepl repl = new JLineRepl(config, terminal, screen, lineReader, sessionHistory, slashComposer);
         repl.currentSessionRef = currentSessionRef;

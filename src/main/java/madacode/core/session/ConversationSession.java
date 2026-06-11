@@ -53,6 +53,9 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class ConversationSession {
 
+    private static final String ASSERT_WRITER_THREAD_PROPERTY =
+            "madacode.session.assertWriterThread";
+
     private final String sessionId;
     private final Instant createdAt;
     private final Path workingDirectory;
@@ -71,6 +74,7 @@ public class ConversationSession {
             new AtomicReference<>(TokenUsage.ZERO);
     private final SessionEventBus eventBus = new SessionEventBus();
     private volatile StreamingAssistantHandle currentStream;
+    private volatile Thread writerThread;
     private volatile int persistedMessageCount;
     private volatile boolean transcriptRewriteRequired;
     private final ReadFileState readFileState = new ReadFileState();
@@ -121,6 +125,7 @@ public class ConversationSession {
     }
 
     public void replaceMessages(List<Message> newMessages) {
+        assertWriterThread();
         messagesRef.set(List.copyOf(newMessages));
         tokenUsageRef.set(TokenUsage.ZERO);
         transcriptRewriteRequired = true;
@@ -400,10 +405,28 @@ public class ConversationSession {
     }
 
     private void appendMessageWithoutStreamCheck(Message message) {
+        assertWriterThread();
         List<Message> snapshot = messagesRef.get();
         int index = snapshot.size();
         messagesRef.set(append(snapshot, message));
         eventBus.fireMessageAppended(index, message);
+    }
+
+    private void assertWriterThread() {
+        if (!Boolean.getBoolean(ASSERT_WRITER_THREAD_PROPERTY)) {
+            return;
+        }
+        Thread current = Thread.currentThread();
+        Thread owner = writerThread;
+        if (owner == null) {
+            writerThread = current;
+            return;
+        }
+        if (owner != current) {
+            throw new IllegalStateException(
+                    "ConversationSession writes must stay on one thread; owner="
+                            + owner.getName() + ", current=" + current.getName());
+        }
     }
 
     private static String controllerEventText(String domain, Map<String, String> fields) {

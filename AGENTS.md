@@ -49,6 +49,13 @@
 - Prefer the existing event/render pipeline for user-visible output and errors.
 - Use the existing schema and validator flow for tool input validation.
 
+## Threading Model
+
+- `ConversationSession` state is written by the turn/REPL owner thread. Do not mutate session transcript state directly from worker, monitor, or callback threads.
+- `SessionListener` callbacks may run on whichever thread emitted the session event. Listener implementations must avoid assuming they are on the REPL input thread.
+- User-visible terminal output should go through the `Screen` abstraction; asynchronous long-running notifications should use the thread-safe notification/print-above path instead of mutating session state.
+- Enable `-Dmadacode.session.assertWriterThread=true` during debugging to fail fast when transcript writes come from multiple threads.
+
 ## Change Review
 
 - After every code change, review the changes you just made before finishing.
