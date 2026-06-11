@@ -7,39 +7,63 @@ import java.util.stream.Collectors;
 public final class Message {
 
     private final MessageRole role;
+    private final MessageKind kind;
     private final List<ContentBlock> contentBlocks;
 
-    private Message(MessageRole role, List<ContentBlock> contentBlocks) {
+    private Message(MessageRole role, MessageKind kind, List<ContentBlock> contentBlocks) {
         this.role = Objects.requireNonNull(role, "role");
+        this.kind = Objects.requireNonNull(kind, "kind");
         this.contentBlocks = List.copyOf(Objects.requireNonNull(contentBlocks, "contentBlocks"));
     }
 
     public static Message system(String content) {
-        return textMessage(MessageRole.SYSTEM, content);
+        return textMessage(MessageRole.SYSTEM, MessageKind.STANDARD, content);
     }
 
     public static Message user(String content) {
-        return textMessage(MessageRole.USER, content);
+        return textMessage(MessageRole.USER, MessageKind.STANDARD, content);
     }
 
     public static Message assistant(String content) {
-        return textMessage(MessageRole.ASSISTANT, content);
+        return textMessage(MessageRole.ASSISTANT, MessageKind.STANDARD, content);
+    }
+
+    public static Message controllerEvent(String content) {
+        return textMessage(MessageRole.USER, MessageKind.CONTROLLER_EVENT, content);
     }
 
     public static Message assistantTerminal(String message, FinishReason reason) {
-        return new Message(MessageRole.ASSISTANT, List.of(new ContentBlock.TerminalBlock(message, reason)));
+        return new Message(
+                MessageRole.ASSISTANT,
+                MessageKind.STANDARD,
+                List.of(new ContentBlock.TerminalBlock(message, reason)));
     }
 
     public static Message assistant(List<ContentBlock> contentBlocks) {
-        return new Message(MessageRole.ASSISTANT, contentBlocks);
+        return new Message(MessageRole.ASSISTANT, MessageKind.STANDARD, contentBlocks);
     }
 
     public static Message user(List<ContentBlock> contentBlocks) {
-        return new Message(MessageRole.USER, contentBlocks);
+        return new Message(MessageRole.USER, MessageKind.STANDARD, contentBlocks);
+    }
+
+    public static Message of(MessageRole role, List<ContentBlock> contentBlocks, MessageKind kind) {
+        if (role == MessageRole.SYSTEM && kind != MessageKind.STANDARD) {
+            throw new IllegalArgumentException("System messages must use STANDARD kind");
+        }
+        return new Message(role, kind, contentBlocks);
     }
 
     public MessageRole role() {
         return role;
+    }
+
+    public MessageKind kind() {
+        return kind;
+    }
+
+    public boolean isControllerEvent() {
+        return kind == MessageKind.CONTROLLER_EVENT;
     }
 
     public String content() {
@@ -62,8 +86,8 @@ public final class Message {
         };
     }
 
-    private static Message textMessage(MessageRole role, String content) {
-        return new Message(role, List.of(new ContentBlock.TextBlock(
+    private static Message textMessage(MessageRole role, MessageKind kind, String content) {
+        return new Message(role, kind, List.of(new ContentBlock.TextBlock(
                 Objects.requireNonNull(content, "content"))));
     }
 }

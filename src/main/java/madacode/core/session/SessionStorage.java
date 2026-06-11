@@ -2,32 +2,42 @@ package madacode.core.session;
 
 import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
+import madacode.core.model.MessageKind;
 import madacode.core.model.MessageRole;
-import madacode.core.model.MetaEvent;
-import madacode.core.model.TokenUsage;
+import madacode.logging.DefaultDiagnosticEvents;
+import madacode.logging.DiagnosticEvents;
+import madacode.permission.PermissionMode;
+import madacode.plan.PlanItem;
+import madacode.plan.PlanStatus;
+import madacode.plan.TodoItem;
+import madacode.util.AtomicFiles;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.util.AtomicFiles;
-import madacode.plan.PlanItem;
-import madacode.plan.PlanStatus;
-import madacode.plan.TodoItem;
-import madacode.logging.DefaultDiagnosticEvents;
-import madacode.logging.DiagnosticEvents;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Optional;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 public final class SessionStorage {
+
+    private static final String FORMAT_JSONL = "madacode-session-jsonl";
+    private static final String HEADER_KIND = "header";
+    private static final String MESSAGE_KIND = "message";
 
     private final Path rootDirectory;
     private final ObjectMapper mapper;
@@ -61,34 +71,28 @@ public final class SessionStorage {
     }
 
     public Path transcriptPath(String sessionId) {
-        return rootDirectory.resolve(SessionIdPolicy.validate(sessionId) + ".json");
+        return jsonlPath(sessionId);
     }
 
     public void save(ConversationSession session) {
         Objects.requireNonNull(session, "session");
-        Path target = transcriptPath(session.sessionId());
         try {
             Files.createDirectories(rootDirectory);
-            AtomicFiles.writeAtomically(
-                    target,
-                    tempFile -> mapper.writerWithDefaultPrettyPrinter().writeValue(
-                            tempFile.toFile(),
-                            serializeSession(session)));
-            diagnosticEvents.transcriptSaved(session, target);
+            saveTranscript(session);
+            writeStateFile(session);
+            Files.deleteIfExists(legacyJsonPath(session.sessionId()));
+            diagnosticEvents.transcriptSaved(session, transcriptPath(session.sessionId()));
         } catch (IOException exception) {
-            throw new SessionStorageException("Failed to save transcript for session " + session.sessionId(), exception);
+            throw new SessionStorageException(
+                    "Failed to save transcript for session " + session.sessionId(), exception);
         }
     }
 
     public ConversationSession load(String sessionId) {
-        Path transcriptPath = transcriptPath(sessionId);
         try {
-            if (!Files.isRegularFile(transcriptPath)) {
-                throw new SessionStorageException("Transcript not found for session " + sessionId);
-            }
-            JsonNode root = mapper.readTree(transcriptPath.toFile());
-            ConversationSession session = deserializeSession(root);
-            diagnosticEvents.transcriptLoaded(session, transcriptPath);
+            ConversationSession session = loadInternal(sessionId)
+                    .orElseThrow(() -> new SessionStorageException("Transcript not found for session " + sessionId));
+            diagnosticEvents.transcriptLoaded(session, transcriptPath(sessionId));
             return session;
         } catch (IOException exception) {
             throw new SessionStorageException("Failed to load transcript for session " + sessionId, exception);
@@ -101,8 +105,8 @@ public final class SessionStorage {
         }
 
         List<SessionSummary> summaries = new ArrayList<>();
-        try (var paths = Files.newDirectoryStream(rootDirectory, "*.json")) {
-            for (Path path : paths) {
+        try (var paths = Files.list(rootDirectory)) {
+            for (Path path : paths.toList()) {
                 readSummary(path).ifPresent(summaries::add);
             }
         } catch (IOException exception) {
@@ -113,60 +117,307 @@ public final class SessionStorage {
         return List.copyOf(summaries);
     }
 
-    /**
-     * Returns all entries on disk — both valid summaries and corrupted files.
-     * Callers that need to show the user what exists (e.g. {@code /sessions})
-     * should use this; callers that need to resume a session should use
-     * {@link #listSessions()} which filters to valid-only.
-     */
     public List<SessionListEntry> listEntries() {
         if (!Files.isDirectory(rootDirectory)) {
             return List.of();
         }
 
         List<SessionListEntry> entries = new ArrayList<>();
-        try (var paths = Files.newDirectoryStream(rootDirectory, "*.json")) {
-            for (Path path : paths) {
-                entries.add(readEntry(path));
+        Map<String, SessionListEntry> dedup = new HashMap<>();
+        try (var paths = Files.list(rootDirectory)) {
+            for (Path path : paths.toList()) {
+                Optional<SessionListEntry> entry = readEntryIfRelevant(path);
+                if (entry.isEmpty()) {
+                    continue;
+                }
+                SessionListEntry value = entry.get();
+                String key = dedupKey(value);
+                SessionListEntry existing = dedup.get(key);
+                if (existing == null || prefers(value, existing)) {
+                    dedup.put(key, value);
+                }
             }
         } catch (IOException exception) {
             throw new SessionStorageException("Failed to list transcripts in " + rootDirectory, exception);
         }
 
+        entries.addAll(dedup.values());
         entries.sort(Comparator.comparing(SessionListEntry::lastModifiedAt).reversed());
         return List.copyOf(entries);
     }
 
     public void delete(String sessionId) {
-        Path target = transcriptPath(sessionId);
         try {
-            Files.deleteIfExists(target);
+            Files.deleteIfExists(jsonlPath(sessionId));
+            Files.deleteIfExists(statePath(sessionId));
+            Files.deleteIfExists(legacyJsonPath(sessionId));
         } catch (IOException e) {
             throw new SessionStorageException("Failed to delete session " + sessionId, e);
         }
     }
 
     public Optional<ConversationSession> loadIfExists(String sessionId) {
-        Path p = transcriptPath(sessionId);
-        if (!Files.isRegularFile(p)) {
-            return Optional.empty();
+        try {
+            return loadInternal(sessionId);
+        } catch (IOException exception) {
+            throw new SessionStorageException("Failed to load transcript for session " + sessionId, exception);
         }
-        return Optional.of(load(sessionId));
     }
 
     public Optional<SessionSummary> findMostRecent() {
         return listSessions().stream().findFirst();
     }
 
-    private ObjectNode serializeSession(ConversationSession session) {
+    private Optional<ConversationSession> loadInternal(String sessionId) throws IOException {
+        Path jsonl = jsonlPath(sessionId);
+        if (Files.isRegularFile(jsonl)) {
+            return Optional.of(loadJsonlSession(jsonl));
+        }
+
+        Path legacy = legacyJsonPath(sessionId);
+        if (Files.isRegularFile(legacy)) {
+            return Optional.of(loadLegacySession(legacy));
+        }
+        return Optional.empty();
+    }
+
+    private void saveTranscript(ConversationSession session) throws IOException {
+        Path jsonl = jsonlPath(session.sessionId());
+        List<Message> messages = session.messages();
+        int persistedCount = session.persistedMessageCount();
+        boolean canAppend = Files.isRegularFile(jsonl)
+                && !session.transcriptRewriteRequired()
+                && persistedCount <= messages.size();
+
+        if (!canAppend) {
+            rewriteTranscript(jsonl, session);
+            session.markMessagesPersisted(messages.size());
+            return;
+        }
+
+        appendMessages(jsonl, messages.subList(persistedCount, messages.size()));
+        session.markMessagesPersisted(messages.size());
+    }
+
+    private void rewriteTranscript(Path target, ConversationSession session) throws IOException {
+        AtomicFiles.writeAtomically(target, tempFile -> {
+            try (OutputStream out = Files.newOutputStream(tempFile, StandardOpenOption.TRUNCATE_EXISTING)) {
+                writeJsonLine(out, transcriptHeader(session));
+                for (Message message : session.messages()) {
+                    writeJsonLine(out, transcriptMessage(message));
+                }
+            }
+        });
+    }
+
+    private void appendMessages(Path target, List<Message> newMessages) throws IOException {
+        if (newMessages.isEmpty()) {
+            return;
+        }
+        try (OutputStream out = Files.newOutputStream(
+                target, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
+            for (Message message : newMessages) {
+                writeJsonLine(out, transcriptMessage(message));
+            }
+        }
+    }
+
+    private void writeStateFile(ConversationSession session) throws IOException {
+        Path target = statePath(session.sessionId());
+        AtomicFiles.writeAtomically(
+                target,
+                tempFile -> mapper.writerWithDefaultPrettyPrinter().writeValue(
+                        tempFile.toFile(),
+                        serializeState(session)));
+    }
+
+    private ConversationSession loadJsonlSession(Path jsonlPath) throws IOException {
+        JsonlTranscript transcript = readJsonlTranscript(jsonlPath);
+        ConversationSession session = new ConversationSession(
+                transcript.sessionId(),
+                transcript.createdAt(),
+                transcript.workingDirectory(),
+                transcript.messages(),
+                List.of(),
+                List.of(),
+                List.of());
+        applyState(session, loadStateOrDefault(transcript.sessionId()));
+        session.markMessagesPersisted(transcript.messages().size());
+        return session;
+    }
+
+    private ConversationSession loadLegacySession(Path legacyPath) throws IOException {
+        JsonNode root = mapper.readTree(legacyPath.toFile());
+        ConversationSession session = deserializeLegacySession(root);
+        session.markMessagesPersisted(session.messages().size());
+        return session;
+    }
+
+    private JsonlTranscript readJsonlTranscript(Path jsonlPath) throws IOException {
+        try (BufferedReader reader = Files.newBufferedReader(jsonlPath, StandardCharsets.UTF_8)) {
+            String headerLine = reader.readLine();
+            if (headerLine == null || headerLine.isBlank()) {
+                throw new SessionStorageException("Missing JSONL transcript header");
+            }
+            JsonNode headerNode = mapper.readTree(headerLine);
+            if (!HEADER_KIND.equals(headerNode.path("recordType").asText())) {
+                throw new SessionStorageException("Invalid JSONL transcript header");
+            }
+            if (!FORMAT_JSONL.equals(headerNode.path("format").asText())) {
+                throw new SessionStorageException("Unsupported transcript format");
+            }
+
+            int schemaVersion = optionalSchemaVersion(headerNode);
+            if (schemaVersion > SchemaMigrator.CURRENT) {
+                throw new SessionStorageException("Unsupported transcript schemaVersion: " + schemaVersion);
+            }
+
+            String sessionId = requiredText(headerNode, "sessionId");
+            Instant createdAt = Instant.parse(requiredText(headerNode, "createdAt"));
+            Path workingDirectory = Path.of(requiredText(headerNode, "workingDirectory"));
+            List<Message> messages = new ArrayList<>();
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                JsonNode node;
+                try {
+                    node = mapper.readTree(line);
+                } catch (IOException exception) {
+                    if (looksLikePartialFinalLine(line, reader)) {
+                        break;
+                    }
+                    throw new SessionStorageException("Corrupted transcript line in " + jsonlPath, exception);
+                }
+                if (!MESSAGE_KIND.equals(node.path("recordType").asText())) {
+                    throw new SessionStorageException("Unsupported transcript record type");
+                }
+                messages.add(deserializeMessage(node.path("message")));
+            }
+
+            return new JsonlTranscript(sessionId, createdAt, workingDirectory, List.copyOf(messages));
+        }
+    }
+
+    private boolean looksLikePartialFinalLine(String line, BufferedReader reader) throws IOException {
+        return !reader.ready() && !line.stripTrailing().endsWith("}");
+    }
+
+    private Optional<ObjectNode> loadStateOrDefault(String sessionId) throws IOException {
+        Path statePath = statePath(sessionId);
+        if (!Files.isRegularFile(statePath)) {
+            return Optional.empty();
+        }
+        JsonNode root = mapper.readTree(statePath.toFile());
+        if (!(root instanceof ObjectNode objectNode)) {
+            throw new SessionStorageException("Session state file must be an object");
+        }
+        return Optional.of(objectNode);
+    }
+
+    private void applyState(ConversationSession session, Optional<ObjectNode> stateNode) {
+        ObjectNode state = stateNode.orElseGet(this::defaultStateNode);
+        SessionMode workflowMode = readWorkflowMode(state);
+        session.setWorkflowMode(workflowMode);
+        session.setPlanMode(state.path("planMode").asBoolean(false));
+        session.setPermissionMode(PermissionMode.parse(
+                state.path("permissionMode").asText(null)).orElse(PermissionMode.DEFAULT));
+
+        List<PlanItem> tasks = new ArrayList<>();
+        JsonNode tasksNode = state.path("tasks");
+        if (tasksNode.isArray()) {
+            for (JsonNode taskNode : tasksNode) {
+                tasks.add(deserializeTask(taskNode));
+            }
+        }
+        session.plan().replaceItems(tasks);
+
+        List<TodoItem> todos = new ArrayList<>();
+        JsonNode todosNode = state.path("todos");
+        if (todosNode.isArray()) {
+            for (JsonNode todoNode : todosNode) {
+                todos.add(new TodoItem(
+                        todoNode.path("content").asText(""),
+                        todoNode.path("status").asText("pending")));
+            }
+        }
+        session.plan().replaceTodos(todos);
+
+        List<String> history = new ArrayList<>();
+        JsonNode historyNode = state.path("history");
+        if (historyNode.isArray()) {
+            for (JsonNode entry : historyNode) {
+                history.add(entry.asText());
+            }
+        }
+        session.replaceInputHistory(history);
+
+        List<String> loadedDeferredTools = new ArrayList<>();
+        JsonNode loadedDeferredToolsNode = state.path("loadedDeferredTools");
+        if (loadedDeferredToolsNode.isArray()) {
+            for (JsonNode entry : loadedDeferredToolsNode) {
+                String toolName = entry.asText("");
+                if (!toolName.isBlank()) {
+                    loadedDeferredTools.add(toolName);
+                }
+            }
+        }
+        session.replaceLoadedDeferredTools(loadedDeferredTools);
+
+        if (workflowMode == SessionMode.LONG_RUNNING) {
+            session.setLongRunningStage(readLongRunningStage(state, workflowMode));
+            session.setLongRunningTaskId(optionalText(state, "longRunningTaskId"));
+            session.setLongRunningTaskDirectory(optionalText(state, "longRunningTaskDirectory"));
+            session.setLongRunningTaskTitle(optionalText(state, "longRunningTaskTitle"));
+            session.setLongRunningReason(optionalText(state, "longRunningReason"));
+            session.setLongRunningPlanSummary(optionalText(state, "longRunningPlanSummary"));
+            session.setLongRunningWorkerSession(state.path("longRunningWorkerSession").asBoolean(false));
+            JsonNode pendingRequest = state.get("pendingLongRunningTransitionRequest");
+            if (pendingRequest != null && !pendingRequest.isNull()) {
+                session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
+            }
+        }
+    }
+
+    private ObjectNode defaultStateNode() {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("workflowMode", SessionMode.COMMON.id());
+        node.put("permissionMode", PermissionMode.DEFAULT.id());
+        node.putArray("tasks");
+        node.putArray("todos");
+        node.putArray("history");
+        node.putArray("loadedDeferredTools");
+        return node;
+    }
+
+    private ObjectNode transcriptHeader(ConversationSession session) {
         ObjectNode root = mapper.createObjectNode();
+        root.put("recordType", HEADER_KIND);
+        root.put("format", FORMAT_JSONL);
         root.put("schemaVersion", SchemaMigrator.CURRENT);
         root.put("sessionId", session.sessionId());
         root.put("createdAt", session.createdAt().toString());
         root.put("workingDirectory", session.workingDirectory().toString());
+        return root;
+    }
+
+    private ObjectNode transcriptMessage(Message message) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("recordType", MESSAGE_KIND);
+        root.set("message", serializeMessage(message));
+        return root;
+    }
+
+    private ObjectNode serializeState(ConversationSession session) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("schemaVersion", SchemaMigrator.CURRENT);
+        root.put("sessionId", session.sessionId());
         root.put("workflowMode", session.workflowMode().id());
         root.put("planMode", session.isPlanMode());
         root.put("permissionMode", session.permissionMode().id());
+        root.put("persistedMessageCount", session.messages().size());
         if (session.longRunningStage() != null) {
             root.put("longRunningStage", session.longRunningStage().name());
         }
@@ -189,13 +440,9 @@ public final class SessionStorage {
             root.put("longRunningWorkerSession", true);
         }
         session.pendingLongRunningTransitionRequest()
-                .ifPresent(request -> root.set("pendingLongRunningTransitionRequest",
+                .ifPresent(request -> root.set(
+                        "pendingLongRunningTransitionRequest",
                         serializeTransitionRequest(request)));
-        ArrayNode messages = mapper.createArrayNode();
-        for (Message message : session.messages()) {
-            messages.add(serializeMessage(message));
-        }
-        root.set("messages", messages);
 
         ArrayNode tasksNode = mapper.createArrayNode();
         for (PlanItem task : session.plan().items()) {
@@ -223,8 +470,279 @@ public final class SessionStorage {
             loadedDeferredToolsNode.add(toolName);
         }
         root.set("loadedDeferredTools", loadedDeferredToolsNode);
-
         return root;
+    }
+
+    private Optional<SessionSummary> readSummary(Path path) {
+        return switch (fileKind(path)) {
+            case JSONL -> readJsonlSummary(path);
+            case LEGACY_JSON -> readLegacySummary(path);
+            case STATE_JSON, OTHER -> Optional.empty();
+        };
+    }
+
+    private Optional<SessionListEntry> readEntryIfRelevant(Path path) {
+        return switch (fileKind(path)) {
+            case JSONL -> Optional.of(readJsonlEntry(path));
+            case LEGACY_JSON -> Optional.of(readLegacyEntry(path));
+            case STATE_JSON, OTHER -> Optional.empty();
+        };
+    }
+
+    private SessionListEntry readJsonlEntry(Path path) {
+        try {
+            return readJsonlSummary(path)
+                    .<SessionListEntry>map(summary -> summary)
+                    .orElseGet(() -> corrupted(path, "invalid jsonl transcript"));
+        } catch (RuntimeException exception) {
+            return corrupted(path, exception.getMessage());
+        }
+    }
+
+    private SessionListEntry readLegacyEntry(Path path) {
+        try {
+            return readLegacySummary(path)
+                    .<SessionListEntry>map(summary -> summary)
+                    .orElseGet(() -> corrupted(path, "invalid legacy transcript"));
+        } catch (RuntimeException exception) {
+            return corrupted(path, exception.getMessage());
+        }
+    }
+
+    private Optional<SessionSummary> readJsonlSummary(Path path) {
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            String headerLine = reader.readLine();
+            if (headerLine == null) {
+                return Optional.empty();
+            }
+            JsonNode header = mapper.readTree(headerLine);
+            if (!HEADER_KIND.equals(header.path("recordType").asText())
+                    || !FORMAT_JSONL.equals(header.path("format").asText())) {
+                return Optional.empty();
+            }
+            String sessionId = requiredText(header, "sessionId");
+            Instant createdAt = Instant.parse(requiredText(header, "createdAt"));
+            Path workingDirectory = Path.of(requiredText(header, "workingDirectory"));
+            int messageCount = readPersistedCountFromState(sessionId).orElseGet(() -> countJsonlMessages(path));
+            return Optional.of(new SessionSummary(
+                    sessionId,
+                    createdAt,
+                    workingDirectory,
+                    messageCount,
+                    path.toAbsolutePath().normalize(),
+                    Files.getLastModifiedTime(path).toInstant()));
+        } catch (IOException | RuntimeException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private int countJsonlMessages(Path path) {
+        int count = 0;
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            reader.readLine();
+            while (reader.readLine() != null) {
+                count++;
+            }
+            return count;
+        } catch (IOException exception) {
+            throw new SessionStorageException("Failed to count JSONL messages", exception);
+        }
+    }
+
+    private Optional<Integer> readPersistedCountFromState(String sessionId) {
+        Path statePath = statePath(sessionId);
+        if (!Files.isRegularFile(statePath)) {
+            return Optional.empty();
+        }
+        try {
+            JsonNode root = mapper.readTree(statePath.toFile());
+            JsonNode persistedMessageCount = root.get("persistedMessageCount");
+            if (persistedMessageCount != null && persistedMessageCount.canConvertToInt()) {
+                return Optional.of(persistedMessageCount.asInt());
+            }
+            return Optional.empty();
+        } catch (IOException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<SessionSummary> readLegacySummary(Path path) {
+        try {
+            JsonNode root = mapper.readTree(path.toFile());
+            int schemaVersion = optionalSchemaVersion(root);
+            if (schemaVersion > SchemaMigrator.CURRENT) {
+                return Optional.empty();
+            }
+            JsonNode messagesNode = root.path("messages");
+            if (!messagesNode.isArray()) {
+                return Optional.empty();
+            }
+            return Optional.of(new SessionSummary(
+                    requiredText(root, "sessionId"),
+                    Instant.parse(requiredText(root, "createdAt")),
+                    Path.of(requiredText(root, "workingDirectory")),
+                    messagesNode.size(),
+                    path.toAbsolutePath().normalize(),
+                    Files.getLastModifiedTime(path).toInstant()));
+        } catch (IOException | RuntimeException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private SessionListEntry.Corrupted corrupted(Path path, String reason) {
+        Instant mtime;
+        try {
+            mtime = Files.getLastModifiedTime(path).toInstant();
+        } catch (IOException ignored) {
+            mtime = Instant.EPOCH;
+        }
+        return new SessionListEntry.Corrupted(
+                path.toAbsolutePath().normalize(),
+                mtime,
+                reason != null ? reason : "unknown");
+    }
+
+    private boolean prefers(SessionListEntry candidate, SessionListEntry existing) {
+        boolean candidateJsonl = candidate.path().getFileName().toString().endsWith(".jsonl");
+        boolean existingJsonl = existing.path().getFileName().toString().endsWith(".jsonl");
+        if (candidateJsonl != existingJsonl) {
+            return candidateJsonl;
+        }
+        return candidate.lastModifiedAt().isAfter(existing.lastModifiedAt());
+    }
+
+    private String dedupKey(SessionListEntry entry) {
+        String fileName = entry.path().getFileName().toString();
+        if (fileName.endsWith(".jsonl")) {
+            return fileName.substring(0, fileName.length() - ".jsonl".length());
+        }
+        if (fileName.endsWith(".json")) {
+            return fileName.substring(0, fileName.length() - ".json".length());
+        }
+        return fileName;
+    }
+
+    private FileKind fileKind(Path path) {
+        String fileName = path.getFileName().toString();
+        if (fileName.endsWith(".state.json")) {
+            return FileKind.STATE_JSON;
+        }
+        if (fileName.endsWith(".jsonl")) {
+            return FileKind.JSONL;
+        }
+        if (fileName.endsWith(".json")) {
+            return FileKind.LEGACY_JSON;
+        }
+        return FileKind.OTHER;
+    }
+
+    private Path jsonlPath(String sessionId) {
+        return rootDirectory.resolve(SessionIdPolicy.validate(sessionId) + ".jsonl");
+    }
+
+    private Path statePath(String sessionId) {
+        return rootDirectory.resolve(SessionIdPolicy.validate(sessionId) + ".state.json");
+    }
+
+    private Path legacyJsonPath(String sessionId) {
+        return rootDirectory.resolve(SessionIdPolicy.validate(sessionId) + ".json");
+    }
+
+    private void writeJsonLine(OutputStream out, JsonNode node) throws IOException {
+        out.write(mapper.writeValueAsBytes(node));
+        out.write('\n');
+        out.flush();
+    }
+
+    private ConversationSession deserializeLegacySession(JsonNode root) {
+        int schemaVersion = optionalSchemaVersion(root);
+        if (schemaVersion > SchemaMigrator.CURRENT) {
+            throw new SessionStorageException("Unsupported transcript schemaVersion: " + schemaVersion);
+        }
+        ObjectNode migrated = SchemaMigrator.migrateToLatest((ObjectNode) root);
+
+        String sessionId = requiredText(migrated, "sessionId");
+        Instant createdAt = Instant.parse(requiredText(migrated, "createdAt"));
+        Path workingDirectory = Path.of(requiredText(migrated, "workingDirectory"));
+
+        JsonNode messagesNode = migrated.path("messages");
+        if (!messagesNode.isArray()) {
+            throw new SessionStorageException("Transcript messages must be an array");
+        }
+        List<Message> messages = new ArrayList<>();
+        for (JsonNode messageNode : messagesNode) {
+            messages.add(deserializeMessage(messageNode));
+        }
+
+        ConversationSession session = new ConversationSession(
+                sessionId,
+                createdAt,
+                workingDirectory,
+                messages,
+                deserializeTasks(migrated.path("tasks")),
+                deserializeTodos(migrated.path("todos")),
+                deserializeHistory(migrated.path("history")));
+        session.setWorkflowMode(readWorkflowMode(migrated));
+        session.setPlanMode(migrated.path("planMode").asBoolean(false));
+        session.setPermissionMode(PermissionMode.parse(
+                migrated.path("permissionMode").asText(null)).orElse(PermissionMode.DEFAULT));
+        if (session.workflowMode() == SessionMode.LONG_RUNNING) {
+            session.setLongRunningStage(readLongRunningStage(migrated, session.workflowMode()));
+            session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
+            session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
+            session.setLongRunningTaskTitle(optionalText(migrated, "longRunningTaskTitle"));
+            session.setLongRunningReason(optionalText(migrated, "longRunningReason"));
+            session.setLongRunningPlanSummary(optionalText(migrated, "longRunningPlanSummary"));
+            session.setLongRunningWorkerSession(migrated.path("longRunningWorkerSession").asBoolean(false));
+            JsonNode pendingRequest = migrated.get("pendingLongRunningTransitionRequest");
+            if (pendingRequest != null && !pendingRequest.isNull()) {
+                session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
+            }
+        }
+        List<String> loadedDeferredTools = new ArrayList<>();
+        JsonNode loadedDeferredToolsNode = migrated.path("loadedDeferredTools");
+        if (loadedDeferredToolsNode.isArray()) {
+            for (JsonNode entry : loadedDeferredToolsNode) {
+                String toolName = entry.asText("");
+                if (!toolName.isBlank()) {
+                    loadedDeferredTools.add(toolName);
+                }
+            }
+        }
+        session.replaceLoadedDeferredTools(loadedDeferredTools);
+        return session;
+    }
+
+    private List<PlanItem> deserializeTasks(JsonNode tasksNode) {
+        List<PlanItem> tasks = new ArrayList<>();
+        if (tasksNode.isArray()) {
+            for (JsonNode taskNode : tasksNode) {
+                tasks.add(deserializeTask(taskNode));
+            }
+        }
+        return tasks;
+    }
+
+    private List<TodoItem> deserializeTodos(JsonNode todosNode) {
+        List<TodoItem> todos = new ArrayList<>();
+        if (todosNode.isArray()) {
+            for (JsonNode todoNode : todosNode) {
+                todos.add(new TodoItem(
+                        todoNode.path("content").asText(""),
+                        todoNode.path("status").asText("pending")));
+            }
+        }
+        return todos;
+    }
+
+    private List<String> deserializeHistory(JsonNode historyNode) {
+        List<String> history = new ArrayList<>();
+        if (historyNode.isArray()) {
+            for (JsonNode entry : historyNode) {
+                history.add(entry.asText());
+            }
+        }
+        return history;
     }
 
     private ObjectNode serializeTask(PlanItem item) {
@@ -268,6 +786,9 @@ public final class SessionStorage {
     private ObjectNode serializeMessage(Message message) {
         ObjectNode node = mapper.createObjectNode();
         node.put("role", message.role().name());
+        if (message.kind() != MessageKind.STANDARD) {
+            node.put("kind", message.kind().name());
+        }
 
         ArrayNode contentBlocks = mapper.createArrayNode();
         for (ContentBlock block : message.contentBlocks()) {
@@ -316,89 +837,6 @@ public final class SessionStorage {
                 yield node;
             }
         };
-    }
-
-    private ConversationSession deserializeSession(JsonNode root) {
-        int schemaVersion = optionalSchemaVersion(root);
-        if (schemaVersion > SchemaMigrator.CURRENT) {
-            throw new SessionStorageException("Unsupported transcript schemaVersion: " + schemaVersion);
-        }
-
-        // 升级到最新 schema，之后只处理一种格式
-        ObjectNode migrated = SchemaMigrator.migrateToLatest((ObjectNode) root);
-
-        String sessionId = requiredText(migrated, "sessionId");
-        Instant createdAt = Instant.parse(requiredText(migrated, "createdAt"));
-        Path workingDirectory = Path.of(requiredText(migrated, "workingDirectory"));
-
-        JsonNode messagesNode = migrated.path("messages");
-        if (!messagesNode.isArray()) {
-            throw new SessionStorageException("Transcript messages must be an array");
-        }
-
-        List<Message> messages = new ArrayList<>();
-        for (JsonNode messageNode : messagesNode) {
-            messages.add(deserializeMessage(messageNode));
-        }
-
-        List<PlanItem> tasks = new ArrayList<>();
-        JsonNode tasksNode = migrated.path("tasks");
-        if (tasksNode.isArray()) {
-            for (JsonNode taskNode : tasksNode) {
-                tasks.add(deserializeTask(taskNode));
-            }
-        }
-
-        List<TodoItem> todos = new ArrayList<>();
-        JsonNode todosNode = migrated.path("todos");
-        if (todosNode.isArray()) {
-            for (JsonNode todoNode : todosNode) {
-                todos.add(new TodoItem(
-                        todoNode.path("content").asText(""),
-                        todoNode.path("status").asText("pending")));
-            }
-        }
-
-        List<String> history = new ArrayList<>();
-        JsonNode historyNode = migrated.path("history");
-        if (historyNode.isArray()) {
-            for (JsonNode entry : historyNode) {
-                history.add(entry.asText());
-            }
-        }
-
-        ConversationSession session = new ConversationSession(
-                sessionId, createdAt, workingDirectory, messages, tasks, todos, history);
-        SessionMode workflowMode = readWorkflowMode(migrated);
-        session.setWorkflowMode(workflowMode);
-        session.setPlanMode(migrated.path("planMode").asBoolean(false));
-        session.setPermissionMode(madacode.permission.PermissionMode.parse(
-                migrated.path("permissionMode").asText(null)).orElse(madacode.permission.PermissionMode.DEFAULT));
-        if (workflowMode == SessionMode.LONG_RUNNING) {
-            session.setLongRunningStage(readLongRunningStage(migrated, workflowMode));
-            session.setLongRunningTaskId(optionalText(migrated, "longRunningTaskId"));
-            session.setLongRunningTaskDirectory(optionalText(migrated, "longRunningTaskDirectory"));
-            session.setLongRunningTaskTitle(optionalText(migrated, "longRunningTaskTitle"));
-            session.setLongRunningReason(optionalText(migrated, "longRunningReason"));
-            session.setLongRunningPlanSummary(optionalText(migrated, "longRunningPlanSummary"));
-            session.setLongRunningWorkerSession(migrated.path("longRunningWorkerSession").asBoolean(false));
-            JsonNode pendingRequest = migrated.get("pendingLongRunningTransitionRequest");
-            if (pendingRequest != null && !pendingRequest.isNull()) {
-                session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
-            }
-        }
-        List<String> loadedDeferredTools = new ArrayList<>();
-        JsonNode loadedDeferredToolsNode = migrated.path("loadedDeferredTools");
-        if (loadedDeferredToolsNode.isArray()) {
-            for (JsonNode entry : loadedDeferredToolsNode) {
-                String toolName = entry.asText("");
-                if (!toolName.isBlank()) {
-                    loadedDeferredTools.add(toolName);
-                }
-            }
-        }
-        session.replaceLoadedDeferredTools(loadedDeferredTools);
-        return session;
     }
 
     private SessionMode readWorkflowMode(JsonNode node) {
@@ -470,67 +908,6 @@ public final class SessionStorage {
                 node.has("activeForm") ? node.path("activeForm").asText() : "");
     }
 
-    private SessionListEntry readEntry(Path path) {
-        try {
-            JsonNode root = mapper.readTree(path.toFile());
-            int schemaVersion = optionalSchemaVersion(root);
-            if (schemaVersion > SchemaMigrator.CURRENT) {
-                return new SessionListEntry.Corrupted(
-                        path.toAbsolutePath().normalize(),
-                        Files.getLastModifiedTime(path).toInstant(),
-                        "unsupported schemaVersion " + schemaVersion);
-            }
-            JsonNode messagesNode = root.path("messages");
-            if (!messagesNode.isArray()) {
-                return new SessionListEntry.Corrupted(
-                        path.toAbsolutePath().normalize(),
-                        Files.getLastModifiedTime(path).toInstant(),
-                        "missing or invalid messages array");
-            }
-            return new SessionSummary(
-                    requiredText(root, "sessionId"),
-                    Instant.parse(requiredText(root, "createdAt")),
-                    Path.of(requiredText(root, "workingDirectory")),
-                    messagesNode.size(),
-                    path.toAbsolutePath().normalize(),
-                    Files.getLastModifiedTime(path).toInstant());
-        } catch (IOException | RuntimeException exception) {
-            Instant mtime;
-            try {
-                mtime = Files.getLastModifiedTime(path).toInstant();
-            } catch (IOException ignored) {
-                mtime = Instant.EPOCH;
-            }
-            return new SessionListEntry.Corrupted(
-                    path.toAbsolutePath().normalize(),
-                    mtime,
-                    exception.getMessage() != null ? exception.getMessage() : exception.getClass().getSimpleName());
-        }
-    }
-
-    private java.util.Optional<SessionSummary> readSummary(Path path) {
-        try {
-            JsonNode root = mapper.readTree(path.toFile());
-            int schemaVersion = optionalSchemaVersion(root);
-            if (schemaVersion > SchemaMigrator.CURRENT) {
-                return java.util.Optional.empty();
-            }
-            JsonNode messagesNode = root.path("messages");
-            if (!messagesNode.isArray()) {
-                return java.util.Optional.empty();
-            }
-            return java.util.Optional.of(new SessionSummary(
-                    requiredText(root, "sessionId"),
-                    Instant.parse(requiredText(root, "createdAt")),
-                    Path.of(requiredText(root, "workingDirectory")),
-                    messagesNode.size(),
-                    path.toAbsolutePath().normalize(),
-                    Files.getLastModifiedTime(path).toInstant()));
-        } catch (IOException | RuntimeException exception) {
-            return java.util.Optional.empty();
-        }
-    }
-
     private int optionalSchemaVersion(JsonNode root) {
         JsonNode value = root.get("schemaVersion");
         if (value == null || value.isNull()) {
@@ -548,6 +925,7 @@ public final class SessionStorage {
 
     private Message deserializeMessage(JsonNode messageNode) {
         MessageRole role = MessageRole.valueOf(requiredText(messageNode, "role"));
+        MessageKind kind = readMessageKind(messageNode, role);
         JsonNode contentBlocksNode = messageNode.path("contentBlocks");
         if (!contentBlocksNode.isArray()) {
             throw new SessionStorageException("Transcript contentBlocks must be an array");
@@ -560,20 +938,33 @@ public final class SessionStorage {
 
         return switch (role) {
             case SYSTEM -> Message.system(contentFrom(contentBlocks));
-            case USER -> messageForRole(role, contentBlocks);
-            case ASSISTANT -> messageForRole(role, contentBlocks);
+            case USER, ASSISTANT -> messageForRole(role, contentBlocks, kind);
         };
     }
 
-    private Message messageForRole(MessageRole role, List<ContentBlock> contentBlocks) {
+    private Message messageForRole(MessageRole role, List<ContentBlock> contentBlocks, MessageKind kind) {
         if (contentBlocks.size() == 1 && contentBlocks.getFirst() instanceof ContentBlock.TextBlock textBlock) {
-            return role == MessageRole.USER
-                    ? Message.user(textBlock.text())
-                    : Message.assistant(textBlock.text());
+            if (role == MessageRole.USER && kind == MessageKind.CONTROLLER_EVENT) {
+                return Message.controllerEvent(textBlock.text());
+            }
+            return Message.of(role, List.of(new ContentBlock.TextBlock(textBlock.text())), kind);
         }
-        return role == MessageRole.USER
-                ? Message.user(contentBlocks)
-                : Message.assistant(contentBlocks);
+        return Message.of(role, contentBlocks, kind);
+    }
+
+    private MessageKind readMessageKind(JsonNode messageNode, MessageRole role) {
+        if (role == MessageRole.SYSTEM) {
+            return MessageKind.STANDARD;
+        }
+        String raw = optionalText(messageNode, "kind");
+        if (raw == null || raw.isBlank()) {
+            return MessageKind.STANDARD;
+        }
+        try {
+            return MessageKind.valueOf(raw);
+        } catch (IllegalArgumentException exception) {
+            throw new SessionStorageException("Unsupported message kind: " + raw);
+        }
     }
 
     private ContentBlock deserializeContentBlock(JsonNode blockNode) {
@@ -629,5 +1020,19 @@ public final class SessionStorage {
             throw new SessionStorageException("Missing object field: " + fieldName);
         }
         return ((ObjectNode) value).deepCopy();
+    }
+
+    private record JsonlTranscript(
+            String sessionId,
+            Instant createdAt,
+            Path workingDirectory,
+            List<Message> messages) {
+    }
+
+    private enum FileKind {
+        JSONL,
+        STATE_JSON,
+        LEGACY_JSON,
+        OTHER
     }
 }

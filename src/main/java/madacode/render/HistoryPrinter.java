@@ -37,6 +37,9 @@ public final class HistoryPrinter {
     public void printAll(List<Message> messages) {
         Map<String, ContentBlock.ToolUseBlock> pending = new LinkedHashMap<>();
         for (Message message : messages) {
+            if (message.isControllerEvent()) {
+                continue;
+            }
             for (ContentBlock block : message.contentBlocks()) {
                 renderBlock(message.role(), block, pending);
             }
@@ -48,6 +51,9 @@ public final class HistoryPrinter {
         Map<String, ContentBlock.ToolUseBlock> pending = new LinkedHashMap<>();
         for (int i = fromIndex; i < messages.size(); i++) {
             Message message = messages.get(i);
+            if (message.isControllerEvent()) {
+                continue;
+            }
             for (ContentBlock block : message.contentBlocks()) {
                 renderBlock(message.role(), block, pending);
             }
@@ -88,9 +94,6 @@ public final class HistoryPrinter {
     }
 
     private void renderText(MessageRole role, String text) {
-        if (isInternalControllerEventText(text)) {
-            return;
-        }
         switch (role) {
             case USER -> {
                 BlockSpacing.begin(screen);
@@ -114,10 +117,4 @@ public final class HistoryPrinter {
         }
     }
 
-    private static boolean isInternalControllerEventText(String text) {
-        return text != null
-                && (text.startsWith("[controller-event][")
-                || text.equals("[controller-event separator]")
-                || text.equals("[controller-event barrier]"));
-    }
 }

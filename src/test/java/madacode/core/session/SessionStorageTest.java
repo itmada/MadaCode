@@ -106,6 +106,43 @@ class SessionStorageTest {
         assertEquals(session.loadedDeferredTools(), restored.loadedDeferredTools());
     }
 
+    @Test
+    void repeatedSaveAppendsOnlyNewMessagesUnlessTranscriptWasRewritten() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(
+                "append-session",
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized.")));
+
+        for (int i = 0; i < 500; i++) {
+            session.addMessage(Message.user("u" + i));
+        }
+        storage.save(session);
+        long initialLines;
+        try (var lines = java.nio.file.Files.lines(storage.transcriptPath(session.sessionId()))) {
+            initialLines = lines.count();
+        }
+
+        session.addMessage(Message.assistant("tail"));
+        storage.save(session);
+        long appendedLines;
+        try (var lines = java.nio.file.Files.lines(storage.transcriptPath(session.sessionId()))) {
+            appendedLines = lines.count();
+        }
+        assertEquals(initialLines + 1, appendedLines);
+
+        session.replaceMessages(List.of(
+                Message.system("Session initialized."),
+                Message.user("compacted")));
+        storage.save(session);
+        long rewrittenLines;
+        try (var lines = java.nio.file.Files.lines(storage.transcriptPath(session.sessionId()))) {
+            rewrittenLines = lines.count();
+        }
+        assertEquals(3, rewrittenLines);
+    }
+
     private static void assertMessagesEqual(List<Message> expected, List<Message> actual) {
         assertEquals(expected.size(), actual.size());
         for (int i = 0; i < expected.size(); i++) {

@@ -2,6 +2,7 @@ package madacode.core.session;
 
 import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
+import madacode.core.model.MessageKind;
 import madacode.core.model.MessageRole;
 
 import org.junit.jupiter.api.Test;
@@ -17,22 +18,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ConversationSessionTest {
 
     @Test
-    void addMessageRejectsConsecutiveSameRoleMessagesExceptSystem() {
+    void addMessageAllowsConsecutiveSameRoleMessages() {
         ConversationSession session = new ConversationSession();
 
         session.addMessage(Message.system("another system marker"));
         session.addMessage(Message.user("first user input"));
-
-        IllegalStateException userException = assertThrows(
-                IllegalStateException.class,
-                () -> session.addMessage(Message.user("second user input")));
-        assertTrue(userException.getMessage().contains("Consecutive same-role messages"));
+        session.addMessage(Message.user("second user input"));
 
         session.addMessage(Message.assistant("assistant reply"));
-        IllegalStateException assistantException = assertThrows(
-                IllegalStateException.class,
-                () -> session.addMessage(Message.assistant("second assistant reply")));
-        assertTrue(assistantException.getMessage().contains("Consecutive same-role messages"));
+        session.addMessage(Message.assistant("second assistant reply"));
+
+        List<Message> messages = session.messages();
+        assertEquals("first user input", textOf(messages.get(2)));
+        assertEquals("second user input", textOf(messages.get(3)));
+        assertEquals("assistant reply", textOf(messages.get(4)));
+        assertEquals("second assistant reply", textOf(messages.get(5)));
     }
 
     @Test
@@ -51,7 +51,7 @@ class ConversationSessionTest {
     }
 
     @Test
-    void addControllerEventInsertsSeparatorEventAndBarrierAfterUserTail() {
+    void addControllerEventAppendsTypedControllerEventWithoutSyntheticMarkers() {
         ConversationSession session = new ConversationSession();
         session.addMessage(Message.user("real user prompt"));
 
@@ -62,14 +62,13 @@ class ConversationSessionTest {
                         "status", "completed\nwith output"));
 
         List<Message> messages = session.messages();
-        assertEquals(5, messages.size());
+        assertEquals(3, messages.size());
         assertMessage(messages.get(1), MessageRole.USER, "real user prompt");
-        assertMessage(messages.get(2), MessageRole.SYSTEM, "[controller-event separator]");
-        assertEquals(MessageRole.USER, messages.get(3).role());
-        assertTrue(textOf(messages.get(3)).startsWith("[controller-event][tool_run]\ntime: "));
-        assertTrue(textOf(messages.get(3)).contains("\ntool: read_file"));
-        assertTrue(textOf(messages.get(3)).contains("\nstatus: completed with output"));
-        assertMessage(messages.get(4), MessageRole.SYSTEM, "[controller-event barrier]");
+        assertEquals(MessageRole.USER, messages.get(2).role());
+        assertEquals(MessageKind.CONTROLLER_EVENT, messages.get(2).kind());
+        assertTrue(textOf(messages.get(2)).startsWith("[controller-event][tool_run]\ntime: "));
+        assertTrue(textOf(messages.get(2)).contains("\ntool: read_file"));
+        assertTrue(textOf(messages.get(2)).contains("\nstatus: completed with output"));
     }
 
     @Test
@@ -84,19 +83,16 @@ class ConversationSessionTest {
         session.flushPendingControllerEvents();
 
         List<Message> messages = session.messages();
-        assertEquals(7, messages.size());
-        assertMessage(messages.get(2), MessageRole.SYSTEM, "[controller-event separator]");
-        assertEquals(MessageRole.USER, messages.get(3).role());
-        assertTrue(textOf(messages.get(3)).startsWith("[controller-event][first]\ntime: "));
-        assertTrue(textOf(messages.get(3)).contains("\nvalue: one"));
-        assertMessage(messages.get(4), MessageRole.SYSTEM, "[controller-event barrier]");
-        assertEquals(MessageRole.USER, messages.get(5).role());
-        assertTrue(textOf(messages.get(5)).startsWith("[controller-event][second]\ntime: "));
-        assertTrue(textOf(messages.get(5)).contains("\nvalue: two"));
-        assertMessage(messages.get(6), MessageRole.SYSTEM, "[controller-event barrier]");
+        assertEquals(4, messages.size());
+        assertEquals(MessageKind.CONTROLLER_EVENT, messages.get(2).kind());
+        assertTrue(textOf(messages.get(2)).startsWith("[controller-event][first]\ntime: "));
+        assertTrue(textOf(messages.get(2)).contains("\nvalue: one"));
+        assertEquals(MessageKind.CONTROLLER_EVENT, messages.get(3).kind());
+        assertTrue(textOf(messages.get(3)).startsWith("[controller-event][second]\ntime: "));
+        assertTrue(textOf(messages.get(3)).contains("\nvalue: two"));
 
         session.flushPendingControllerEvents();
-        assertEquals(7, session.messages().size());
+        assertEquals(4, session.messages().size());
     }
 
     @Test
