@@ -24,7 +24,10 @@ final class EngineAssembly {
         CompactPlanner compaction = createCompaction(environment);
         QueryEngine engine = QueryEngine.builder(
                         environment.api(), tools.registry(),
-                        new SystemPromptBuilder(tools.memory(), tools.skillRegistry()),
+                        SystemPromptBuilder.builder()
+                                .memoryLoader(tools.memory())
+                                .skillRegistry(tools.skillRegistry())
+                                .build(),
                         permission)
                 .diagnosticEvents(environment.diagnosticEvents())
                 .compactPlanner(compaction)

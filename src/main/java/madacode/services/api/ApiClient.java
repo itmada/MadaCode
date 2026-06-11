@@ -5,9 +5,8 @@ import madacode.core.model.Message;
 import madacode.core.model.StopReason;
 import madacode.core.model.TokenUsage;
 import madacode.core.model.ToolCall;
-import madacode.tool.Tool;
+import madacode.tool.VisibleTools;
 
-import java.util.Collection;
 import java.util.List;
 
 public interface ApiClient {
@@ -15,7 +14,7 @@ public interface ApiClient {
     ApiResponse send(
             List<Message> messages,
             String systemPrompt,
-            Collection<Tool<?>> tools,
+            VisibleTools tools,
             ApiStreamSink sink,
             CancellationToken cancellationToken);
 
@@ -23,7 +22,7 @@ public interface ApiClient {
     default ApiResponse send(
             List<Message> messages,
             String systemPrompt,
-            Collection<Tool<?>> tools,
+            VisibleTools tools,
             ApiStreamSink sink) {
         return send(messages, systemPrompt, tools, sink, CancellationToken.never());
     }

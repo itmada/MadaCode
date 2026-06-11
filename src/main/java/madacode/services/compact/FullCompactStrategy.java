@@ -8,6 +8,7 @@ import madacode.core.model.ContentBlock;
 import madacode.core.session.ConversationSession;
 import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
+import madacode.tool.ToolVisibility;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,7 +74,7 @@ public class FullCompactStrategy implements CompactStrategy {
             cancellationToken.throwIfCancelled();
             List<Message> request = List.of(Message.user(CompactPrompts.userPrompt(rendered)));
             ApiClient.ApiResponse response = apiClient.send(
-                    request, CompactPrompts.SYSTEM, List.of(),
+                    request, CompactPrompts.SYSTEM, ToolVisibility.empty(),
                     new ApiStreamSink() {
                         public void onTextDelta(String chunk) {}
                         public void onToolUseBlock(ContentBlock.ToolUseBlock b) {}

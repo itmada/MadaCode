@@ -8,10 +8,9 @@ import madacode.core.model.TokenUsage;
 import madacode.core.model.ToolCall;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiStreamSink;
-import madacode.tool.Tool;
+import madacode.tool.VisibleTools;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 public class MockApiClient implements ApiClient {
@@ -28,7 +27,7 @@ public class MockApiClient implements ApiClient {
     public ApiResponse send(
             List<Message> messages,
             String systemPrompt,
-            Collection<Tool<?>> tools,
+            VisibleTools tools,
             ApiStreamSink sink,
             CancellationToken cancellationToken) {
         if (callIndex >= cannedResponses.size()) {

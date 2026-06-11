@@ -90,7 +90,9 @@ public class LongRunningWorkerRunner {
 
         // Build worker-specific system prompt
         String workerPrompt = LongRunningWorkerPrompt.build();
-        SystemPromptBuilder workerPromptBuilder = new SystemPromptBuilder(workerPrompt);
+        SystemPromptBuilder workerPromptBuilder = SystemPromptBuilder.builder()
+                .agentContext(workerPrompt)
+                .build();
 
         // Create a QueryEngine for the worker
         QueryEngine workerEngine = queryEngineFactory.create(

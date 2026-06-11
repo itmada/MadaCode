@@ -52,7 +52,9 @@ public class AgentRunner {
     public TurnResult run(AgentDefinition definition, String input, ToolUseContext parentContext) {
         ToolRegistry childRegistry = buildChildRegistry(definition);
 
-        SystemPromptBuilder childPromptBuilder = new SystemPromptBuilder(definition.systemPrompt());
+        SystemPromptBuilder childPromptBuilder = SystemPromptBuilder.builder()
+                .agentContext(definition.systemPrompt())
+                .build();
 
         QueryEngine.Builder engineBuilder = QueryEngine.builder(
                 apiClient, childRegistry, childPromptBuilder, parentGate);

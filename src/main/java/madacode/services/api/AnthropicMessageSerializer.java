@@ -4,11 +4,12 @@ import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
 import madacode.tool.Tool;
+import madacode.tool.ToolVisibility;
+import madacode.tool.VisibleTools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.util.Collection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -26,7 +27,7 @@ final class AnthropicMessageSerializer {
             int maxTokens,
             List<Message> messages,
             String systemPrompt,
-            Collection<Tool<?>> tools) throws Exception {
+            VisibleTools tools) throws Exception {
         return buildRequestBody(model, maxTokens, messages, systemPrompt, tools, false);
     }
 
@@ -35,7 +36,7 @@ final class AnthropicMessageSerializer {
             int maxTokens,
             List<Message> messages,
             String systemPrompt,
-            Collection<Tool<?>> tools,
+            VisibleTools tools,
             boolean eagerInputStreaming) throws Exception {
         Objects.requireNonNull(model, "model");
 
@@ -46,7 +47,7 @@ final class AnthropicMessageSerializer {
         body.put("stream", true);
         body.set("messages", serializeMessages(messages));
 
-        Collection<Tool<?>> requestTools = tools != null ? tools : List.of();
+        VisibleTools requestTools = tools != null ? tools : ToolVisibility.empty();
         if (!requestTools.isEmpty()) {
             ArrayNode toolsArr = mapper.createArrayNode();
             for (Tool<?> tool : requestTools) {
