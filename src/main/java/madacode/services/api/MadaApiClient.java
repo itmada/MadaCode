@@ -9,7 +9,8 @@ import madacode.core.model.Message;
 import madacode.core.model.StopReason;
 import madacode.core.model.TokenUsage;
 import madacode.core.model.ToolCall;
-import madacode.logging.DiagnosticEventLogger;
+import madacode.logging.DefaultDiagnosticEvents;
+import madacode.logging.DiagnosticEvents;
 import madacode.logging.ModelResponseLogWriter;
 import madacode.provider.ActiveState;
 import madacode.provider.Provider;
@@ -46,11 +47,20 @@ public class MadaApiClient implements ApiClient {
     private final ObjectMapper mapper;
     private final AnthropicMessageSerializer serializer;
     private final ModelResponseLogWriter modelResponseLogWriter;
+    private final DiagnosticEvents diagnosticEvents;
 
     public MadaApiClient(ProviderRegistry registry, ModelResponseLogWriter modelResponseLogWriter) {
+        this(registry, modelResponseLogWriter, new DefaultDiagnosticEvents());
+    }
+
+    public MadaApiClient(
+            ProviderRegistry registry,
+            ModelResponseLogWriter modelResponseLogWriter,
+            DiagnosticEvents diagnosticEvents) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.modelResponseLogWriter = Objects.requireNonNull(
                 modelResponseLogWriter, "modelResponseLogWriter");
+        this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(DEFAULT_TIMEOUT)
                 .build();
@@ -87,7 +97,7 @@ public class MadaApiClient implements ApiClient {
 
             long start = System.nanoTime();
             int maxTokens = resolveMaxTokens();
-            DiagnosticEventLogger.apiRequest(modelName, messages.size(), maxTokens);
+            diagnosticEvents.apiRequest(modelName, messages.size(), maxTokens);
 
             // Fine-grained tool streaming (FGTS) is only correctly implemented by the
             // first-party Anthropic API. Proxies/relays and Bedrock/Vertex either reject
@@ -132,7 +142,7 @@ public class MadaApiClient implements ApiClient {
             }
 
             long elapsed = java.time.Duration.ofNanos(System.nanoTime() - start).toMillis();
-            DiagnosticEventLogger.apiResponse(response.statusCode(), elapsed);
+            diagnosticEvents.apiResponse(response.statusCode(), elapsed);
 
             Stream<String> responseBody = response.body();
             // Close the stream on cancellation so the blocking iterator in
@@ -148,7 +158,7 @@ public class MadaApiClient implements ApiClient {
                         logModelResponseFull(modelName, response.statusCode(), rawResponseLines);
                     }
                     String body = rawResponseLines.stream().collect(Collectors.joining(System.lineSeparator()));
-                    DiagnosticEventLogger.apiError(response.statusCode(), truncate(body, 200));
+                    diagnosticEvents.apiError(response.statusCode(), truncate(body, 200));
                     throw ApiClientException.http(response.statusCode(), body);
                 }
 
@@ -179,7 +189,7 @@ public class MadaApiClient implements ApiClient {
 
     private void logModelResponseFull(String modelName, int statusCode, List<String> rawResponseLines) {
         String body = String.join(System.lineSeparator(), rawResponseLines);
-        DiagnosticEventLogger.apiModelResponseFull(
+        diagnosticEvents.apiModelResponseFull(
                 modelName,
                 statusCode,
                 rawResponseLines.size(),
@@ -418,7 +428,7 @@ public class MadaApiClient implements ApiClient {
                 ? accumulator.inputJson.toString()
                 : accumulator.initialInputJson;
         boolean missingInputStream = inputJson.isBlank();
-        DiagnosticEventLogger.apiToolInputStream(
+        diagnosticEvents.apiToolInputStream(
                 accumulator.name,
                 accumulator.id,
                 accumulator.deltaCount,
@@ -438,7 +448,7 @@ public class MadaApiClient implements ApiClient {
         try {
             inputNode = mapper.readTree(inputJson);
         } catch (Exception e) {
-            DiagnosticEventLogger.apiToolInputJsonParseFailed(
+            diagnosticEvents.apiToolInputJsonParseFailed(
                     accumulator.name, accumulator.id, inputJson.length());
             throw new ApiClientException(
                     "Failed to parse streamed tool input JSON for "

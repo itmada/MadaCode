@@ -13,7 +13,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.plan.PlanItem;
 import madacode.plan.PlanStatus;
 import madacode.plan.TodoItem;
-import madacode.logging.DiagnosticEventLogger;
+import madacode.logging.DefaultDiagnosticEvents;
+import madacode.logging.DiagnosticEvents;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -31,6 +32,7 @@ public final class SessionStorage {
 
     private final Path rootDirectory;
     private final ObjectMapper mapper;
+    private final DiagnosticEvents diagnosticEvents;
 
     public record SessionSummary(
             String sessionId,
@@ -42,12 +44,21 @@ public final class SessionStorage {
     }
 
     public SessionStorage(Path rootDirectory) {
-        this(rootDirectory, new ObjectMapper());
+        this(rootDirectory, new DefaultDiagnosticEvents());
+    }
+
+    public SessionStorage(Path rootDirectory, DiagnosticEvents diagnosticEvents) {
+        this(rootDirectory, new ObjectMapper(), diagnosticEvents);
     }
 
     SessionStorage(Path rootDirectory, ObjectMapper mapper) {
+        this(rootDirectory, mapper, new DefaultDiagnosticEvents());
+    }
+
+    SessionStorage(Path rootDirectory, ObjectMapper mapper, DiagnosticEvents diagnosticEvents) {
         this.rootDirectory = Objects.requireNonNull(rootDirectory, "rootDirectory").toAbsolutePath().normalize();
         this.mapper = Objects.requireNonNull(mapper, "mapper");
+        this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
     }
 
     public Path transcriptPath(String sessionId) {
@@ -62,7 +73,7 @@ public final class SessionStorage {
             Files.createDirectories(rootDirectory);
             mapper.writerWithDefaultPrettyPrinter().writeValue(tempFile.toFile(), serializeSession(session));
             moveIntoPlace(tempFile, target);
-            DiagnosticEventLogger.transcriptSaved(session, target);
+            diagnosticEvents.transcriptSaved(session, target);
         } catch (IOException exception) {
             throw new SessionStorageException("Failed to save transcript for session " + session.sessionId(), exception);
         }
@@ -76,7 +87,7 @@ public final class SessionStorage {
             }
             JsonNode root = mapper.readTree(transcriptPath.toFile());
             ConversationSession session = deserializeSession(root);
-            DiagnosticEventLogger.transcriptLoaded(session, transcriptPath);
+            diagnosticEvents.transcriptLoaded(session, transcriptPath);
             return session;
         } catch (IOException exception) {
             throw new SessionStorageException("Failed to load transcript for session " + sessionId, exception);

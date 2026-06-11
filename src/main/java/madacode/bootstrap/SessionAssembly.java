@@ -24,7 +24,9 @@ final class SessionAssembly {
     }
 
     static SessionRuntime resolve(EnvironmentRuntime environment, TerminalRuntime terminal) {
-        SessionStorage storage = new SessionStorage(environment.paths().workspaceSessionsDir());
+        SessionStorage storage = new SessionStorage(
+                environment.paths().workspaceSessionsDir(),
+                environment.diagnosticEvents());
         SessionPointer pointer = new SessionPointer(environment.paths().workspaceLastSessionFile());
 
         if (environment.args() instanceof CliArgs.Interactive) {

@@ -32,7 +32,7 @@ public final class StreamingAssistantHandle {
             try {
                 l.onAssistantTextChunk(reservedIndex, chunk);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onAssistantTextChunk", e);
+                logListenerCrash("onAssistantTextChunk", e);
             }
         }
     }
@@ -45,7 +45,7 @@ public final class StreamingAssistantHandle {
             try {
                 l.onAssistantBlockAppended(reservedIndex, block);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onAssistantBlockAppended", e);
+                logListenerCrash("onAssistantBlockAppended", e);
             }
         }
     }
@@ -69,7 +69,7 @@ public final class StreamingAssistantHandle {
             try {
                 l.onAssistantStreamFinalized(reservedIndex);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onAssistantStreamFinalized", e);
+                logListenerCrash("onAssistantStreamFinalized", e);
             }
         }
         return message;
@@ -90,7 +90,7 @@ public final class StreamingAssistantHandle {
             try {
                 l.onAssistantStreamFinalized(reservedIndex);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onAssistantStreamFinalized", e);
+                logListenerCrash("onAssistantStreamFinalized", e);
             }
         }
     }
@@ -107,5 +107,11 @@ public final class StreamingAssistantHandle {
 
     private void check() {
         if (finalized) throw new IllegalStateException("stream already finalized");
+    }
+
+    private static void logListenerCrash(String callbackName, RuntimeException error) {
+        // TODO(P2-1): Keep listener crash logging on the static facade until
+        // session listener fanout can accept injected DiagnosticEvents cleanly.
+        madacode.logging.DiagnosticEventLogger.listenerCrashed(callbackName, error);
     }
 }

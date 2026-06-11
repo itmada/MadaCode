@@ -2,7 +2,8 @@ package madacode.services.api;
 
 import madacode.core.turn.CancellationToken;
 import madacode.core.model.Message;
-import madacode.logging.DiagnosticEventLogger;
+import madacode.logging.DefaultDiagnosticEvents;
+import madacode.logging.DiagnosticEvents;
 import madacode.tool.Tool;
 
 import java.time.Duration;
@@ -18,6 +19,7 @@ public final class RetryingApiClient implements ApiClient {
     private final ApiClient delegate;
     private final RetryOptions options;
     private final ApiErrorClassifier classifier;
+    private final DiagnosticEvents diagnosticEvents;
     private final Consumer<Duration> sleeper;
     private final LongUnaryOperator jitterMillis;
 
@@ -25,7 +27,15 @@ public final class RetryingApiClient implements ApiClient {
             ApiClient delegate,
             RetryOptions options,
             ApiErrorClassifier classifier) {
-        this(delegate, options, classifier,
+        this(delegate, options, classifier, new DefaultDiagnosticEvents());
+    }
+
+    public RetryingApiClient(
+            ApiClient delegate,
+            RetryOptions options,
+            ApiErrorClassifier classifier,
+            DiagnosticEvents diagnosticEvents) {
+        this(delegate, options, classifier, diagnosticEvents,
                 RetryingApiClient::threadSleep,
                 bound -> RandomGenerator.getDefault().nextLong(bound));
     }
@@ -36,9 +46,20 @@ public final class RetryingApiClient implements ApiClient {
             ApiErrorClassifier classifier,
             Consumer<Duration> sleeper,
             LongUnaryOperator jitterMillis) {
+        this(delegate, options, classifier, new DefaultDiagnosticEvents(), sleeper, jitterMillis);
+    }
+
+    public RetryingApiClient(
+            ApiClient delegate,
+            RetryOptions options,
+            ApiErrorClassifier classifier,
+            DiagnosticEvents diagnosticEvents,
+            Consumer<Duration> sleeper,
+            LongUnaryOperator jitterMillis) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.options = Objects.requireNonNull(options, "options");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
+        this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
         this.sleeper = Objects.requireNonNull(sleeper, "sleeper");
         this.jitterMillis = Objects.requireNonNull(jitterMillis, "jitterMillis");
     }
@@ -62,13 +83,13 @@ public final class RetryingApiClient implements ApiClient {
                 ApiError error = classifier.classify(exception);
 
                 if (!error.retryable() || attempt >= options.maxRetries()) {
-                    DiagnosticEventLogger.apiFinalFailure(
+                    diagnosticEvents.apiFinalFailure(
                             attempt + 1, error.type().name(), error.retryable());
                     throw exception;
                 }
 
                 Duration backoff = backoffDelay(attempt);
-                DiagnosticEventLogger.apiRetry(
+                diagnosticEvents.apiRetry(
                         attempt + 1, options.maxRetries(), error.type().name(), backoff.toMillis());
                 sleeper.accept(backoff);
                 if (cancellationToken.isCancelled()) {

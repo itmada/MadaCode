@@ -13,6 +13,9 @@ final class PermissionAssembly {
 
     static PermissionGate create(EnvironmentRuntime environment, TerminalRuntime terminal) {
         List<Path> trustedRoots = List.of(environment.paths().globalBlobsDir());
-        return new DefaultPermissionGate(terminal.approval(), trustedRoots);
+        return new DefaultPermissionGate(
+                terminal.approval(),
+                trustedRoots,
+                environment.diagnosticEvents());
     }
 }
