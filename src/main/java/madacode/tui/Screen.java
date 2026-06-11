@@ -20,6 +20,26 @@ public interface Screen {
     /** Append a batch of lines to scrollback. */
     void scrollback(List<String> lines);
 
+    /**
+     * Thread-safe user-visible notification path for async events.
+     *
+     * <p>Defaults to normal scrollback so existing Screen implementations keep
+     * working without special handling.
+     */
+    default void notifyAsync(String line) {
+        notifyAsync(List.of(line));
+    }
+
+    /**
+     * Thread-safe user-visible notification path for async events.
+     *
+     * <p>Defaults to normal scrollback so existing Screen implementations keep
+     * working without special handling.
+     */
+    default void notifyAsync(List<String> lines) {
+        scrollback(lines);
+    }
+
     /** Set the transient status layer. Empty list clears it. */
     default void setLiveStatus(List<String> lines) {
         // no-op by default

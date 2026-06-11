@@ -97,6 +97,20 @@ public final class JLineScreen implements Screen {
         });
     }
 
+    @Override
+    public void notifyAsync(List<String> lines) {
+        if (lines.isEmpty()) return;
+        LineReader lr;
+        synchronized (this) { lr = activeLineReader; }
+        if (lr != null) {
+            for (String line : lines) {
+                lr.printAbove(line);
+            }
+            return;
+        }
+        scrollback(lines);
+    }
+
     // ---- live region (phase-gated) ----------------------------------------
 
     @Override
