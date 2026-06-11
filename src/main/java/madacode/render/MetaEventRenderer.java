@@ -20,7 +20,6 @@ public final class MetaEventRenderer implements SessionListener {
 
     private final Screen screen;
     private final SessionContext sessionContext;
-    private int renderedTokenTotal;
 
     public MetaEventRenderer(Screen screen) {
         this(screen, null);
@@ -64,9 +63,12 @@ public final class MetaEventRenderer implements SessionListener {
                 // TurnRenderer owns the transient turn status row.
             }
             case MetaEvent.TokenReport u -> {
-                renderedTokenTotal += u.usage().total();
                 if (sessionContext != null) {
-                    sessionContext.setTokens(renderedTokenTotal);
+                    var usage = u.usage();
+                    sessionContext.setTokens(usage.inputTokens()
+                            + usage.cacheReadTokens()
+                            + usage.cacheCreationTokens()
+                            + usage.outputTokens());
                 }
             }
             case MetaEvent.SubAgentStarted ignored -> {
@@ -79,7 +81,8 @@ public final class MetaEventRenderer implements SessionListener {
     }
 
     public void reset() {
-        renderedTokenTotal = 0;
+        // Kept for callers that reset renderers together; token context is
+        // updated only by the next TokenReport.
     }
 
     private void writeStage(

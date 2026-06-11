@@ -481,8 +481,8 @@ public synchronized int contextPercent() {
 }
 ```
 
-注意：`/compact` 压缩与会话切换后 tokens 应归零——`replaceMessages`/新会话路径会触发
-新的 TokenReport 前显示旧值，可接受，不要为此加额外清零逻辑（保持任务边界）。
+注意：压缩/切会话后到下一次 TokenReport 之前显示的是旧值，这是已接受的权衡，
+不要添加清零逻辑（保持任务边界）。
 
 ### 步骤 2：prompt 徽章 + right-prompt
 

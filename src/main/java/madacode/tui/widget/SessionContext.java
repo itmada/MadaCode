@@ -41,8 +41,15 @@ public final class SessionContext {
     public synchronized boolean planMode() { return planMode; }
     public synchronized void setMode(SessionMode mode) { setWorkflowMode(mode); }
     public synchronized SessionMode mode() { return workflowMode(); }
+    public synchronized int tokens() { return tokens; }
     public synchronized void setTokens(int used) { setTokens(used, tokenLimit); }
     public synchronized void setTokens(int used, int max) { this.tokenLimit = Math.max(0, max); this.tokens = used; }
+
+    /** Percent of the model context window in use; -1 when the limit is unknown. */
+    public synchronized int contextPercent() {
+        if (tokenLimit <= 0) return -1;
+        return Math.min(100, (int) Math.round(tokens * 100.0 / tokenLimit));
+    }
 
     public synchronized void syncFrom(ConversationSession session) {
         if (session == null) {

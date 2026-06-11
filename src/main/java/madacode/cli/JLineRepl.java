@@ -8,6 +8,7 @@ import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionStorage;
 import madacode.core.turn.TurnExecutor;
 import madacode.services.compact.CompactPlanner;
+import madacode.permission.PermissionMode;
 import madacode.permission.PermissionGate;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
@@ -29,6 +30,7 @@ import madacode.tui.Screen;
 import madacode.tui.TerminalKeys;
 import madacode.tui.inline.InlineChoicePrompt;
 import madacode.tui.theme.Tk;
+import madacode.tui.theme.Token;
 import madacode.tui.widget.ChoicePrompt;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
@@ -216,7 +218,7 @@ public final class JLineRepl extends Repl {
                 String line;
                 jlineScreen.setActiveLineReader(lineReader);
                 try {
-                    line = lineReader.readLine(buildPrompt());
+                    line = lineReader.readLine(buildPrompt(), buildRightPrompt(), (Character) null, null);
                 } catch (UserInterruptException e) {
                     screen.scrollback("");
                     screen.scrollback(Tk.dim("(type 'exit' to quit)"));
@@ -417,7 +419,46 @@ public final class JLineRepl extends Repl {
     }
 
     private String buildPrompt() {
-        return Tk.promptActive("❯") + " ";
+        String badge = promptBadge();
+        return (badge.isEmpty() ? "" : badge + " ") + Tk.promptActive("❯") + " ";
+    }
+
+    private String promptBadge() {
+        if (sessionContext == null) return "";
+        if (sessionContext.planMode()) {
+            return Tk.apply(Token.MODE_INDICATOR_PLAN, "[plan]");
+        }
+        PermissionMode pm = sessionContext.permissionMode();
+        if (pm != null && pm != PermissionMode.DEFAULT) {
+            return Tk.apply(Token.TAG_WARN, "[" + permissionLabel(pm) + "]");
+        }
+        return "";
+    }
+
+    private static String permissionLabel(PermissionMode mode) {
+        return mode.id();
+    }
+
+    private String buildRightPrompt() {
+        if (sessionContext == null) return "";
+        StringBuilder sb = new StringBuilder();
+        String model = sessionContext.model();
+        if (model != null && !model.isBlank()) {
+            sb.append(Tk.dim(model));
+        }
+        int pct = sessionContext.contextPercent();
+        if (pct >= 0) {
+            if (!sb.isEmpty()) sb.append(Tk.dim(" · "));
+            String ctx = "ctx " + pct + "%";
+            if (pct >= 90) {
+                sb.append(Tk.failure(ctx));
+            } else if (pct >= 70) {
+                sb.append(Tk.apply(Token.TAG_WARN, ctx));
+            } else {
+                sb.append(Tk.dim(ctx));
+            }
+        }
+        return sb.toString();
     }
 
     @Override
