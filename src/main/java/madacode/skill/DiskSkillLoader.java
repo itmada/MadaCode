@@ -1,6 +1,6 @@
 package madacode.skill;
 
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
 
@@ -16,10 +16,12 @@ public final class DiskSkillLoader implements SkillLoader {
 
     private final Path rootDir;
     private final SkillSource source;
+    private final AppEventPublisher publisher;
 
-    public DiskSkillLoader(Path rootDir, SkillSource source) {
+    public DiskSkillLoader(Path rootDir, SkillSource source, AppEventPublisher publisher) {
         this.rootDir = rootDir;
         this.source = source;
+        this.publisher = publisher;
     }
 
     @Override
@@ -35,11 +37,11 @@ public final class DiskSkillLoader implements SkillLoader {
                 String content = Files.readString(skillMd, StandardCharsets.UTF_8);
                 Skill s = BundledSkillLoader.buildSkill(
                         content, entry.getFileName().toString(),
-                        source, skillMd, entry);
+                        source, skillMd, entry, publisher);
                 if (s != null) skills.add(s);
             }
         } catch (IOException e) {
-            AppEvents.publisher().publish(DiagnosticEvent.warn(
+            publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("DiskSkillLoader"),
                     "Failed to scan " + rootDir + ": " + e.getMessage(), e));
         }

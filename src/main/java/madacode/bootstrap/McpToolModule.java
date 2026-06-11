@@ -1,6 +1,6 @@
 package madacode.bootstrap;
 
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.mcp.McpConnectionManager;
@@ -11,6 +11,12 @@ import madacode.tool.blob.FilesystemBlobStore;
 import madacode.tool.blob.McpBlobStore;
 
 final class McpToolModule implements ToolModule {
+
+    private final AppEventPublisher publisher;
+
+    McpToolModule(AppEventPublisher publisher) {
+        this.publisher = publisher;
+    }
 
     @Override
     public void install(ToolContext context) {
@@ -26,7 +32,7 @@ final class McpToolModule implements ToolModule {
                 .filter(s -> s.status() == McpServer.Status.READY)
                 .count();
         if (total > 0) {
-            AppEvents.publisher().publish(UserVisibleEvent.info(
+            publisher.publish(UserVisibleEvent.info(
                     EventContext.bootstrap("McpConnectionManager"),
                     "MCP servers loaded: " + ready + "/" + total + " ready"));
         }

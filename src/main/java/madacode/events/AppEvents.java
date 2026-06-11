@@ -6,17 +6,28 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class AppEvents {
 
     private static final AtomicLong sequence = new AtomicLong();
-    private static volatile AppEventPublisher instance = new BootstrapFallbackPublisher();
+    private static volatile AppEventPublisher compatibilityPublisher = new BootstrapFallbackPublisher();
 
     private AppEvents() {
     }
 
+    /**
+     * Compatibility publisher for early bootstrap and legacy static callers.
+     *
+     * <p>Application bootstrap should prefer explicit {@link AppEventPublisher}
+     * wiring instead of reaching through this global accessor.
+     */
     public static AppEventPublisher publisher() {
-        return instance;
+        return compatibilityPublisher;
     }
 
+    /**
+     * Installs the compatibility publisher used by legacy static callers.
+     *
+     * <p>Bootstrap code should pass publishers explicitly where practical.
+     */
     public static void install(AppEventPublisher publisher) {
-        instance = Objects.requireNonNull(publisher, "publisher");
+        compatibilityPublisher = Objects.requireNonNull(publisher, "publisher");
     }
 
     public static long nextSequence() {
@@ -24,6 +35,6 @@ public final class AppEvents {
     }
 
     public static void resetForTests() {
-        instance = new BootstrapFallbackPublisher();
+        compatibilityPublisher = new BootstrapFallbackPublisher();
     }
 }

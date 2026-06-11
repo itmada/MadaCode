@@ -1,6 +1,6 @@
 package madacode.agent;
 
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
 import madacode.permission.PermissionMode;
@@ -39,15 +39,18 @@ public final class AgentDefinitionParser {
     private AgentDefinitionParser() {}
 
     public static Optional<AgentDefinition> parse(
-            String content, String fallbackName, Path source) {
+            String content,
+            String fallbackName,
+            Path source,
+            AppEventPublisher publisher) {
 
         SkillFrontmatterParser.Result parsed = SkillFrontmatterParser.parse(content);
         for (String warning : parsed.warnings()) {
-            warn(source + ": " + warning);
+            warn(publisher, source + ": " + warning);
         }
         Map<String, Object> fm = parsed.frontmatter();
         if (fm.containsKey("max_tool_calls")) {
-            warn(source + ": max_tool_calls is no longer supported; remove this field");
+            warn(publisher, source + ": max_tool_calls is no longer supported; remove this field");
             return Optional.empty();
         }
 
@@ -58,7 +61,7 @@ public final class AgentDefinitionParser {
 
         String body = parsed.body();
         if (body == null || body.isBlank()) {
-            warn(source + ": empty systemPrompt body, skipping");
+            warn(publisher, source + ": empty systemPrompt body, skipping");
             return Optional.empty();
         }
 
@@ -70,7 +73,7 @@ public final class AgentDefinitionParser {
         List<String> disallowed = ToolNameNormalizer.normalize(
                 SkillFrontmatterParser.stringListField(fm, "disallowed_tools"));
 
-        Integer maxIter = optionalPositiveInt(fm, "max_iterations", source);
+        Integer maxIter = optionalPositiveInt(fm, "max_iterations", source, publisher);
 
         try {
             return Optional.of(new AgentDefinition(
@@ -78,14 +81,18 @@ public final class AgentDefinitionParser {
                     Set.copyOf(allowed), Set.copyOf(disallowed),
                     maxIter, PermissionMode.ACCEPT_EDITS));
         } catch (IllegalArgumentException e) {
-            AppEvents.publisher().publish(DiagnosticEvent.warn(
+            publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("AgentDefinitionParser"),
                     source + ": " + e.getMessage() + ", skipping", e));
             return Optional.empty();
         }
     }
 
-    private static Integer optionalPositiveInt(Map<String, Object> fm, String field, Path source) {
+    private static Integer optionalPositiveInt(
+            Map<String, Object> fm,
+            String field,
+            Path source,
+            AppEventPublisher publisher) {
         if (!fm.containsKey(field)) {
             return null;
         }
@@ -100,12 +107,12 @@ public final class AgentDefinitionParser {
                 // Warn below with the original value.
             }
         }
-        warn(source + ": " + field + " must be a positive integer; leaving unbounded");
+        warn(publisher, source + ": " + field + " must be a positive integer; leaving unbounded");
         return null;
     }
 
-    private static void warn(String message) {
-        AppEvents.publisher().publish(DiagnosticEvent.warn(
+    private static void warn(AppEventPublisher publisher, String message) {
+        publisher.publish(DiagnosticEvent.warn(
                 EventContext.bootstrap("AgentDefinitionParser"), message));
     }
 

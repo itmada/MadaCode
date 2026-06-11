@@ -45,7 +45,7 @@ public record DiagnosticEvent(
             Throwable error) {
         return new DiagnosticEvent(
                 Instant.now(),
-                AppEvents.publisher().nextSequence(),
+                AppEvents.nextSequence(),
                 context,
                 severity,
                 message,

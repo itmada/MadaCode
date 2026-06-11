@@ -1,6 +1,7 @@
 package madacode.cli;
 
 import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
 
@@ -40,6 +41,7 @@ public final class InterruptController implements Suspendable {
 
     private final Terminal terminal;
     private final SignalCancellationBridge signalBridge = new SignalCancellationBridge();
+    private volatile AppEventPublisher appEvents = AppEvents.publisher();
 
     private volatile String activeTurnId;
     private volatile Consumer<String> onCancel;
@@ -52,6 +54,10 @@ public final class InterruptController implements Suspendable {
 
     public InterruptController(Terminal terminal) {
         this.terminal = terminal;
+    }
+
+    public void appEvents(AppEventPublisher appEvents) {
+        this.appEvents = java.util.Objects.requireNonNull(appEvents, "appEvents");
     }
 
     /**
@@ -81,7 +87,7 @@ public final class InterruptController implements Suspendable {
                 Thread.currentThread().interrupt();
             }
             if (escThread.isAlive()) {
-                AppEvents.publisher().publish(DiagnosticEvent.warn(
+                appEvents.publish(DiagnosticEvent.warn(
                         EventContext.bootstrap("InterruptController"),
                         "ESC monitor thread did not exit cleanly, forcing terminal restore"));
                 restoreAttributes();

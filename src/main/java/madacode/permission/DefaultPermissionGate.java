@@ -3,6 +3,7 @@ package madacode.permission;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.events.AuditEvent;
+import madacode.events.AppEventPublisher;
 import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.logging.DiagnosticEventLogger;
@@ -38,22 +39,32 @@ public class DefaultPermissionGate implements PermissionGate {
     private final UserApprovalPrompt prompt;
     private final List<PermissionRule> rules;
     private final Set<String> sessionApprovedInputs;
+    private final AppEventPublisher publisher;
 
     private DefaultPermissionGate(
             UserApprovalPrompt prompt,
             List<PermissionRule> rules,
-            Set<String> sessionApprovedInputs) {
+            Set<String> sessionApprovedInputs,
+            AppEventPublisher publisher) {
         this.prompt = Objects.requireNonNull(prompt, "prompt");
         this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));
         this.sessionApprovedInputs = Objects.requireNonNull(sessionApprovedInputs);
+        this.publisher = Objects.requireNonNull(publisher, "publisher");
     }
 
     public DefaultPermissionGate(UserApprovalPrompt prompt) {
-        this(prompt, defaultRules(List.of()), ConcurrentHashMap.newKeySet());
+        this(prompt, defaultRules(List.of()), ConcurrentHashMap.newKeySet(), AppEvents.publisher());
     }
 
     public DefaultPermissionGate(UserApprovalPrompt prompt, List<Path> trustedRoots) {
-        this(prompt, defaultRules(trustedRoots), ConcurrentHashMap.newKeySet());
+        this(prompt, defaultRules(trustedRoots), ConcurrentHashMap.newKeySet(), AppEvents.publisher());
+    }
+
+    public DefaultPermissionGate(
+            UserApprovalPrompt prompt,
+            List<Path> trustedRoots,
+            AppEventPublisher publisher) {
+        this(prompt, defaultRules(trustedRoots), ConcurrentHashMap.newKeySet(), publisher);
     }
 
     @Override
@@ -113,7 +124,7 @@ public class DefaultPermissionGate implements PermissionGate {
             PermissionDecision decision,
             long waitMs) {
         DiagnosticEventLogger.permissionDecision(context.session(), tool.name(), decision, waitMs);
-        AppEvents.publisher().publish(AuditEvent.permissionDecision(
+        publisher.publish(AuditEvent.permissionDecision(
                 EventContext.of(context.session(), "Permission"),
                 tool.name(),
                 decision.isAllowed(),

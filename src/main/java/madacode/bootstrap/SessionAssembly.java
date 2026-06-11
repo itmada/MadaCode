@@ -6,7 +6,7 @@ import madacode.cli.session.StartupSessionLauncher;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorage.SessionSummary;
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.longrunning.LongRunningControlSessionFactory;
@@ -23,7 +23,10 @@ final class SessionAssembly {
     private SessionAssembly() {
     }
 
-    static SessionRuntime resolve(EnvironmentRuntime environment, TerminalRuntime terminal) {
+    static SessionRuntime resolve(
+            EnvironmentRuntime environment,
+            TerminalRuntime terminal,
+            AppEventPublisher publisher) {
         SessionStorage storage = new SessionStorage(environment.paths().workspaceSessionsDir());
         SessionPointer pointer = new SessionPointer(environment.paths().workspaceLastSessionFile());
 
@@ -32,11 +35,14 @@ final class SessionAssembly {
                     resolveStartupSession(environment, storage, pointer, terminal));
         }
         return new SessionRuntime(storage, pointer,
-                resolveSession(environment, storage, pointer));
+                resolveSession(environment, storage, pointer, publisher));
     }
 
     private static ConversationSession resolveSession(
-            EnvironmentRuntime environment, SessionStorage storage, SessionPointer pointer) {
+            EnvironmentRuntime environment,
+            SessionStorage storage,
+            SessionPointer pointer,
+            AppEventPublisher publisher) {
         return switch (environment.args()) {
             case CliArgs.NewSession n -> {
                 ConversationSession session = new ConversationSession();
@@ -65,7 +71,7 @@ final class SessionAssembly {
                 }
                 Optional<SessionSummary> recent = storage.findMostRecent();
                 if (recent.isPresent()) {
-                    AppEvents.publisher().publish(UserVisibleEvent.info(
+                    publisher.publish(UserVisibleEvent.info(
                             EventContext.bootstrap("Session"),
                             "(no previous session pointer — loading most recent)"));
                     ConversationSession session = storage.load(
@@ -74,7 +80,7 @@ final class SessionAssembly {
                     pointer.write(session.sessionId());
                     yield session;
                 }
-                AppEvents.publisher().publish(UserVisibleEvent.info(
+                publisher.publish(UserVisibleEvent.info(
                         EventContext.bootstrap("Session"),
                         "(no previous session — starting new)"));
                 ConversationSession session = new ConversationSession();

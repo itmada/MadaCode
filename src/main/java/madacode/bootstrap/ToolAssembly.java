@@ -5,7 +5,7 @@ import madacode.agent.AgentRunner;
 import madacode.agent.BuiltInAgentLoader;
 import madacode.agent.BuiltInAgents;
 import madacode.agent.DiskAgentLoader;
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.permission.PermissionGate;
@@ -23,10 +23,14 @@ final class ToolAssembly {
     private ToolAssembly() {
     }
 
-    static ToolRuntime create(EnvironmentRuntime environment, BootstrapResources resources, PermissionGate permission) {
+    static ToolRuntime create(
+            EnvironmentRuntime environment,
+            BootstrapResources resources,
+            PermissionGate permission,
+            AppEventPublisher publisher) {
         ToolRegistry registry = new ToolRegistry();
-        SkillRegistry skills = initSkills(environment);
-        AgentRegistry agents = initAgents(environment);
+        SkillRegistry skills = initSkills(environment, publisher);
+        AgentRegistry agents = initAgents(environment, publisher);
         AgentRunner agentRunner = new AgentRunner(registry, environment.api(), permission);
         ToolContext context = new ToolContext(
                 environment, resources, registry, skills, agents, agentRunner);
@@ -38,7 +42,7 @@ final class ToolAssembly {
                 new InteractionToolModule(),
                 new PlanToolModule(),
                 new MemoryToolModule(),
-                new McpToolModule());
+                new McpToolModule(publisher));
         for (ToolModule module : modules) {
             module.install(context);
         }
@@ -51,41 +55,47 @@ final class ToolAssembly {
                 agents);
     }
 
-    private static SkillRegistry initSkills(EnvironmentRuntime environment) {
+    private static SkillRegistry initSkills(
+            EnvironmentRuntime environment,
+            AppEventPublisher publisher) {
         SkillStateStore stateStore = new SkillStateStore(
                 environment.paths().globalSkillsStateFile());
         stateStore.load();
 
         SkillRegistry registry = new SkillRegistry(stateStore,
-                new BundledSkillLoader(),
+                new BundledSkillLoader(publisher),
                 new DiskSkillLoader(
                         environment.paths().globalSkillsDir(),
-                        SkillSource.USER),
+                        SkillSource.USER,
+                        publisher),
                 new DiskSkillLoader(
                         environment.projectDir().resolve(".mada/skills"),
-                        SkillSource.PROJECT));
+                        SkillSource.PROJECT,
+                        publisher));
         registry.reload();
 
         int total = registry.all().size();
         int enabled = registry.enabled().size();
         if (total > 0) {
-            AppEvents.publisher().publish(UserVisibleEvent.info(
+            publisher.publish(UserVisibleEvent.info(
                     EventContext.bootstrap("SkillRegistry"),
                     "Skills loaded: " + enabled + "/" + total + " enabled"));
         }
         return registry;
     }
 
-    private static AgentRegistry initAgents(EnvironmentRuntime environment) {
+    private static AgentRegistry initAgents(
+            EnvironmentRuntime environment,
+            AppEventPublisher publisher) {
         AgentRegistry registry = AgentRegistry.loaded(
                 new BuiltInAgentLoader(),
-                new DiskAgentLoader(environment.paths().globalAgentsDir()),
-                new DiskAgentLoader(environment.projectDir().resolve(".mada/agents")));
+                new DiskAgentLoader(environment.paths().globalAgentsDir(), publisher),
+                new DiskAgentLoader(environment.projectDir().resolve(".mada/agents"), publisher));
 
         int total = registry.all().size();
         int builtIn = BuiltInAgents.getAll().size();
         if (total > builtIn) {
-            AppEvents.publisher().publish(UserVisibleEvent.info(
+            publisher.publish(UserVisibleEvent.info(
                     EventContext.bootstrap("AgentRegistry"),
                     "Agents loaded: " + total
                             + " (" + builtIn + " built-in + " + (total - builtIn) + " custom)"));
