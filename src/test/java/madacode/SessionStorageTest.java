@@ -350,6 +350,10 @@ public class SessionStorageTest {
 
         assertEquals(1, summaries.size());
         assertEquals(storage.transcriptPath("dupe-session"), summaries.getFirst().path());
+
+        List<SessionStorage.SessionSummary> listed = storage.listSessions();
+        assertEquals(1, listed.size());
+        assertEquals(storage.transcriptPath("dupe-session"), listed.getFirst().path());
     }
 
     @Test

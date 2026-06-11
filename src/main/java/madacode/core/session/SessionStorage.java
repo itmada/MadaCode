@@ -100,21 +100,10 @@ public final class SessionStorage {
     }
 
     public List<SessionSummary> listSessions() {
-        if (!Files.isDirectory(rootDirectory)) {
-            return List.of();
-        }
-
-        List<SessionSummary> summaries = new ArrayList<>();
-        try (var paths = Files.list(rootDirectory)) {
-            for (Path path : paths.toList()) {
-                readSummary(path).ifPresent(summaries::add);
-            }
-        } catch (IOException exception) {
-            throw new SessionStorageException("Failed to list transcripts in " + rootDirectory, exception);
-        }
-
-        summaries.sort(Comparator.comparing(SessionSummary::lastModifiedAt).reversed());
-        return List.copyOf(summaries);
+        return listEntries().stream()
+                .filter(SessionSummary.class::isInstance)
+                .map(SessionSummary.class::cast)
+                .toList();
     }
 
     public List<SessionListEntry> listEntries() {
