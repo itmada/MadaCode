@@ -75,11 +75,14 @@ public final class ToolExecutor {
         ConversationSession session = context.session();
 
         if (context.cancellationToken().isCancelled()) {
-            ToolResult result = new ToolResult(
-                    toolCall.toolName(), false,
-                    "Cancelled before execution: " + context.cancellationToken().reason());
-            emitCompleted(session, toolCall.id(), toolCall.toolName(), toolCall.input(), result, 0);
-            return result;
+            return failResult(
+                    session,
+                    toolCall,
+                    toolCall.toolName(),
+                    toolCall.input(),
+                    "Cancelled before execution: " + context.cancellationToken().reason(),
+                    0,
+                    false);
         }
 
         Tool<?> tool = toolRegistry.find(toolCall.toolName()).orElse(null);
@@ -92,11 +95,14 @@ public final class ToolExecutor {
             // QueryEngine with a FinishReason) and would abort the whole turn,
             // clearing the cards of the other tools in this same batch and
             // leaving any subsequent permission prompt with no card to render.
-            ToolResult result = new ToolResult(
-                    toolCall.toolName(), false,
-                    "Error: unknown tool \"" + toolCall.toolName() + "\"");
-            emitCompleted(session, toolCall.id(), toolCall.toolName(), toolCall.input(), result, 0);
-            return result;
+            return failResult(
+                    session,
+                    toolCall,
+                    toolCall.toolName(),
+                    toolCall.input(),
+                    "Error: unknown tool \"" + toolCall.toolName() + "\"",
+                    0,
+                    false);
         }
 
         // Visibility is a hard execution boundary. QueryEngine binds each tool
@@ -104,9 +110,7 @@ public final class ToolExecutor {
         // loaded after that request cannot be called until the next iteration.
         String denialReason = ToolVisibility.exposedToolDenialReason(tool, context);
         if (denialReason != null) {
-            ToolResult result = new ToolResult(tool.name(), false, denialReason);
-            emitCompleted(session, toolCall.id(), tool.name(), toolCall.input(), result, 0);
-            return result;
+            return failResult(session, toolCall, tool.name(), toolCall.input(), denialReason, 0, false);
         }
 
         CURRENT_TOOL_USE_ID.set(toolCall.id());
@@ -115,10 +119,14 @@ public final class ToolExecutor {
             var preResult = hookManager.runPreToolUse(
                     tool.name(), effectiveInput, session.sessionId());
             if (!preResult.allowed()) {
-                ToolResult result = new ToolResult(tool.name(), false,
-                        "Hook rejected: " + preResult.denialReason());
-                emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, 0);
-                return result;
+                return failResult(
+                        session,
+                        toolCall,
+                        tool.name(),
+                        effectiveInput,
+                        "Hook rejected: " + preResult.denialReason(),
+                        0,
+                        false);
             }
             if (preResult.effectiveInput() != null) {
                 effectiveInput = preResult.effectiveInput();
@@ -128,30 +136,42 @@ public final class ToolExecutor {
         ValidationResult validation = inputValidator.validate(tool, effectiveInput);
         if (!validation.valid()) {
             DiagnosticEventLogger.toolValidationFailed(session, tool.name(), validation.errors());
-            ToolResult result = new ToolResult(tool.name(), false,
+            return failResult(
+                    session,
+                    toolCall,
+                    tool.name(),
+                    effectiveInput,
                     "Invalid tool input for " + tool.name() + ": "
-                            + String.join("; ", validation.errors()));
-            emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, 0);
-            return result;
+                            + String.join("; ", validation.errors()),
+                    0,
+                    false);
         }
 
         if (session.isPlanMode() && !tool.isReadOnly() && !PLAN_MODE_ALLOWED.contains(tool.name())) {
-            ToolResult result = new ToolResult(tool.name(), false,
+            return failResult(
+                    session,
+                    toolCall,
+                    tool.name(),
+                    effectiveInput,
                     "Plan mode active — only read tools, ask_user_question, "
                             + "and task management tools are allowed. "
-                            + "Use exit_plan_mode to leave plan mode.");
-            emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, 0);
-            return result;
+                            + "Use exit_plan_mode to leave plan mode.",
+                    0,
+                    false);
         }
 
         session.fireToolExecutionReached(toolCall.id(), tool.name(), effectiveInput);
 
         PermissionDecision decision = permissionGate.check(tool, effectiveInput, context);
         if (!decision.isAllowed()) {
-            ToolResult result = new ToolResult(tool.name(), false,
-                    "Permission denied: " + decision.reason());
-            emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, 0);
-            return result;
+            return failResult(
+                    session,
+                    toolCall,
+                    tool.name(),
+                    effectiveInput,
+                    "Permission denied: " + decision.reason(),
+                    0,
+                    false);
         }
 
         session.fireToolExecutionStarted(toolCall.id(), tool.name(), effectiveInput);
@@ -160,12 +180,15 @@ public final class ToolExecutor {
         try {
             typedInput = ToolInputCoercion.coerceUnchecked(tool, effectiveInput, mapper);
         } catch (ToolInputCoercion.ToolInputCoercionException e) {
-            ToolResult result = new ToolResult(tool.name(), false,
-                    "Invalid tool input for " + tool.name() + ": " + e.getMessage());
             long durationMs = elapsedMs(toolStart);
-            DiagnosticEventLogger.toolExecutionCompleted(session, tool.name(), false, durationMs);
-            emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, durationMs);
-            return result;
+            return failResult(
+                    session,
+                    toolCall,
+                    tool.name(),
+                    effectiveInput,
+                    "Invalid tool input for " + tool.name() + ": " + e.getMessage(),
+                    durationMs,
+                    true);
         }
         try {
             @SuppressWarnings({"unchecked", "rawtypes"})
@@ -179,28 +202,52 @@ public final class ToolExecutor {
             }
             return result;
         } catch (CancellationException e) {
-            ToolResult result = new ToolResult(tool.name(), false,
-                    "Cancelled: " + e.getMessage());
             long durationMs = elapsedMs(toolStart);
-            DiagnosticEventLogger.toolExecutionCompleted(session, tool.name(), false, durationMs);
-            emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, durationMs);
-            return result;
+            return failResult(
+                    session,
+                    toolCall,
+                    tool.name(),
+                    effectiveInput,
+                    "Cancelled: " + e.getMessage(),
+                    durationMs,
+                    true);
         } catch (Exception e) {
             if (context.cancellationToken().isCancelled()) {
-                ToolResult result = new ToolResult(tool.name(), false,
-                        "Cancelled: " + context.cancellationToken().reason());
                 long durationMs = elapsedMs(toolStart);
-                DiagnosticEventLogger.toolExecutionCompleted(session, tool.name(), false, durationMs);
-                emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, durationMs);
-                return result;
+                return failResult(
+                        session,
+                        toolCall,
+                        tool.name(),
+                        effectiveInput,
+                        "Cancelled: " + context.cancellationToken().reason(),
+                        durationMs,
+                        true);
             }
-            ToolResult result = new ToolResult(tool.name(), false,
-                    "Tool execution failed: " + e.getMessage());
             long durationMs = elapsedMs(toolStart);
-            DiagnosticEventLogger.toolExecutionCompleted(session, tool.name(), false, durationMs);
-            emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, durationMs);
-            return result;
+            return failResult(
+                    session,
+                    toolCall,
+                    tool.name(),
+                    effectiveInput,
+                    "Tool execution failed: " + e.getMessage(),
+                    durationMs,
+                    true);
         }
+    }
+
+    private static ToolResult failResult(ConversationSession session,
+                                         ToolCall toolCall,
+                                         String toolName,
+                                         ObjectNode input,
+                                         String message,
+                                         long durationMs,
+                                         boolean logExecutionCompleted) {
+        ToolResult result = new ToolResult(toolName, false, message);
+        if (logExecutionCompleted) {
+            DiagnosticEventLogger.toolExecutionCompleted(session, toolName, false, durationMs);
+        }
+        emitCompleted(session, toolCall.id(), toolName, input, result, durationMs);
+        return result;
     }
 
     private static void emitCompleted(ConversationSession session,
