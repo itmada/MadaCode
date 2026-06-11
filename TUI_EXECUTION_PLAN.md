@@ -324,8 +324,9 @@ public static List<String> card(ToolDisplay display, int maxWidth, String runnin
 
 - 维护一个 `StringBuilder filter`。可打印字符追加进 filter；BACKSPACE 删最后一个字符；
   filter 非空时选项列表按"primary 或 secondary 含该子串（忽略大小写）"过滤。
-- filter 为空时保留现有的数字 1–9 跳转和字母跳转行为（零行为变化）；
-  filter 非空时数字也作为过滤字符处理。
+- filter 为空时保留现有的数字 1–9 跳转；字母键只精确匹配 hotkey，未命中即进入过滤。
+  零行为变化只承诺水平面板（`horizontal() == true`）和数字 1–9 跳转；垂直列表的
+  字母键行为是本任务有意变更的部分。filter 非空时数字也作为过滤字符处理。
 - ESC 语义分两段：filter 非空 → 第一次 ESC 清空 filter；filter 已空 → 取消选择
   （维持现状）。
 - ENTER 在过滤结果为空时不做任何事（不能选中不存在的项）。

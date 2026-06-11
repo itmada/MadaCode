@@ -12,7 +12,9 @@ import org.jline.terminal.Terminal;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -65,7 +67,111 @@ public final class InlineChoicePrompt<T> implements madacode.tui.widget.ChoicePr
         if (model.options().isEmpty()) {
             return Optional.empty();
         }
+        if (model.horizontal()) {
+            return chooseLegacy(model);
+        }
 
+        int selected = Math.max(0, Math.min(model.initialIndex(), model.options().size() - 1));
+        StringBuilder filter = new StringBuilder();
+        List<Integer> visible = allIndexes(model);
+
+        Attributes previous = terminal.enterRawMode();
+        screen.setCursorVisible(false);
+        try {
+            while (true) {
+                int width = screen.width();
+                screen.setLiveModal(renderPicker(model, visible, filter.toString(), selected, width));
+
+                TerminalKeys.KeyPress key = TerminalKeys.readKey(terminal.reader());
+
+                switch (key.key()) {
+                    case ENTER -> {
+                        if (visible.isEmpty()) {
+                            continue;
+                        }
+                        screen.clearLiveModal();
+                        return Optional.of(model.options().get(visible.get(selected)).value());
+                    }
+                    case ESCAPE -> {
+                        if (filter.length() > 0) {
+                            filter.setLength(0);
+                            visible = allIndexes(model);
+                            selected = 0;
+                            continue;
+                        }
+                        screen.clearLiveModal();
+                        fireInterrupt("esc");
+                        return Optional.empty();
+                    }
+                    case CTRL_C -> {
+                        screen.clearLiveModal();
+                        fireInterrupt("sigint");
+                        return Optional.empty();
+                    }
+                    case EOF -> {
+                        screen.clearLiveModal();
+                        fireInterrupt("eof");
+                        return Optional.empty();
+                    }
+                    case BACKSPACE -> {
+                        if (filter.length() > 0) {
+                            filter.deleteCharAt(filter.length() - 1);
+                            visible = filteredIndexes(model, filter.toString());
+                            selected = 0;
+                        }
+                    }
+                    case UP, LEFT -> {
+                        int size = visible.size();
+                        if (size > 0) {
+                            selected = Math.floorMod(selected - 1, size);
+                        }
+                    }
+                    case DOWN, RIGHT -> {
+                        int size = visible.size();
+                        if (size > 0) {
+                            selected = Math.floorMod(selected + 1, size);
+                        }
+                    }
+                    case PAGE_UP -> {
+                        int size = visible.size();
+                        if (size > 0) {
+                            int step = Math.max(1, size / 2);
+                            selected = clamp(selected - step, size);
+                        }
+                    }
+                    case PAGE_DOWN -> {
+                        int size = visible.size();
+                        if (size > 0) {
+                            int step = Math.max(1, size / 2);
+                            selected = clamp(selected + step, size);
+                        }
+                    }
+                    default -> {
+                        if (key.isPrintable()) {
+                            if (filter.isEmpty()) {
+                                OptionalInt newSel = resolvePrintable(key.ch(), model, visible, selected);
+                                if (newSel.isPresent()) {
+                                    selected = newSel.getAsInt();
+                                    continue;
+                                }
+                                if (key.ch() >= '1' && key.ch() <= '9') {
+                                    continue;
+                                }
+                            }
+                            filter.append((char) key.ch());
+                            visible = filteredIndexes(model, filter.toString());
+                            selected = 0;
+                        }
+                    }
+                }
+            }
+        } finally {
+            screen.setCursorVisible(true);
+            terminal.setAttributes(previous);
+        }
+    }
+
+    private Optional<T> chooseLegacy(ChoicePrompt.Model<T> model) throws IOException {
         int selected = Math.max(0, Math.min(model.initialIndex(), model.options().size() - 1));
 
         Attributes previous = terminal.enterRawMode();
@@ -115,7 +221,7 @@ public final class InlineChoicePrompt<T> implements madacode.tui.widget.ChoicePr
                     }
                     default -> {
                         if (key.isPrintable()) {
-                            int newSel = resolvePrintable(key.ch(), model, selected);
+                            int newSel = resolvePrintableLegacy(key.ch(), model, selected);
                             if (newSel != selected) {
                                 selected = newSel;
                             }
@@ -141,6 +247,21 @@ public final class InlineChoicePrompt<T> implements madacode.tui.widget.ChoicePr
         return result;
     }
 
+    private List<String> renderPicker(
+            ChoicePrompt.Model<T> model,
+            List<Integer> visible,
+            String filter,
+            int selected,
+            int width) {
+        List<org.jline.utils.AttributedString> lines = ChoicePanel.render(
+                buildView(model, visible, filter, selected), width);
+        List<String> result = new ArrayList<>(lines.size());
+        for (org.jline.utils.AttributedString line : lines) {
+            result.add(line.toAnsi());
+        }
+        return result;
+    }
+
     private static <T> ChoicePanel.ChoiceView buildView(
             ChoicePrompt.Model<T> model, int selected) {
         List<ChoicePanel.ChoiceOption> options = new ArrayList<>();
@@ -152,9 +273,70 @@ public final class InlineChoicePrompt<T> implements madacode.tui.widget.ChoicePr
                 model.title(), model.subtitle(), options, selected, model.footer(), model.horizontal());
     }
 
+    private static <T> ChoicePanel.ChoiceView buildView(
+            ChoicePrompt.Model<T> model,
+            List<Integer> visible,
+            String filter,
+            int selected) {
+        List<ChoicePanel.ChoiceOption> options = new ArrayList<>();
+        for (Integer index : visible) {
+            ChoicePrompt.Option<T> opt = model.options().get(index);
+            options.add(new ChoicePanel.ChoiceOption(
+                    opt.primary(), opt.secondary(), opt.meta(), opt.hotkey()));
+        }
+        return new ChoicePanel.ChoiceView(
+                model.title(),
+                filterSubtitle(model.subtitle(), filter, visible.isEmpty()),
+                options,
+                selected,
+                model.footer().isBlank()
+                        ? "type to filter · backspace delete · esc clear/cancel"
+                        : model.footer(),
+                false);
+    }
+
+    private static String filterSubtitle(String subtitle, String filter, boolean noMatch) {
+        String result = Objects.requireNonNullElse(subtitle, "");
+        if (!filter.isBlank()) {
+            String filterPart = "filter: " + filter + "▏";
+            result = result.isBlank() ? filterPart : result + "   " + filterPart;
+        }
+        if (noMatch) {
+            result = result.isBlank() ? "(no match)" : result + "  (no match)";
+        }
+        return result;
+    }
+
     // ---- key handling -----------------------------------------------
 
-    private int resolvePrintable(int ch, ChoicePrompt.Model<T> model, int selected) {
+    private OptionalInt resolvePrintable(
+            int ch,
+            ChoicePrompt.Model<T> model,
+            List<Integer> visible,
+            int selected) {
+        if (ch >= '1' && ch <= '9') {
+            int index = ch - '1';
+            if (index < visible.size()) {
+                return OptionalInt.of(index);
+            }
+            return OptionalInt.empty();
+        }
+        if (!Character.isLetterOrDigit(ch)) {
+            return OptionalInt.empty();
+        }
+        String needle = Character.toString((char) ch);
+        int size = visible.size();
+        for (int i = 0; i < size; i++) {
+            int visibleIndex = (selected + i) % size;
+            ChoicePrompt.Option<T> option = model.options().get(visible.get(visibleIndex));
+            if (matchesHotkey(option, needle)) {
+                return OptionalInt.of(visibleIndex);
+            }
+        }
+        return OptionalInt.empty();
+    }
+
+    private int resolvePrintableLegacy(int ch, ChoicePrompt.Model<T> model, int selected) {
         if (ch >= '1' && ch <= '9') {
             int index = ch - '1';
             if (index < model.options().size()) {
@@ -177,6 +359,11 @@ public final class InlineChoicePrompt<T> implements madacode.tui.widget.ChoicePr
         return selected;
     }
 
+    private static boolean matchesHotkey(ChoicePrompt.Option<?> option, String needle) {
+        return !option.hotkey().isBlank()
+                && option.hotkey().equalsIgnoreCase(needle);
+    }
+
     private static boolean matchesHotkeyOrPrimary(
             ChoicePrompt.Option<?> option, String needle) {
         if (!option.hotkey().isBlank()
@@ -190,6 +377,28 @@ public final class InlineChoicePrompt<T> implements madacode.tui.widget.ChoicePr
     private static int clamp(int index, int size) {
         if (size <= 0) return 0;
         return Math.max(0, Math.min(index, size - 1));
+    }
+
+    private static <T> List<Integer> allIndexes(ChoicePrompt.Model<T> model) {
+        List<Integer> all = new ArrayList<>();
+        for (int i = 0; i < model.options().size(); i++) {
+            all.add(i);
+        }
+        return all;
+    }
+
+    static <T> List<Integer> filteredIndexes(ChoicePrompt.Model<T> model, String needle) {
+        if (needle.isBlank()) return allIndexes(model);
+        String n = needle.toLowerCase(Locale.ROOT);
+        List<Integer> out = new ArrayList<>();
+        for (int i = 0; i < model.options().size(); i++) {
+            ChoicePrompt.Option<T> option = model.options().get(i);
+            if (option.primary().toLowerCase(Locale.ROOT).contains(n)
+                    || option.secondary().toLowerCase(Locale.ROOT).contains(n)) {
+                out.add(i);
+            }
+        }
+        return out;
     }
 
     private void fireInterrupt(String reason) {
