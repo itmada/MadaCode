@@ -221,25 +221,41 @@ public class QueryEngine {
 
     private TurnResult completeWithApiError(ConversationSession session, String message,
                                             int iterations, long durationMs) {
-        session.addMessage(Message.assistantTerminal(message, FinishReason.API_ERROR));
-        session.fireMetaEvent(new MetaEvent.Error(message, FinishReason.API_ERROR));
-        DiagnosticEventLogger.turnCompleted(session, FinishReason.API_ERROR, iterations, durationMs);
-        return new TurnResult(message, FinishReason.API_ERROR, iterations);
+        return completeTerminal(session, TerminalOutcome.apiError(message),
+                iterations, durationMs);
     }
 
     private TurnResult completeWithCancellation(ConversationSession session, String reason,
                                                 int iterations, long durationMs) {
-        boolean fromPermission = CancellationToken.REASON_PERMISSION_DENIED.equals(reason);
-        FinishReason finishReason = fromPermission
-                ? FinishReason.PERMISSION_CANCELLED
-                : FinishReason.CANCELLED;
-        String message = "(Cancelled" + (reason == null ? "" : ": " + reason) + ")";
-        session.addMessage(Message.assistantTerminal(message, finishReason));
-        if (!fromPermission) {
-            session.fireMetaEvent(new MetaEvent.Error(message, finishReason));
+        return completeTerminal(session, TerminalOutcome.cancellation(reason),
+                iterations, durationMs);
+    }
+
+    private TurnResult completeTerminal(ConversationSession session, TerminalOutcome outcome,
+                                        int iterations, long durationMs) {
+        session.addMessage(Message.assistantTerminal(outcome.message(), outcome.finishReason()));
+        if (outcome.fireErrorMetaEvent()) {
+            session.fireMetaEvent(new MetaEvent.Error(outcome.message(), outcome.finishReason()));
         }
-        DiagnosticEventLogger.turnCompleted(session, finishReason, iterations, durationMs);
-        return new TurnResult(message, finishReason, iterations);
+        DiagnosticEventLogger.turnCompleted(session, outcome.finishReason(), iterations, durationMs);
+        return new TurnResult(outcome.message(), outcome.finishReason(), iterations);
+    }
+
+    private record TerminalOutcome(String message,
+                                   FinishReason finishReason,
+                                   boolean fireErrorMetaEvent) {
+        private static TerminalOutcome apiError(String message) {
+            return new TerminalOutcome(message, FinishReason.API_ERROR, true);
+        }
+
+        private static TerminalOutcome cancellation(String reason) {
+            boolean fromPermission = CancellationToken.REASON_PERMISSION_DENIED.equals(reason);
+            FinishReason finishReason = fromPermission
+                    ? FinishReason.PERMISSION_CANCELLED
+                    : FinishReason.CANCELLED;
+            String message = "(Cancelled" + (reason == null ? "" : ": " + reason) + ")";
+            return new TerminalOutcome(message, finishReason, !fromPermission);
+        }
     }
 
     private long elapsedMs(long startedAtNanos) {
