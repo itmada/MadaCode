@@ -115,7 +115,10 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     taskId,
                     session.workingDirectory(),
                     session,
-                    completions::add);
+                    completion -> {
+                        completions.add(completion);
+                        screen.notifyAsync(Tk.dim(asyncCompletionNotification(completion)));
+                    });
         } catch (RuntimeException exception) {
             recordControllerEvent("worker_runtime_start_failed",
                     Map.of(
@@ -358,6 +361,22 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         };
         return statusTag + " " + result.message()
                 + " (" + result.workersLaunched() + " worker cycle(s) launched)";
+    }
+
+    private static String asyncCompletionNotification(LongRunningRuntime.Completion completion) {
+        String summary = completionSummary(completion);
+        return "[long-running] Worker runtime completed: " + summary;
+    }
+
+    private static String completionSummary(LongRunningRuntime.Completion completion) {
+        if (completion.error() != null) {
+            Throwable error = completion.error();
+            return "[failed] Long-running launcher failed: "
+                    + (error.getMessage() == null
+                    ? error.getClass().getSimpleName()
+                    : error.getMessage());
+        }
+        return longRunningResultSummary(completion.result());
     }
 
     private static String longRunningCompletionPrompt(String summary) {
