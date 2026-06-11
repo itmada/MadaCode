@@ -5,6 +5,8 @@ import madacode.provider.ProviderLoader;
 import madacode.provider.ProviderRegistry;
 import madacode.provider.ProviderStateStore;
 import madacode.provider.TemplateCreatedException;
+import madacode.logging.DefaultDiagnosticEvents;
+import madacode.logging.DiagnosticEvents;
 import madacode.logging.ModelResponseLogWriter;
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiErrorClassifier;
@@ -55,15 +57,17 @@ final class EnvironmentAssembly {
         }
 
         boolean memoryEnabled = !args.noMemory();
+        DiagnosticEvents diagnosticEvents = new DefaultDiagnosticEvents();
         return new EnvironmentRuntime(
                 args,
                 registry,
                 loader,
-                createApiClient(registry, paths),
+                createApiClient(registry, paths, diagnosticEvents),
                 paths.homeDir(),
                 paths.projectDir(),
                 paths,
-                memoryEnabled);
+                memoryEnabled,
+                diagnosticEvents);
     }
 
     private static java.util.List<madacode.provider.Provider> loadProviders(
@@ -79,11 +83,18 @@ final class EnvironmentAssembly {
         }
     }
 
-    private static ApiClient createApiClient(ProviderRegistry registry, RuntimePaths paths) {
+    private static ApiClient createApiClient(
+            ProviderRegistry registry,
+            RuntimePaths paths,
+            DiagnosticEvents diagnosticEvents) {
         return new RetryingApiClient(
-                new MadaApiClient(registry, new ModelResponseLogWriter(modelResponseLogDir(paths))),
+                new MadaApiClient(
+                        registry,
+                        new ModelResponseLogWriter(modelResponseLogDir(paths)),
+                        diagnosticEvents),
                 RetryOptions.defaults(),
-                new ApiErrorClassifier());
+                new ApiErrorClassifier(),
+                diagnosticEvents);
     }
 
     private static Path modelResponseLogDir(RuntimePaths paths) {

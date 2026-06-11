@@ -16,6 +16,7 @@ import madacode.memory.MemoryLoader;
 import madacode.permission.JLineApprovalPrompt;
 import madacode.permission.PermissionGate;
 import madacode.provider.ProviderRegistry;
+import madacode.logging.DiagnosticEvents;
 import madacode.services.api.ApiClient;
 import madacode.services.compact.CompactPlanner;
 import madacode.skill.SkillRegistry;
@@ -36,7 +37,8 @@ record EnvironmentRuntime(
         Path homeDir,
         Path projectDir,
         RuntimePaths paths,
-        boolean memoryEnabled) {}
+        boolean memoryEnabled,
+        DiagnosticEvents diagnosticEvents) {}
 
 record TerminalRuntime(
         Terminal terminal,

@@ -21,7 +21,8 @@ import madacode.services.api.ApiClientException;
 import madacode.services.compact.CompactPlanner;
 import madacode.hook.HookManager;
 import madacode.prompt.SystemPromptBuilder;
-import madacode.logging.DiagnosticEventLogger;
+import madacode.logging.DefaultDiagnosticEvents;
+import madacode.logging.DiagnosticEvents;
 import madacode.permission.PermissionGate;
 import madacode.tool.ToolRegistry;
 import madacode.tool.validation.ToolInputValidator;
@@ -40,6 +41,7 @@ public class QueryEngine {
     private final CompactPlanner compactPlanner;
     private final Integer maxIterations;
     private final HookManager hookManager;
+    private final DiagnosticEvents diagnosticEvents;
     private QueryEngine(Builder builder) {
         this.apiClient = Objects.requireNonNull(builder.apiClient, "apiClient");
         this.toolRegistry = Objects.requireNonNull(builder.toolRegistry, "toolRegistry");
@@ -49,6 +51,7 @@ public class QueryEngine {
         this.compactPlanner = builder.compactPlanner;
         this.maxIterations = builder.maxIterations;
         this.hookManager = builder.hookManager;
+        this.diagnosticEvents = Objects.requireNonNull(builder.diagnosticEvents, "diagnosticEvents");
     }
 
     public QueryEngine(ApiClient apiClient,
@@ -56,6 +59,15 @@ public class QueryEngine {
                        SystemPromptBuilder systemPromptBuilder,
                        PermissionGate permissionGate) {
         this(new Builder(apiClient, toolRegistry, systemPromptBuilder, permissionGate));
+    }
+
+    public QueryEngine(ApiClient apiClient,
+                       ToolRegistry toolRegistry,
+                       SystemPromptBuilder systemPromptBuilder,
+                       PermissionGate permissionGate,
+                       DiagnosticEvents diagnosticEvents) {
+        this(new Builder(apiClient, toolRegistry, systemPromptBuilder, permissionGate)
+                .diagnosticEvents(diagnosticEvents));
     }
 
     /** Returns the API client used by this engine. */
@@ -80,6 +92,7 @@ public class QueryEngine {
         private CompactPlanner compactPlanner;
         private Integer maxIterations;
         private HookManager hookManager;
+        private DiagnosticEvents diagnosticEvents = new DefaultDiagnosticEvents();
 
         Builder(ApiClient apiClient, ToolRegistry toolRegistry,
                 SystemPromptBuilder systemPromptBuilder, PermissionGate permissionGate) {
@@ -100,6 +113,7 @@ public class QueryEngine {
         public Builder toolInputValidator(ToolInputValidator v) { this.toolInputValidator = Objects.requireNonNull(v); return this; }
         public Builder compactPlanner(CompactPlanner p)     { this.compactPlanner = p; return this; }
         public Builder hookManager(HookManager h)           { this.hookManager = h; return this; }
+        public Builder diagnosticEvents(DiagnosticEvents d) { this.diagnosticEvents = Objects.requireNonNull(d); return this; }
 
         public QueryEngine build() { return new QueryEngine(this); }
     }
@@ -119,10 +133,10 @@ public class QueryEngine {
 
         long turnStart = System.nanoTime();
         session.addMessage(Message.user(userInput));
-        DiagnosticEventLogger.turnStarted(session, maxIterations);
+        diagnosticEvents.turnStarted(session, maxIterations);
 
         ToolExecutor toolExecutor = new ToolExecutor(
-                toolRegistry, toolInputValidator, permissionGate, hookManager);
+                toolRegistry, toolInputValidator, permissionGate, hookManager, diagnosticEvents);
         ToolOrchestrator toolOrchestrator = new ToolOrchestrator(toolRegistry, toolExecutor);
 
         CancellationToken cancel = ctx.cancellationToken();
@@ -158,7 +172,7 @@ public class QueryEngine {
                     response = apiClient.send(session.messages(), systemPrompt,
                             visibleTools, writer.sink(), cancel);
                     long iterElapsed = elapsedMs(iterStart);
-                    DiagnosticEventLogger.modelIterationCompleted(
+                    diagnosticEvents.modelIterationCompleted(
                             session, iteration + 1, iterElapsed,
                             response.toolCalls() == null ? 0 : response.toolCalls().size());
                 } catch (ApiClientException e) {
@@ -187,7 +201,7 @@ public class QueryEngine {
                 FinishReason finishReason = response.stopReason() == StopReason.MAX_TOKENS_REACHED
                         ? FinishReason.MODEL_TRUNCATED
                         : FinishReason.COMPLETED;
-                DiagnosticEventLogger.turnCompleted(session, finishReason,
+                diagnosticEvents.turnCompleted(session, finishReason,
                         iteration + 1, elapsedMs(turnStart));
                 return new TurnResult(response.assistantText(), finishReason, iteration + 1);
             }
@@ -212,7 +226,7 @@ public class QueryEngine {
         String warning = "(Reached max iterations: " + maxIterations + ")";
         session.addMessage(Message.system(warning));
         session.fireMetaEvent(new MetaEvent.Error(warning, FinishReason.MAX_ITERATIONS));
-        DiagnosticEventLogger.turnCompleted(session, FinishReason.MAX_ITERATIONS,
+        diagnosticEvents.turnCompleted(session, FinishReason.MAX_ITERATIONS,
                 maxIterations, elapsedMs(turnStart));
         return new TurnResult(warning, FinishReason.MAX_ITERATIONS, maxIterations);
     }
@@ -237,7 +251,7 @@ public class QueryEngine {
         if (outcome.fireErrorMetaEvent()) {
             session.fireMetaEvent(new MetaEvent.Error(outcome.message(), outcome.finishReason()));
         }
-        DiagnosticEventLogger.turnCompleted(session, outcome.finishReason(), iterations, durationMs);
+        diagnosticEvents.turnCompleted(session, outcome.finishReason(), iterations, durationMs);
         return new TurnResult(outcome.message(), outcome.finishReason(), iterations);
     }
 

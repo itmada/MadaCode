@@ -154,7 +154,7 @@ public class ConversationSession {
             try {
                 l.onMessageAppended(index, message);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onMessageAppended", e);
+                logListenerCrash("onMessageAppended", e);
             }
         }
     }
@@ -258,7 +258,7 @@ public class ConversationSession {
             try {
                 l.onToolExecutionReached(toolUseId, toolName, input);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolExecutionReached", e);
+                logListenerCrash("onToolExecutionReached", e);
             }
         }
     }
@@ -268,7 +268,7 @@ public class ConversationSession {
             try {
                 l.onToolExecutionStarted(toolUseId, toolName, input);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolExecutionStarted", e);
+                logListenerCrash("onToolExecutionStarted", e);
             }
         }
     }
@@ -278,7 +278,7 @@ public class ConversationSession {
             try {
                 l.onToolExecutionCompleted(toolUseId, success, durationMs);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolExecutionCompleted", e);
+                logListenerCrash("onToolExecutionCompleted", e);
             }
         }
     }
@@ -288,7 +288,7 @@ public class ConversationSession {
             try {
                 l.onToolResultAvailable(toolUseId, success, output);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolResultAvailable", e);
+                logListenerCrash("onToolResultAvailable", e);
             }
         }
     }
@@ -298,7 +298,7 @@ public class ConversationSession {
             try {
                 l.onToolExecutionProgress(toolUseId, progressText);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolExecutionProgress", e);
+                logListenerCrash("onToolExecutionProgress", e);
             }
         }
     }
@@ -308,7 +308,7 @@ public class ConversationSession {
             try {
                 l.onToolExecutionActivity(toolUseId, activityText);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolExecutionActivity", e);
+                logListenerCrash("onToolExecutionActivity", e);
             }
         }
     }
@@ -318,7 +318,7 @@ public class ConversationSession {
             try {
                 l.onToolExecutionMetric(toolUseId, metricText);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onToolExecutionMetric", e);
+                logListenerCrash("onToolExecutionMetric", e);
             }
         }
     }
@@ -328,7 +328,7 @@ public class ConversationSession {
             try {
                 l.onTurnEnd();
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onTurnEnd", e);
+                logListenerCrash("onTurnEnd", e);
             }
         }
     }
@@ -341,7 +341,7 @@ public class ConversationSession {
             try {
                 l.onMetaEvent(meta);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onMetaEvent", e);
+                logListenerCrash("onMetaEvent", e);
             }
         }
     }
@@ -357,6 +357,12 @@ public class ConversationSession {
 
     public String sessionId() {
         return sessionId;
+    }
+
+    private static void logListenerCrash(String callbackName, RuntimeException error) {
+        // TODO(P2-1): Keep listener crash logging on the static facade until
+        // session listener fanout can accept injected DiagnosticEvents cleanly.
+        madacode.logging.DiagnosticEventLogger.listenerCrashed(callbackName, error);
     }
 
     public ReadFileState readFileState() {
@@ -466,7 +472,7 @@ public class ConversationSession {
             try {
                 l.onMessageAppended(index, message);
             } catch (RuntimeException e) {
-                madacode.logging.DiagnosticEventLogger.listenerCrashed("onMessageAppended", e);
+                logListenerCrash("onMessageAppended", e);
             }
         }
     }

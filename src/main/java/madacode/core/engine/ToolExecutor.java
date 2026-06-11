@@ -19,7 +19,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import madacode.hook.HookManager;
-import madacode.logging.DiagnosticEventLogger;
+import madacode.logging.DefaultDiagnosticEvents;
+import madacode.logging.DiagnosticEvents;
 import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
 import madacode.tool.Tool;
@@ -41,13 +42,22 @@ public final class ToolExecutor {
     private final ToolInputValidator inputValidator;
     private final PermissionGate permissionGate;
     private final HookManager hookManager;
+    private final DiagnosticEvents diagnosticEvents;
     private final ObjectMapper mapper;
 
     public ToolExecutor(ToolRegistry toolRegistry,
                         ToolInputValidator inputValidator,
                         PermissionGate permissionGate,
                         HookManager hookManager) {
-        this(toolRegistry, inputValidator, permissionGate, hookManager, new ObjectMapper());
+        this(toolRegistry, inputValidator, permissionGate, hookManager, new DefaultDiagnosticEvents());
+    }
+
+    public ToolExecutor(ToolRegistry toolRegistry,
+                        ToolInputValidator inputValidator,
+                        PermissionGate permissionGate,
+                        HookManager hookManager,
+                        DiagnosticEvents diagnosticEvents) {
+        this(toolRegistry, inputValidator, permissionGate, hookManager, diagnosticEvents, new ObjectMapper());
     }
 
     public ToolExecutor(ToolRegistry toolRegistry,
@@ -55,10 +65,20 @@ public final class ToolExecutor {
                         PermissionGate permissionGate,
                         HookManager hookManager,
                         ObjectMapper mapper) {
+        this(toolRegistry, inputValidator, permissionGate, hookManager, new DefaultDiagnosticEvents(), mapper);
+    }
+
+    public ToolExecutor(ToolRegistry toolRegistry,
+                        ToolInputValidator inputValidator,
+                        PermissionGate permissionGate,
+                        HookManager hookManager,
+                        DiagnosticEvents diagnosticEvents,
+                        ObjectMapper mapper) {
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.inputValidator = Objects.requireNonNull(inputValidator, "inputValidator");
         this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate");
         this.hookManager = hookManager;
+        this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -135,7 +155,7 @@ public final class ToolExecutor {
 
         ValidationResult validation = inputValidator.validate(tool, effectiveInput);
         if (!validation.valid()) {
-            DiagnosticEventLogger.toolValidationFailed(session, tool.name(), validation.errors());
+            diagnosticEvents.toolValidationFailed(session, tool.name(), validation.errors());
             return failResult(
                     session,
                     toolCall,
@@ -208,7 +228,7 @@ public final class ToolExecutor {
             @SuppressWarnings({"unchecked", "rawtypes"})
             ToolResult result = ((Tool) tool).execute(typedInput, context);
             long durationMs = elapsedMs(toolStart);
-            DiagnosticEventLogger.toolExecutionCompleted(session, tool.name(), result.success(), durationMs);
+            diagnosticEvents.toolExecutionCompleted(session, tool.name(), result.success(), durationMs);
             emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, durationMs);
             if (hookManager != null && !tool.bypassesHooks()) {
                 hookManager.runPostToolUse(tool.name(), effectiveInput,
@@ -249,16 +269,16 @@ public final class ToolExecutor {
         }
     }
 
-    private static ToolResult failResult(ConversationSession session,
-                                         ToolCall toolCall,
-                                         String toolName,
-                                         ObjectNode input,
-                                         String message,
-                                         long durationMs,
-                                         boolean logExecutionCompleted) {
+    private ToolResult failResult(ConversationSession session,
+                                  ToolCall toolCall,
+                                  String toolName,
+                                  ObjectNode input,
+                                  String message,
+                                  long durationMs,
+                                  boolean logExecutionCompleted) {
         ToolResult result = new ToolResult(toolName, false, message);
         if (logExecutionCompleted) {
-            DiagnosticEventLogger.toolExecutionCompleted(session, toolName, false, durationMs);
+            diagnosticEvents.toolExecutionCompleted(session, toolName, false, durationMs);
         }
         emitCompleted(session, toolCall.id(), toolName, input, result, durationMs);
         return result;

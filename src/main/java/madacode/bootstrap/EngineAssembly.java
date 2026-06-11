@@ -26,6 +26,7 @@ final class EngineAssembly {
                         environment.api(), tools.registry(),
                         new SystemPromptBuilder(tools.memory(), tools.skillRegistry()),
                         permission)
+                .diagnosticEvents(environment.diagnosticEvents())
                 .compactPlanner(compaction)
                 .hookManager(new HookManager(environment.paths().globalHooksFile()))
                 .build();
