@@ -1,6 +1,7 @@
 package madacode.tui;
 
 import madacode.tui.theme.Tk;
+import madacode.tui.theme.Token;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,6 +19,8 @@ import java.util.List;
 public final class WelcomeCard {
 
     private static final String VERSION = "v0.1.0";
+    private static final String TIPS =
+            "/help commands · @path attach files · ctrl+o expand output";
     private static final Path HOME = Path.of(System.getProperty("user.home"));
 
     private static final String[] LOGO = {
@@ -72,6 +75,8 @@ public final class WelcomeCard {
         int innerWidth = Math.max(
                 metaStart + naturalMetaWidth + sidePad,  // content + right padding
                 Tk.displayWidth(title) + 3);             // title bar minimum
+        innerWidth = Math.max(innerWidth,
+                sidePad + Tk.displayWidth(TIPS) + sidePad); // full shortcut hint
         innerWidth = Math.min(innerWidth, terminalWidth - 4); // don't overflow terminal
 
         // Build meta with cwd truncated to the actual available space
@@ -98,7 +103,7 @@ public final class WelcomeCard {
             String metaText = (i >= 1 && i <= 4) ? meta[i - 1] : "";
             String line = Tk.bold("│")
                     + " ".repeat(sidePad)
-                    + LOGO[i]
+                    + Tk.apply(Token.TOOL_NAME, LOGO[i])
                     + " ".repeat(gap)
                     + metaText;
             int visibleLen = Tk.displayWidth(line) - 1; // subtract leading │
@@ -107,9 +112,15 @@ public final class WelcomeCard {
             lines.add(line);
         }
 
-        // ---- 2 blank rows (bottom vertical padding) ----
+        // ---- blank row + shortcut tips row (bottom padding) ----
         lines.add(Tk.bold("│") + " ".repeat(innerWidth) + Tk.bold("│"));
-        lines.add(Tk.bold("│") + " ".repeat(innerWidth) + Tk.bold("│"));
+        String tipsRaw = TIPS;
+        if (Tk.displayWidth(tipsRaw) > innerWidth - sidePad) {
+            tipsRaw = "/help commands";
+        }
+        String tipsLine = Tk.bold("│") + " ".repeat(sidePad) + Tk.dim(tipsRaw);
+        int tipsPad = Math.max(0, innerWidth - (Tk.displayWidth(tipsLine) - 1));
+        lines.add(tipsLine + " ".repeat(tipsPad) + Tk.bold("│"));
 
         // ---- bottom border ----
         lines.add(Tk.bold("╰" + "─".repeat(innerWidth) + "╯"));

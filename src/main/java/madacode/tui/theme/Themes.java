@@ -44,6 +44,17 @@ public final class Themes {
         return new MapTheme(buildDark());
     }
 
+    // 256-color (xterm indexed) palette. Mid-tone indices chosen to stay
+    // readable on both dark and light terminal backgrounds.
+    private static final int GREEN_SOFT = 71;   // success / diff add
+    private static final int RED_SOFT   = 167;  // failure / diff del
+    private static final int AMBER      = 179;  // running / warnings
+    private static final int TEAL       = 80;   // brand accent: tool names, plan mode
+    private static final int STEEL_BLUE = 110;  // file paths / diff hunks
+    private static final int SKY_BLUE   = 75;   // links
+    private static final int SAND       = 180;  // inline code / tool args
+    private static final int ORCHID     = 177;  // thinking pulse
+
     private static Map<Token, AttributedStyle> buildDark() {
         EnumMap<Token, AttributedStyle> m = new EnumMap<>(Token.class);
         AttributedStyle d = AttributedStyle.DEFAULT;
@@ -51,38 +62,38 @@ public final class Themes {
         m.put(Token.MUTED, d.faint());
         m.put(Token.EMPHASIS, d.bold());
 
-        m.put(Token.SUCCESS, d.foreground(AttributedStyle.GREEN));
-        m.put(Token.FAILURE, d.foreground(AttributedStyle.RED));
-        m.put(Token.RUNNING, d.foreground(AttributedStyle.YELLOW));
+        m.put(Token.SUCCESS, d.foreground(GREEN_SOFT));
+        m.put(Token.FAILURE, d.foreground(RED_SOFT));
+        m.put(Token.RUNNING, d.foreground(AMBER));
         m.put(Token.INFO,    d.faint());
-        m.put(Token.THINKING_PULSE, d.foreground(AttributedStyle.MAGENTA + AttributedStyle.BRIGHT));
+        m.put(Token.THINKING_PULSE, d.foreground(ORCHID));
 
         m.put(Token.TAG_INFO,  d.faint());
-        m.put(Token.TAG_WARN,  d.foreground(AttributedStyle.YELLOW));
-        m.put(Token.TAG_ERROR, d.foreground(AttributedStyle.RED));
+        m.put(Token.TAG_WARN,  d.foreground(AMBER));
+        m.put(Token.TAG_ERROR, d.foreground(RED_SOFT));
 
-        m.put(Token.TOOL_NAME, d.bold().foreground(AttributedStyle.CYAN));
-        m.put(Token.TOOL_ARG,  d.foreground(AttributedStyle.YELLOW));
-        m.put(Token.FILE_PATH, d.foreground(AttributedStyle.CYAN));
+        m.put(Token.TOOL_NAME, d.bold().foreground(TEAL));
+        m.put(Token.TOOL_ARG,  d.foreground(SAND));
+        m.put(Token.FILE_PATH, d.foreground(STEEL_BLUE));
 
-        m.put(Token.DIFF_ADD,  d.foreground(AttributedStyle.GREEN));
-        m.put(Token.DIFF_DEL,  d.foreground(AttributedStyle.RED));
-        m.put(Token.DIFF_HUNK, d.foreground(AttributedStyle.CYAN));
+        m.put(Token.DIFF_ADD,  d.foreground(GREEN_SOFT));
+        m.put(Token.DIFF_DEL,  d.foreground(RED_SOFT));
+        m.put(Token.DIFF_HUNK, d.foreground(STEEL_BLUE));
 
         m.put(Token.HEADING,     d.bold());
-        m.put(Token.INLINE_CODE, d.foreground(AttributedStyle.YELLOW));
+        m.put(Token.INLINE_CODE, d.foreground(SAND));
         m.put(Token.CODE_FENCE,  d.faint());
         m.put(Token.QUOTE,       d.faint().italic());
-        m.put(Token.LINK,        d.foreground(AttributedStyle.CYAN).underline());
+        m.put(Token.LINK,        d.foreground(SKY_BLUE).underline());
 
         m.put(Token.STATUS_KEY,       d.faint());
         m.put(Token.STATUS_VAL,       d);
         m.put(Token.STATUS_MODE_AUTO, d.faint());
-        m.put(Token.STATUS_MODE_PLAN, d.foreground(AttributedStyle.CYAN));
+        m.put(Token.STATUS_MODE_PLAN, d.foreground(TEAL));
         m.put(Token.TIP_AUTO, d.faint());
-        m.put(Token.TIP_PLAN, d.foreground(AttributedStyle.CYAN));
+        m.put(Token.TIP_PLAN, d.foreground(TEAL));
         m.put(Token.MODE_INDICATOR_AUTO, d.faint());
-        m.put(Token.MODE_INDICATOR_PLAN, d.foreground(AttributedStyle.CYAN));
+        m.put(Token.MODE_INDICATOR_PLAN, d.foreground(TEAL));
 
         m.put(Token.PROMPT_ACTIVE, d.bold().foreground(AttributedStyle.WHITE + AttributedStyle.BRIGHT));
         m.put(Token.PROMPT_HISTORY, d.faint());

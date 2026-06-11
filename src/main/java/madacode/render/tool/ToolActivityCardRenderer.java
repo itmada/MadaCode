@@ -80,24 +80,19 @@ public final class ToolActivityCardRenderer {
         return summary + " · " + elapsedSec + "s";
     }
 
-    /** Plain glyph character by status. */
+    /** Plain glyph character by status (shape mirrors {@link StageWriter#glyph}). */
     public static String statusGlyph(DisplayStatus status) {
-        return switch (status) {
-            case RUNNING -> "●";
-            case SUCCESS -> "●";
-            case FAILED, DENIED -> "●";
-            case INFO -> "●";
-        };
+        return StageWriter.glyph(stageStatus(status));
     }
 
     /** Styled bullet (with theme colour) for the card header / live row. */
     public static String statusBullet(DisplayStatus status) {
+        String glyph = statusGlyph(status);
         return switch (status) {
-            case RUNNING -> running("●");
-            case SUCCESS -> success("●");
-            case FAILED  -> failure("●");
-            case DENIED  -> failure("●");
-            case INFO    -> dim("●");
+            case RUNNING -> running(glyph);
+            case SUCCESS -> success(glyph);
+            case FAILED, DENIED -> failure(glyph);
+            case INFO    -> dim(glyph);
         };
     }
 

@@ -143,6 +143,10 @@ public final class ApprovalPanel {
                     b.append(selected ? SELECTION_PREFIX : UNSELECTED_PREFIX);
                     style(b, action.destructive() ? Token.TAG_WARN : selected ? Token.STATUS_MODE_PLAN : Token.STATUS_VAL);
                     b.append(action.label());
+                    if (!action.hotkey().isBlank()) {
+                        style(b, Token.MUTED);
+                        b.append(" (").append(action.hotkey()).append(")");
+                    }
                     if (i < actions.size() - 1) {
                         style(b, Token.MUTED);
                         b.append("    ");
@@ -227,6 +231,9 @@ public final class ApprovalPanel {
             boolean selected = i == selectedIdx;
             line.append(selected ? SELECTION_PREFIX : UNSELECTED_PREFIX);
             line.append(action.label());
+            if (!action.hotkey().isBlank()) {
+                line.append(" (").append(action.hotkey()).append(")");
+            }
             if (i < DEFAULT_ACTIONS.size() - 1) {
                 line.append("    ");
             }

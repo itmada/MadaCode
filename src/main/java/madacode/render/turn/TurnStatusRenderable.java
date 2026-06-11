@@ -85,7 +85,7 @@ public final class TurnStatusRenderable implements Renderable {
             return current;
         }
         long elapsedSeconds = Math.max(1L, elapsedMs / 1000L);
-        return current + " (" + elapsedSeconds + "s)";
+        return current + " (" + elapsedSeconds + "s · esc to interrupt)";
     }
 
     @Override

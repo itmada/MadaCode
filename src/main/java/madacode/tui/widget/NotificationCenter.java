@@ -2,6 +2,7 @@ package madacode.tui.widget;
 
 import madacode.tui.Screen;
 import madacode.tui.theme.Tk;
+import madacode.tui.theme.Token;
 
 import java.util.Objects;
 
@@ -34,11 +35,11 @@ public final class NotificationCenter {
     public void publish(Level level, String message) {
         if (message == null || message.isBlank()) return;
         String prefix = switch (level) {
-            case INFO -> Tk.infoTag("info");
-            case WARN -> Tk.warnTag("warn");
-            case ERROR -> Tk.errorTag("error");
+            case INFO -> Tk.apply(Token.TAG_INFO, "▏info");
+            case WARN -> Tk.apply(Token.TAG_WARN, "▏warn");
+            case ERROR -> Tk.apply(Token.TAG_ERROR, "▏error");
         };
-        screen.scrollback(prefix + " " + message.strip());
+        screen.scrollback(prefix + "  " + message.strip());
     }
 
     public void clear() {

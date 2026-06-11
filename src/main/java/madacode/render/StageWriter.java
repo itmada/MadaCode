@@ -29,10 +29,25 @@ public final class StageWriter {
         }
     }
 
+    /**
+     * Status glyph: shape varies with state so success/failure remain
+     * distinguishable without color (accessibility). All glyphs are
+     * single-column under wcwidth.
+     */
+    public static String glyph(Status status) {
+        return switch (status) {
+            case RUNNING, SUCCESS -> "●";
+            case FAILED -> "✗";
+            case DENIED -> "⊘";
+            case INFO -> "○";
+            case WARN -> "▲";
+        };
+    }
+
     public static List<String> render(Stage stage) {
         Objects.requireNonNull(stage, "stage");
         List<String> lines = new ArrayList<>();
-        lines.add(colored(stage.status(), "●") + " " + styledTitle(stage.title()));
+        lines.add(colored(stage.status(), glyph(stage.status())) + " " + styledTitle(stage.title()));
         for (int i = 0; i < stage.summary().size(); i++) {
             boolean last = i == stage.summary().size() - 1
                     && !(stage.hasMore() && !stage.verbose().isEmpty());
