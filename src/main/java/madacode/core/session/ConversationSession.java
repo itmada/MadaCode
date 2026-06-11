@@ -71,6 +71,8 @@ public class ConversationSession {
             new AtomicReference<>(TokenUsage.ZERO);
     private final SessionEventBus eventBus = new SessionEventBus();
     private volatile StreamingAssistantHandle currentStream;
+    private volatile int persistedMessageCount;
+    private volatile boolean transcriptRewriteRequired;
     private final ReadFileState readFileState = new ReadFileState();
     private final AtomicReference<Set<String>> loadedDeferredToolsRef =
             new AtomicReference<>(Set.of());
@@ -121,6 +123,7 @@ public class ConversationSession {
     public void replaceMessages(List<Message> newMessages) {
         messagesRef.set(List.copyOf(newMessages));
         tokenUsageRef.set(TokenUsage.ZERO);
+        transcriptRewriteRequired = true;
     }
 
     public void addMessage(Message message) {
@@ -352,8 +355,25 @@ public class ConversationSession {
         return messagesRef.get();
     }
 
+    int persistedMessageCount() {
+        return persistedMessageCount;
+    }
+
+    boolean transcriptRewriteRequired() {
+        return transcriptRewriteRequired;
+    }
+
+    void markMessagesPersisted(int messageCount) {
+        this.persistedMessageCount = Math.max(0, messageCount);
+        this.transcriptRewriteRequired = false;
+    }
+
     public List<String> inputHistory() {
         return inputHistoryRef.get();
+    }
+
+    public void replaceInputHistory(List<String> newHistory) {
+        inputHistoryRef.set(List.copyOf(Objects.requireNonNull(newHistory, "newHistory")));
     }
 
     public void addInput(String input) {
@@ -670,6 +690,10 @@ public class ConversationSession {
 
         public void replaceTodos(List<TodoItem> newTodos) {
             todosRef.set(List.copyOf(newTodos));
+        }
+
+        public void replaceItems(List<PlanItem> newItems) {
+            itemsRef.set(List.copyOf(newItems));
         }
 
         public void clearAll() {

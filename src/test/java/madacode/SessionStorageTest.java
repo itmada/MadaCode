@@ -1,6 +1,7 @@
 package madacode;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
 import madacode.core.model.FinishReason;
@@ -19,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -59,13 +61,18 @@ public class SessionStorageTest {
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
 
-        var json = mapper.readTree(storage.transcriptPath(session.sessionId()).toFile());
-        assertEquals(10, json
+        List<String> transcriptLines = Files.readAllLines(storage.transcriptPath(session.sessionId()));
+        JsonNode header = mapper.readTree(transcriptLines.getFirst());
+        JsonNode state = mapper.readTree(storage.transcriptPath(session.sessionId())
+                .resolveSibling(session.sessionId() + ".state.json").toFile());
+        assertEquals(6, transcriptLines.size());
+        assertEquals("madacode-session-jsonl", header.path("format").asText());
+        assertEquals(10, header
                 .path("schemaVersion")
                 .asInt());
-        assertEquals("web_fetch", json.path("loadedDeferredTools").path(0).asText());
-        assertEquals("long-running", json.path("workflowMode").asText());
-        assertEquals("all-pass", json.path("permissionMode").asText());
+        assertEquals("web_fetch", state.path("loadedDeferredTools").path(0).asText());
+        assertEquals("long-running", state.path("workflowMode").asText());
+        assertEquals("all-pass", state.path("permissionMode").asText());
         assertEquals(session.sessionId(), restored.sessionId());
         assertEquals(session.createdAt(), restored.createdAt());
         assertEquals(session.workingDirectory(), restored.workingDirectory());
@@ -108,7 +115,7 @@ public class SessionStorageTest {
                 }
                 """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
         java.nio.file.Files.createDirectories(storage.transcriptPath("legacy-session").getParent());
-        java.nio.file.Files.writeString(storage.transcriptPath("legacy-session"), transcript);
+        java.nio.file.Files.writeString(tempDir.resolve("legacy-session.json"), transcript);
 
         ConversationSession restored = storage.load("legacy-session");
 
@@ -195,7 +202,7 @@ public class SessionStorageTest {
                 }
                 """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
         Files.createDirectories(storage.transcriptPath("workflow-legacy").getParent());
-        Files.writeString(storage.transcriptPath("workflow-legacy"), transcript);
+        Files.writeString(tempDir.resolve("workflow-legacy.json"), transcript);
 
         ConversationSession restored = storage.load("workflow-legacy");
 
@@ -233,7 +240,7 @@ public class SessionStorageTest {
                 }
                 """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
         Files.createDirectories(storage.transcriptPath("bad-workflow-mode").getParent());
-        Files.writeString(storage.transcriptPath("bad-workflow-mode"), transcript);
+        Files.writeString(tempDir.resolve("bad-workflow-mode.json"), transcript);
 
         SessionStorageException exception = assertThrows(
                 SessionStorageException.class,
@@ -270,7 +277,7 @@ public class SessionStorageTest {
                 }
                 """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
         Files.createDirectories(storage.transcriptPath("bad-long-running-stage").getParent());
-        Files.writeString(storage.transcriptPath("bad-long-running-stage"), transcript);
+        Files.writeString(tempDir.resolve("bad-long-running-stage.json"), transcript);
 
         SessionStorageException exception = assertThrows(
                 SessionStorageException.class,
@@ -315,6 +322,37 @@ public class SessionStorageTest {
     }
 
     @Test
+    void listEntriesPrefersJsonlOverLegacyJsonForSameSessionId() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir);
+        ConversationSession session = new ConversationSession(
+                "dupe-session",
+                Instant.parse("2026-05-23T08:30:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized."), Message.user("hello")));
+        storage.save(session);
+
+        Files.writeString(tempDir.resolve("dupe-session.json"), """
+                {
+                  "schemaVersion": 10,
+                  "sessionId": "dupe-session",
+                  "createdAt": "2026-05-23T08:30:00Z",
+                  "workingDirectory": "%s",
+                  "messages": []
+                }
+                """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\")));
+
+        List<madacode.core.session.SessionListEntry> entries = storage.listEntries();
+        List<SessionStorage.SessionSummary> summaries = entries.stream()
+                .filter(SessionStorage.SessionSummary.class::isInstance)
+                .map(SessionStorage.SessionSummary.class::cast)
+                .sorted(Comparator.comparing(SessionStorage.SessionSummary::sessionId))
+                .toList();
+
+        assertEquals(1, summaries.size());
+        assertEquals(storage.transcriptPath("dupe-session"), summaries.getFirst().path());
+    }
+
+    @Test
     void loadMigratesLegacyControllerEventMarkersToTypedMessages() throws Exception {
         SessionStorage storage = new SessionStorage(tempDir);
         String transcript = """
@@ -352,7 +390,7 @@ public class SessionStorageTest {
                 }
                 """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
         Files.createDirectories(storage.transcriptPath("legacy-controller-event").getParent());
-        Files.writeString(storage.transcriptPath("legacy-controller-event"), transcript);
+        Files.writeString(tempDir.resolve("legacy-controller-event.json"), transcript);
 
         ConversationSession restored = storage.load("legacy-controller-event");
 
@@ -451,7 +489,7 @@ public class SessionStorageTest {
                 """;
 
         SessionStorage storage = new SessionStorage(tempDir);
-        Files.writeString(storage.transcriptPath("v4-session"), v4json);
+        Files.writeString(tempDir.resolve("v4-session.json"), v4json);
 
         ConversationSession restored = storage.load("v4-session");
         var items = restored.plan().items();
@@ -469,5 +507,24 @@ public class SessionStorageTest {
 
         assertEquals(1, restored.plan().todos().size());
         assertEquals("Old todo", restored.plan().todos().getFirst().content());
+    }
+
+    @Test
+    void loadIgnoresPartialTrailingJsonlLine() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir);
+        ConversationSession session = new ConversationSession(
+                "partial-line-session",
+                Instant.parse("2026-05-25T08:30:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized."), Message.user("hello")));
+        storage.save(session);
+
+        Files.writeString(storage.transcriptPath("partial-line-session"),
+                Files.readString(storage.transcriptPath("partial-line-session")) + "{\"recordType\":\"message\"",
+                java.nio.file.StandardOpenOption.WRITE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+
+        ConversationSession restored = storage.load("partial-line-session");
+        assertEquals(2, restored.messages().size());
     }
 }
