@@ -214,11 +214,11 @@ public final class JLineRepl extends Repl {
                     continue;
                 }
                 jlineScreen.enterIdlePhase();
-                screen.scrollback("");
+                screen.scrollback(idleStatusLine());
                 String line;
                 jlineScreen.setActiveLineReader(lineReader);
                 try {
-                    line = lineReader.readLine(buildPrompt(), buildRightPrompt(), (Character) null, null);
+                    line = lineReader.readLine(buildPrompt());
                 } catch (UserInterruptException e) {
                     screen.scrollback("");
                     screen.scrollback(Tk.dim("(type 'exit' to quit)"));
@@ -439,7 +439,22 @@ public final class JLineRepl extends Repl {
         return mode.id();
     }
 
-    private String buildRightPrompt() {
+    /**
+     * Right-aligned dim status line printed into scrollback just above the
+     * idle prompt. Deliberately NOT a JLine right-prompt: rprompt text goes
+     * through prompt-pattern expansion ('%' is an escape, mangling "ctx N%")
+     * and leaves residue on the accepted line under ERASE_LINE_ON_FINISH.
+     */
+    private String idleStatusLine() {
+        String status = buildStatusText();
+        if (status.isEmpty()) {
+            return "";
+        }
+        int pad = screen.width() - Tk.displayWidth(status) - 1;
+        return pad > 0 ? " ".repeat(pad) + status : status;
+    }
+
+    private String buildStatusText() {
         if (sessionContext == null) return "";
         StringBuilder sb = new StringBuilder();
         String model = sessionContext.model();
