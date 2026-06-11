@@ -19,7 +19,7 @@ import java.util.function.UnaryOperator;
  */
 final class SchemaMigrator {
 
-    static final int CURRENT = 9;
+    static final int CURRENT = 10;
 
     private static final Map<Integer, UnaryOperator<ObjectNode>> STEPS = Map.of(
             1, SchemaMigrator::v1ToV2,
@@ -29,7 +29,8 @@ final class SchemaMigrator {
             5, SchemaMigrator::v5ToV6,
             6, SchemaMigrator::v6ToV7,
             7, SchemaMigrator::v7ToV8,
-            8, SchemaMigrator::v8ToV9
+            8, SchemaMigrator::v8ToV9,
+            9, SchemaMigrator::v9ToV10
     );
 
     private SchemaMigrator() {}
@@ -136,5 +137,43 @@ final class SchemaMigrator {
             root.putArray("loadedDeferredTools");
         }
         return root;
+    }
+
+    // ---- v9 -> v10: mark controller events explicitly and drop old markers ----
+    private static ObjectNode v9ToV10(ObjectNode root) {
+        JsonNode messagesNode = root.path("messages");
+        if (!messagesNode.isArray()) {
+            return root;
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode rewritten = root.putArray("messages");
+        for (JsonNode messageNode : messagesNode) {
+            if (!(messageNode instanceof ObjectNode message)) {
+                rewritten.add(messageNode);
+                continue;
+            }
+            String role = message.path("role").asText("");
+            String text = firstText(message.path("contentBlocks"));
+            if ("SYSTEM".equals(role)
+                    && ("[controller-event separator]".equals(text)
+                    || "[controller-event barrier]".equals(text))) {
+                continue;
+            }
+            if ("USER".equals(role) && text.startsWith("[controller-event][")) {
+                message.put("kind", "CONTROLLER_EVENT");
+            }
+            rewritten.add(message);
+        }
+        return root;
+    }
+
+    private static String firstText(JsonNode contentBlocks) {
+        if (!contentBlocks.isArray() || contentBlocks.isEmpty()) {
+            return "";
+        }
+        JsonNode first = contentBlocks.get(0);
+        if (!"text".equals(first.path("type").asText(""))) {
+            return "";
+        }
+        return first.path("text").asText("");
     }
 }

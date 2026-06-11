@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
 import madacode.core.model.FinishReason;
 import madacode.core.model.Message;
+import madacode.core.model.MessageKind;
 import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.StopReason;
@@ -100,7 +101,7 @@ class QueryEngineTest {
         assertEquals("echo:second", secondResult.content());
         assertTrue(secondResult.success());
 
-        assertEquals(session.messages().subList(0, 4), apiClient.calls.get(1).messages());
+        assertEquals(session.messages().subList(1, 4), apiClient.calls.get(1).messages());
         assertEquals(MessageRole.ASSISTANT, session.messages().get(2).role());
         assertEquals("final", session.messages().get(4).content());
     }
@@ -184,6 +185,25 @@ class QueryEngineTest {
         assertEquals("(Cancelled: permission_denied)", result.finalText());
         assertEquals(0, result.iterations());
         assertFalse(listener.hasError());
+    }
+
+    @Test
+    void apiClientReceivesProjectedMessagesWithoutSystemMarkers() {
+        ScriptedApiClient apiClient = new ScriptedApiClient()
+                .enqueue(response("done", List.of(), StopReason.END_TURN));
+        ConversationSession session = new ConversationSession();
+        session.addMessage(Message.user("previous user"));
+        session.addControllerEvent("runtime", java.util.Map.of("status", "ready"));
+
+        engine(apiClient, new ToolRegistry()).runTurn(session, "next prompt");
+
+        List<Message> sent = apiClient.calls.getFirst().messages();
+        assertEquals(1, sent.size());
+        assertEquals(MessageRole.USER, sent.getFirst().role());
+        assertEquals(MessageKind.STANDARD, sent.getFirst().kind());
+        assertTrue(sent.getFirst().content().contains("previous user"));
+        assertTrue(sent.getFirst().content().contains("[controller-event][runtime]"));
+        assertTrue(sent.getFirst().content().contains("next prompt"));
     }
 
     private QueryEngine engine(ScriptedApiClient apiClient, ToolRegistry registry) {

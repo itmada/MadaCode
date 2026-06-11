@@ -70,8 +70,7 @@ public class MicroCompactStrategy implements CompactStrategy {
 
     private Message rebuildMessage(Message original, List<ContentBlock> newBlocks) {
         return switch (original.role()) {
-            case USER -> Message.user(newBlocks);
-            case ASSISTANT -> Message.assistant(newBlocks);
+            case USER, ASSISTANT -> Message.of(original.role(), newBlocks, original.kind());
             case SYSTEM -> Message.system(extractText(newBlocks));
         };
     }

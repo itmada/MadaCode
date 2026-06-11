@@ -2,6 +2,7 @@ package madacode.core.session;
 
 import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
+import madacode.core.model.MessageKind;
 import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.TokenUsage;
@@ -268,6 +269,9 @@ public final class SessionStorage {
     private ObjectNode serializeMessage(Message message) {
         ObjectNode node = mapper.createObjectNode();
         node.put("role", message.role().name());
+        if (message.kind() != MessageKind.STANDARD) {
+            node.put("kind", message.kind().name());
+        }
 
         ArrayNode contentBlocks = mapper.createArrayNode();
         for (ContentBlock block : message.contentBlocks()) {
@@ -548,6 +552,7 @@ public final class SessionStorage {
 
     private Message deserializeMessage(JsonNode messageNode) {
         MessageRole role = MessageRole.valueOf(requiredText(messageNode, "role"));
+        MessageKind kind = readMessageKind(messageNode, role);
         JsonNode contentBlocksNode = messageNode.path("contentBlocks");
         if (!contentBlocksNode.isArray()) {
             throw new SessionStorageException("Transcript contentBlocks must be an array");
@@ -560,20 +565,33 @@ public final class SessionStorage {
 
         return switch (role) {
             case SYSTEM -> Message.system(contentFrom(contentBlocks));
-            case USER -> messageForRole(role, contentBlocks);
-            case ASSISTANT -> messageForRole(role, contentBlocks);
+            case USER, ASSISTANT -> messageForRole(role, contentBlocks, kind);
         };
     }
 
-    private Message messageForRole(MessageRole role, List<ContentBlock> contentBlocks) {
+    private Message messageForRole(MessageRole role, List<ContentBlock> contentBlocks, MessageKind kind) {
         if (contentBlocks.size() == 1 && contentBlocks.getFirst() instanceof ContentBlock.TextBlock textBlock) {
-            return role == MessageRole.USER
-                    ? Message.user(textBlock.text())
-                    : Message.assistant(textBlock.text());
+            if (role == MessageRole.USER && kind == MessageKind.CONTROLLER_EVENT) {
+                return Message.controllerEvent(textBlock.text());
+            }
+            return Message.of(role, List.of(new ContentBlock.TextBlock(textBlock.text())), kind);
         }
-        return role == MessageRole.USER
-                ? Message.user(contentBlocks)
-                : Message.assistant(contentBlocks);
+        return Message.of(role, contentBlocks, kind);
+    }
+
+    private MessageKind readMessageKind(JsonNode messageNode, MessageRole role) {
+        if (role == MessageRole.SYSTEM) {
+            return MessageKind.STANDARD;
+        }
+        String raw = optionalText(messageNode, "kind");
+        if (raw == null || raw.isBlank()) {
+            return MessageKind.STANDARD;
+        }
+        try {
+            return MessageKind.valueOf(raw);
+        } catch (IllegalArgumentException exception) {
+            throw new SessionStorageException("Unsupported message kind: " + raw);
+        }
     }
 
     private ContentBlock deserializeContentBlock(JsonNode blockNode) {

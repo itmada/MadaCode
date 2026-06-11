@@ -18,6 +18,7 @@ import madacode.core.turn.TurnRunner;
 
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiClientException;
+import madacode.services.api.ApiMessageProjection;
 import madacode.services.compact.CompactPlanner;
 import madacode.hook.HookManager;
 import madacode.prompt.SystemPromptBuilder;
@@ -39,6 +40,7 @@ public class QueryEngine {
     private final PermissionGate permissionGate;
     private final ToolInputValidator toolInputValidator;
     private final CompactPlanner compactPlanner;
+    private final ApiMessageProjection apiMessageProjection;
     private final Integer maxIterations;
     private final HookManager hookManager;
     private final DiagnosticEvents diagnosticEvents;
@@ -49,6 +51,7 @@ public class QueryEngine {
         this.permissionGate = Objects.requireNonNull(builder.permissionGate, "permissionGate");
         this.toolInputValidator = Objects.requireNonNull(builder.toolInputValidator, "toolInputValidator");
         this.compactPlanner = builder.compactPlanner;
+        this.apiMessageProjection = Objects.requireNonNull(builder.apiMessageProjection, "apiMessageProjection");
         this.maxIterations = builder.maxIterations;
         this.hookManager = builder.hookManager;
         this.diagnosticEvents = Objects.requireNonNull(builder.diagnosticEvents, "diagnosticEvents");
@@ -90,6 +93,7 @@ public class QueryEngine {
         private final PermissionGate permissionGate;
         private ToolInputValidator toolInputValidator = new ToolInputValidator();
         private CompactPlanner compactPlanner;
+        private ApiMessageProjection apiMessageProjection = new ApiMessageProjection();
         private Integer maxIterations;
         private HookManager hookManager;
         private DiagnosticEvents diagnosticEvents = new DefaultDiagnosticEvents();
@@ -112,6 +116,7 @@ public class QueryEngine {
         public Builder unlimitedIterations()                { this.maxIterations = null; return this; }
         public Builder toolInputValidator(ToolInputValidator v) { this.toolInputValidator = Objects.requireNonNull(v); return this; }
         public Builder compactPlanner(CompactPlanner p)     { this.compactPlanner = p; return this; }
+        public Builder apiMessageProjection(ApiMessageProjection p) { this.apiMessageProjection = Objects.requireNonNull(p); return this; }
         public Builder hookManager(HookManager h)           { this.hookManager = h; return this; }
         public Builder diagnosticEvents(DiagnosticEvents d) { this.diagnosticEvents = Objects.requireNonNull(d); return this; }
 
@@ -169,7 +174,7 @@ public class QueryEngine {
             try (AssistantTurnWriter writer = AssistantTurnWriter.open(session)) {
                 try {
                     session.fireMetaEvent(new MetaEvent.ModelRequestStarted());
-                    response = apiClient.send(session.messages(), systemPrompt,
+                    response = apiClient.send(apiMessageProjection.project(session.messages()), systemPrompt,
                             visibleTools, writer.sink(), cancel);
                     long iterElapsed = elapsedMs(iterStart);
                     diagnosticEvents.modelIterationCompleted(

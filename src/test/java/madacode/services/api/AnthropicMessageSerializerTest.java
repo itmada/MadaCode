@@ -64,17 +64,17 @@ class AnthropicMessageSerializerTest {
     @Test
     void controllerEventsAreSerializedEvenThoughSystemMessagesAreDropped() throws Exception {
         AnthropicMessageSerializer serializer = new AnthropicMessageSerializer(mapper);
+        ApiMessageProjection projection = new ApiMessageProjection();
 
         String body = serializer.buildRequestBody(
                 "test-model",
                 4096,
-                List.of(
+                projection.project(List.of(
                         Message.system("Session initialized."),
-                        Message.user("[controller-event][long-running]\n"
+                        Message.controllerEvent("[controller-event][long-running]\n"
                                 + "event: worker_runtime_finished\n"
                                 + "summary: interrupted by user"),
-                        Message.system("[controller-event barrier]"),
-                        Message.user("what happened?")),
+                        Message.user("what happened?"))),
                 "system prompt",
                 List.of());
 
@@ -90,20 +90,19 @@ class AnthropicMessageSerializerTest {
     @Test
     void queuedControllerEventSerializesAfterToolResultContent() throws Exception {
         AnthropicMessageSerializer serializer = new AnthropicMessageSerializer(mapper);
+        ApiMessageProjection projection = new ApiMessageProjection();
         ObjectNode input = mapper.createObjectNode().put("target_status", "RUNNING");
 
         String body = serializer.buildRequestBody(
                 "test-model",
                 4096,
-                List.of(
+                projection.project(List.of(
                         Message.assistant(List.of(new ContentBlock.ToolUseBlock(
                                 "toolu_1", "longrun_state_transition_request", input))),
                         Message.user(List.of(new ContentBlock.ToolResultBlock(
                                 "toolu_1", "Pending transition request recorded.", true, -1))),
-                        Message.system("[controller-event separator]"),
-                        Message.user("[controller-event][long-running]\n"
-                                + "event: transition_request_pending"),
-                        Message.system("[controller-event barrier]")),
+                        Message.controllerEvent("[controller-event][long-running]\n"
+                                + "event: transition_request_pending"))),
                 "system prompt",
                 List.of());
 
@@ -129,5 +128,20 @@ class AnthropicMessageSerializerTest {
         JsonNode message = mapper.readTree(body).path("messages").get(0);
         assertEquals("assistant", message.path("role").asText());
         assertEquals("(Cancelled: esc)", message.path("content").asText());
+    }
+
+    @Test
+    void projectionMergesAdjacentSameRoleMessagesAndDropsSystemMarkers() {
+        ApiMessageProjection projection = new ApiMessageProjection();
+
+        List<Message> projected = projection.project(List.of(
+                Message.user("first"),
+                Message.user("second"),
+                Message.system("skip me"),
+                Message.controllerEvent("[controller-event][runtime]\nevent: resumed"),
+                Message.user("third")));
+
+        assertEquals(1, projected.size());
+        assertEquals("firstsecond[controller-event][runtime]\nevent: resumedthird", projected.getFirst().content());
     }
 }

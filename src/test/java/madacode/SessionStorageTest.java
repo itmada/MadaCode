@@ -10,6 +10,7 @@ import madacode.core.model.Message;
 import madacode.core.session.SessionMode;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorageException;
+import madacode.core.model.MessageKind;
 import madacode.permission.PermissionMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -59,7 +60,7 @@ public class SessionStorageTest {
         ConversationSession restored = storage.load(session.sessionId());
 
         var json = mapper.readTree(storage.transcriptPath(session.sessionId()).toFile());
-        assertEquals(9, json
+        assertEquals(10, json
                 .path("schemaVersion")
                 .asInt());
         assertEquals("web_fetch", json.path("loadedDeferredTools").path(0).asText());
@@ -311,6 +312,53 @@ public class SessionStorageTest {
         assertEquals(2, summaries.get(1).messageCount());
         assertEquals(tempDir.resolve("newer-workspace"), summaries.get(0).workingDirectory());
         assertEquals(storage.transcriptPath("newer"), summaries.get(0).path());
+    }
+
+    @Test
+    void loadMigratesLegacyControllerEventMarkersToTypedMessages() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir);
+        String transcript = """
+                {
+                  "schemaVersion": 9,
+                  "sessionId": "legacy-controller-event",
+                  "createdAt": "2026-05-22T08:30:00Z",
+                  "workingDirectory": "%s",
+                  "messages": [
+                    {
+                      "role": "SYSTEM",
+                      "contentBlocks": [{ "type": "text", "text": "Session initialized." }]
+                    },
+                    {
+                      "role": "USER",
+                      "contentBlocks": [{ "type": "text", "text": "prompt" }]
+                    },
+                    {
+                      "role": "SYSTEM",
+                      "contentBlocks": [{ "type": "text", "text": "[controller-event separator]" }]
+                    },
+                    {
+                      "role": "USER",
+                      "contentBlocks": [{ "type": "text", "text": "[controller-event][runtime]\\nevent: resumed" }]
+                    },
+                    {
+                      "role": "SYSTEM",
+                      "contentBlocks": [{ "type": "text", "text": "[controller-event barrier]" }]
+                    }
+                  ],
+                  "tasks": [],
+                  "todos": [],
+                  "history": [],
+                  "loadedDeferredTools": []
+                }
+                """.formatted(tempDir.resolve("workspace").toString().replace("\\", "\\\\"));
+        Files.createDirectories(storage.transcriptPath("legacy-controller-event").getParent());
+        Files.writeString(storage.transcriptPath("legacy-controller-event"), transcript);
+
+        ConversationSession restored = storage.load("legacy-controller-event");
+
+        assertEquals(3, restored.messages().size());
+        assertEquals(MessageKind.CONTROLLER_EVENT, restored.messages().get(2).kind());
+        assertEquals("[controller-event][runtime]\nevent: resumed", restored.messages().get(2).content());
     }
 
     private ObjectNode toolInput() {

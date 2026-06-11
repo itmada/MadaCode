@@ -129,19 +129,7 @@ public class ConversationSession {
                     "Cannot add message while an assistant stream is open; "
                             + "finalize or abandon the stream first.");
         }
-        List<Message> snapshot = messagesRef.get();
-        if (!snapshot.isEmpty()) {
-            Message tail = snapshot.getLast();
-            if (tail.role() == message.role() && message.role() != MessageRole.SYSTEM) {
-                throw new IllegalStateException(
-                        "Consecutive same-role messages are not allowed: "
-                                + message.role() + " after " + tail.role()
-                                + ". Use a SYSTEM message for warnings/markers.");
-            }
-        }
-        int index = snapshot.size();
-        messagesRef.set(append(snapshot, message));
-        eventBus.fireMessageAppended(index, message);
+        appendMessageWithoutStreamCheck(message);
     }
 
     /**
@@ -185,7 +173,7 @@ public class ConversationSession {
         LinkedHashMap<String, String> ordered = new LinkedHashMap<>();
         ordered.put("time", OffsetDateTime.now(ZoneId.systemDefault()).toString());
         ordered.putAll(fields);
-        return Message.user(controllerEventText(domain, ordered));
+        return Message.controllerEvent(controllerEventText(domain, ordered));
     }
 
     private void addControllerEventMessage(Message event) {
@@ -194,12 +182,7 @@ public class ConversationSession {
                     "Cannot add controller event while an assistant stream is open; "
                             + "finalize or abandon the stream first.");
         }
-        List<Message> snapshot = messagesRef.get();
-        if (!snapshot.isEmpty() && snapshot.getLast().role() == MessageRole.USER) {
-            appendMessageWithoutStreamCheck(Message.system("[controller-event separator]"));
-        }
         appendMessageWithoutStreamCheck(event);
-        appendMessageWithoutStreamCheck(Message.system("[controller-event barrier]"));
     }
 
     /** Append a streamed message silently — listeners receive
@@ -380,8 +363,8 @@ public class ConversationSession {
     public String title() {
         return messagesRef.get().stream()
                 .filter(m -> m.role() == MessageRole.USER)
+                .filter(m -> !m.isControllerEvent())
                 .map(ConversationSession::firstText)
-                .filter(s -> !isControllerEventText(s))
                 .filter(s -> !s.isBlank())
                 .findFirst()
                 .map(s -> truncateTitle(s.strip()))
@@ -398,15 +381,6 @@ public class ConversationSession {
 
     private void appendMessageWithoutStreamCheck(Message message) {
         List<Message> snapshot = messagesRef.get();
-        if (!snapshot.isEmpty()) {
-            Message tail = snapshot.getLast();
-            if (tail.role() == message.role() && message.role() != MessageRole.SYSTEM) {
-                throw new IllegalStateException(
-                        "Consecutive same-role messages are not allowed: "
-                                + message.role() + " after " + tail.role()
-                                + ". Use a SYSTEM message for warnings/markers.");
-            }
-        }
         int index = snapshot.size();
         messagesRef.set(append(snapshot, message));
         eventBus.fireMessageAppended(index, message);
@@ -439,10 +413,6 @@ public class ConversationSession {
                 .replace('\r', ' ')
                 .replace('\n', ' ')
                 .replaceAll("\\s+", " ");
-    }
-
-    private static boolean isControllerEventText(String text) {
-        return text != null && text.startsWith("[controller-event][");
     }
 
     // ---- Plan mode ----------------------------------------------------------
