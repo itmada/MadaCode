@@ -143,7 +143,9 @@ public class LongRunningWorkerRunner {
         }
 
         // Read the report
-        Optional<WorkerReport> report = workerSession.lastWorkerReport();
+        Optional<WorkerReport> report = workerSession.lastWorkerReport()
+                .filter(WorkerReport.class::isInstance)
+                .map(WorkerReport.class::cast);
 
         return new WorkerRunResult(
                 workerSession.sessionId(),

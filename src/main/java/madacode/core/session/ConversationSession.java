@@ -66,15 +66,7 @@ public class ConversationSession {
     private volatile SessionMode workflowMode = SessionMode.COMMON;
     private volatile boolean planMode;
     private volatile PermissionMode permissionMode = PermissionMode.DEFAULT;
-    private volatile LongRunningStage longRunningStage;
-    private volatile String longRunningTaskId;
-    private volatile String longRunningTaskDirectory;
-    private volatile String longRunningTaskTitle;
-    private volatile String longRunningReason;
-    private volatile String longRunningPlanSummary;
-    private volatile boolean longRunningWorkerSession;
-    private volatile LongRunningTransitionRequest pendingLongRunningTransitionRequest;
-    private volatile madacode.longrunning.WorkerReport lastWorkerReport;
+    private volatile LongRunningSessionState longRunning;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
     private final SessionEventBus eventBus = new SessionEventBus();
@@ -473,15 +465,9 @@ public class ConversationSession {
         SessionMode resolved = workflowMode == null ? SessionMode.COMMON : workflowMode;
         this.workflowMode = resolved;
         if (resolved == SessionMode.COMMON) {
-            this.longRunningStage = null;
-            this.longRunningTaskId = null;
-            this.longRunningTaskDirectory = null;
-            this.longRunningTaskTitle = null;
-            this.longRunningReason = null;
-            this.longRunningPlanSummary = null;
-            this.longRunningWorkerSession = false;
-            this.pendingLongRunningTransitionRequest = null;
-            this.lastWorkerReport = null;
+            this.longRunning = null;
+        } else if (this.longRunning == null) {
+            this.longRunning = new LongRunningSessionState();
         }
     }
 
@@ -498,109 +484,163 @@ public class ConversationSession {
     // ---- Long-running mode -------------------------------------------
 
     public boolean isLongRunningModeActive() {
-        return workflowMode == SessionMode.LONG_RUNNING && longRunningStage != null;
+        LongRunningSessionState state = longRunning;
+        return workflowMode == SessionMode.LONG_RUNNING && state != null && state.isActive();
     }
 
     public LongRunningStage longRunningStage() {
-        return longRunningStage;
+        LongRunningSessionState state = longRunning;
+        return state == null ? null : state.stage();
     }
 
     public void setLongRunningStage(LongRunningStage longRunningStage) {
         requireLongRunningMode("longRunningStage", longRunningStage);
-        this.longRunningStage = longRunningStage;
+        LongRunningSessionState state = longRunningStateFor(longRunningStage);
+        if (state != null) {
+            state.setStage(longRunningStage);
+        }
     }
 
     public String longRunningTaskId() {
-        return longRunningTaskId;
+        LongRunningSessionState state = longRunning;
+        return state == null ? null : state.taskId();
     }
 
     public void setLongRunningTaskId(String longRunningTaskId) {
         requireLongRunningMode("longRunningTaskId", longRunningTaskId);
-        this.longRunningTaskId = longRunningTaskId;
+        LongRunningSessionState state = longRunningStateFor(longRunningTaskId);
+        if (state != null) {
+            state.setTaskId(longRunningTaskId);
+        }
     }
 
     public String longRunningTaskDirectory() {
-        return longRunningTaskDirectory;
+        LongRunningSessionState state = longRunning;
+        return state == null ? null : state.taskDirectory();
     }
 
     public void setLongRunningTaskDirectory(String longRunningTaskDirectory) {
         requireLongRunningMode("longRunningTaskDirectory", longRunningTaskDirectory);
-        this.longRunningTaskDirectory = longRunningTaskDirectory;
+        LongRunningSessionState state = longRunningStateFor(longRunningTaskDirectory);
+        if (state != null) {
+            state.setTaskDirectory(longRunningTaskDirectory);
+        }
     }
 
     public String longRunningTaskTitle() {
-        return longRunningTaskTitle;
+        LongRunningSessionState state = longRunning;
+        return state == null ? null : state.title();
     }
 
     public void setLongRunningTaskTitle(String longRunningTaskTitle) {
         requireLongRunningMode("longRunningTaskTitle", longRunningTaskTitle);
-        this.longRunningTaskTitle = normalizeOptionalLongRunningText(longRunningTaskTitle);
+        LongRunningSessionState state = longRunningStateFor(longRunningTaskTitle);
+        if (state != null) {
+            state.setTitle(longRunningTaskTitle);
+        }
     }
 
     public String longRunningReason() {
-        return longRunningReason;
+        LongRunningSessionState state = longRunning;
+        return state == null ? null : state.reason();
     }
 
     public void setLongRunningReason(String longRunningReason) {
         requireLongRunningMode("longRunningReason", longRunningReason);
-        this.longRunningReason = normalizeOptionalLongRunningText(longRunningReason);
+        LongRunningSessionState state = longRunningStateFor(longRunningReason);
+        if (state != null) {
+            state.setReason(longRunningReason);
+        }
     }
 
     public String longRunningPlanSummary() {
-        return longRunningPlanSummary;
+        LongRunningSessionState state = longRunning;
+        return state == null ? null : state.planSummary();
     }
 
     public void setLongRunningPlanSummary(String longRunningPlanSummary) {
         requireLongRunningMode("longRunningPlanSummary", longRunningPlanSummary);
-        this.longRunningPlanSummary = normalizeOptionalLongRunningText(longRunningPlanSummary);
+        LongRunningSessionState state = longRunningStateFor(longRunningPlanSummary);
+        if (state != null) {
+            state.setPlanSummary(longRunningPlanSummary);
+        }
     }
 
     public boolean isLongRunningWorkerSession() {
-        return longRunningWorkerSession;
+        LongRunningSessionState state = longRunning;
+        return state != null && state.isWorkerSession();
     }
 
     public void setLongRunningWorkerSession(boolean value) {
-        this.longRunningWorkerSession = value;
+        if (value) {
+            requireLongRunningMode("longRunningWorkerSession", true);
+            longRunningState().setWorkerSession(true);
+        } else {
+            LongRunningSessionState state = longRunning;
+            if (state != null) {
+                state.setWorkerSession(false);
+            }
+        }
     }
 
     public Optional<LongRunningTransitionRequest> pendingLongRunningTransitionRequest() {
-        return Optional.ofNullable(pendingLongRunningTransitionRequest);
+        LongRunningSessionState state = longRunning;
+        return state == null ? Optional.empty() : state.pendingTransitionRequest();
     }
 
     public void setPendingLongRunningTransitionRequest(LongRunningTransitionRequest request) {
         requireLongRunningMode("pendingLongRunningTransitionRequest", request);
-        this.pendingLongRunningTransitionRequest = request;
+        LongRunningSessionState state = longRunningStateFor(request);
+        if (state != null) {
+            state.setPendingTransitionRequest(request);
+        }
     }
 
     public void clearPendingLongRunningTransitionRequest() {
-        this.pendingLongRunningTransitionRequest = null;
+        LongRunningSessionState state = longRunning;
+        if (state != null) {
+            state.clearPendingTransitionRequest();
+        }
     }
 
-    public Optional<madacode.longrunning.WorkerReport> lastWorkerReport() {
-        return Optional.ofNullable(lastWorkerReport);
+    public Optional<LongRunningWorkerReport> lastWorkerReport() {
+        LongRunningSessionState state = longRunning;
+        return state == null ? Optional.empty() : state.lastWorkerReport();
     }
 
-    public void recordWorkerReport(madacode.longrunning.WorkerReport report) {
-        this.lastWorkerReport = report;
+    public void recordWorkerReport(LongRunningWorkerReport report) {
+        requireLongRunningMode("lastWorkerReport", report);
+        LongRunningSessionState state = longRunningStateFor(report);
+        if (state != null) {
+            state.recordWorkerReport(report);
+        }
     }
 
     public void clearWorkerReport() {
-        this.lastWorkerReport = null;
+        LongRunningSessionState state = longRunning;
+        if (state != null) {
+            state.clearWorkerReport();
+        }
     }
 
     private void requireLongRunningMode(String fieldName, Object value) {
-        if (value != null && workflowMode != SessionMode.LONG_RUNNING) {
-            throw new IllegalStateException(
-                    fieldName + " requires workflowMode LONG_RUNNING");
-        }
+        LongRunningSessionState.requireLongRunningMode(workflowMode, fieldName, value);
     }
 
-    private static String normalizeOptionalLongRunningText(String value) {
-        if (value == null) {
-            return null;
+    private LongRunningSessionState longRunningState() {
+        return longRunningStateFor(new Object());
+    }
+
+    private LongRunningSessionState longRunningStateFor(Object value) {
+        LongRunningSessionState state = longRunning;
+        if (state == null && value != null) {
+            if (workflowMode != SessionMode.LONG_RUNNING) {
+                throw new IllegalStateException("long-running state requires workflowMode LONG_RUNNING");
+            }
+            state = new LongRunningSessionState();
+            longRunning = state;
         }
-        String normalized = value.strip();
-        return normalized.isBlank() ? null : normalized;
+        return state;
     }
 
     public TokenUsage tokenUsage() {

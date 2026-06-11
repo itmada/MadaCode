@@ -1,5 +1,7 @@
 package madacode.longrunning;
 
+import madacode.core.session.LongRunningWorkerReport;
+
 import java.util.List;
 import java.util.Set;
 
@@ -19,7 +21,7 @@ public record WorkerReport(
         List<String> filesChanged,
         List<String> verification,
         String next
-) {
+) implements LongRunningWorkerReport {
 
     public enum Status {
         PROGRESS_MADE,
