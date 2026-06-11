@@ -1,18 +1,28 @@
 # MadaCode
 
-[简体中文](README.md)
+[简体中文](README.md) | [Architecture](docs/architecture.md)
 
-**MadaCode** is an intelligent AI coding agent runtime designed to seamlessly assist developers with complex code tasks through natural language dialogue directly from the terminal (CLI).
+![Java](https://img.shields.io/badge/Java-21-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![LOC](https://img.shields.io/badge/main%20code-~42k%20lines-informational)
+![Framework](https://img.shields.io/badge/runtime%20deps-no%20Spring-success)
 
-As a powerful pair-programming assistant, MadaCode can autonomously read and edit project files, execute terminal commands, search codebases, plan complex tasks, and orchestrate external tools. It integrates natively with Anthropic-compatible large language models, providing an out-of-the-box intelligent development experience.
+**MadaCode** is a terminal-based (CLI) LLM Coding Agent, independently built after the core runtime mechanics of Claude Code. It autonomously reads and edits project files, executes terminal commands, searches codebases, plans complex tasks, spawns sub-agents, and connects to external tool ecosystems via MCP.
+
+~42k lines of Java 21, zero runtime framework dependencies (no Spring), shipped as a single jar.
 
 ### Core Features
 
-- 🧠 **Intelligent Session Management**: Supports session persistence, resumable states, and automatic context compaction.
-- 🔌 **Flexible Model Ecosystem**: Dynamically hot-switch between different models and providers directly from the terminal.
-- 🧩 **Modular Extensibility**: Native support for MCP (Model Context Protocol) integration, Sub-Agents, and customizable Skill systems.
-- 🚀 **Long-Running Mode**: Designed for complex tasks like large-scale refactoring and batch fixes, the model iterates through multi-round Worker Agents with independent contexts. Each Worker picks up task context from the task file list and executes independently, with a built-in state machine (Draft → Running → Interrupt → Done), checkpoint recovery, and real-time progress monitoring.
-- ⚡ **Native Terminal Experience**: A pure CLI application built on Java 21 with a built-in interactive TUI. Can be quickly launched from source or installed as a global `mada` command.
+- 🤝 **Terminal Pair Programming** — read/edit files, run commands, search code, and complete complex tasks through natural-language conversation
+- 🚀 **Long-Running Mode** — built for large-scale refactoring and batch fixes: Worker Agents iterate in independent contexts with a task state machine, checkpoint recovery, and live progress monitoring
+- 🧠 **Sessions & Memory** — session persistence, resume, automatic context compaction, and cross-session long-term memory
+- 🧩 **Extensible Ecosystem** — MCP tool integration, Sub-Agent spawning, and a customizable Skill system
+- 🔌 **Flexible Model Access** — hot-switch providers and models from the terminal, Anthropic-compatible
+- ⚡ **Native Terminal Experience** — Java 21 single jar, zero framework dependencies, installs as a global `mada` command
+
+### Architecture
+
+Curious how it works inside? How the main loop converges cancellation / compaction / tool calls into a single message stream, how same-turn tools are segmented for parallel execution, what happens when ESC is pressed at any moment, and how agent behavior is regression-tested deterministically — see **[docs/architecture.md](docs/architecture.md)**.
 
 ## Quick Start
 

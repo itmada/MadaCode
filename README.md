@@ -1,18 +1,32 @@
 # MadaCode
 
-[English](README.en.md)
+[English](README.en.md) | [架构设计](docs/architecture.md)
 
-**MadaCode** 是一个运行在终端（CLI）的智能 AI 编码 Agent 运行时系统，旨在通过自然语言对话无缝协助开发者完成各种复杂的代码任务。
+![Java](https://img.shields.io/badge/Java-21-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![LOC](https://img.shields.io/badge/main%20code-~42k%20lines-informational)
+![Framework](https://img.shields.io/badge/runtime%20deps-no%20Spring-success)
 
-作为一个强大的终端结对编程助手，MadaCode 能够自主读取和修改项目文件、执行终端命令、搜索代码逻辑、规划复杂任务以及调度外部工具。它默认接入 Anthropic 兼容的大语言模型生态，为开发者提供开箱即用的智能化开发体验。
+**MadaCode** 是一个运行在终端（CLI）的 LLM Coding Agent，参照 Claude Code 的核心运行机制独立实现。它能自主读写项目文件、执行终端命令、搜索代码、规划复杂任务、派生子 Agent，并通过 MCP 接入外部工具生态。
 
-### 核心特性
+约 4.2 万行 Java 21，零运行时框架依赖（无 Spring），单 jar 分发。
 
-- 🧠 **智能会话管理**：支持会话持久化、中断恢复（Resume）以及自动上下文压缩。
-- 🔌 **灵活的模型生态**：支持在终端热切换不同的 Model 与 Provider。
-- 🧩 **模块化扩展**：原生支持 MCP (Model Context Protocol) 接入，允许挂载 Sub Agent 和自定义 Skill 体系。
-- 🚀 **Long-Running 模式**：面向大规模重构、批量修复等复杂任务，模型以多轮独立上下文的 Worker Agent 循环推进，每轮 Worker 从任务文件列表中领取任务上下文后开始独立执行，内置状态机管理（规划→执行→中断→完成），支持断点恢复与实时进度监控。
-- ⚡ **原生终端体验**：基于 Java 21 构建的纯 CLI 应用，内置交互式 TUI 面板。既可从源码快速启动，也支持安装为全局 `mada` 命令。
+<!-- TODO: 在此插入终端 demo GIF（推荐用 vhs 或 asciinema 录制）
+![demo](docs/assets/demo.gif)
+-->
+
+## 核心特性
+
+- 🤝 **终端结对编程** — 自然语言对话即可读写文件、执行命令、搜索代码、规划并完成复杂任务
+- 🚀 **Long-Running 模式** — 面向大规模重构与批量修复：Worker Agent 以多轮独立上下文循环推进，内置任务状态机、断点恢复与实时进度监控
+- 🧠 **会话与记忆** — 会话持久化、中断恢复、自动上下文压缩，跨会话长期记忆
+- 🧩 **可扩展生态** — MCP 外部工具接入、Sub-Agent 派生、自定义 Skill 体系
+- 🔌 **灵活的模型接入** — 终端内热切换 Provider 与 Model，兼容 Anthropic 生态
+- ⚡ **原生终端体验** — Java 21 单 jar，零框架依赖，安装即得全局 `mada` 命令
+
+## 架构
+
+对内部实现感兴趣？主循环如何将取消 / 压缩 / 工具调用收敛为统一消息流、同轮工具如何切段并发、ESC 在任意时刻按下会发生什么、如何对 Agent 行为做确定性回归测试——见 **[docs/architecture.md](docs/architecture.md)**。
 
 ## 快速开始
 
@@ -105,7 +119,9 @@ MCP server 配置位于 `~/.mada/mcp.json`。文本资源会直接返回；二�
 构建会强制 Java 21 和 Maven 3.9.x。shade 后的应用 jar 会输出到
 `target/MadaCode.jar`。
 
-## 贡献
+## License
+
+[MIT](LICENSE) © itmada
 
 欢迎在 [github.com/itmada/MadaCode](https://github.com/itmada/MadaCode) 提交
 issue 和 pull request。提 PR 前请先跑 `./mvnw test`。
