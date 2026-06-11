@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -141,6 +142,73 @@ class SessionStorageTest {
             rewrittenLines = lines.count();
         }
         assertEquals(3, rewrittenLines);
+    }
+
+    @Test
+    void saveBacksUpLegacyJsonInsteadOfDeleting() throws Exception {
+        Path sessionDir = tempDir.resolve("sessions");
+        java.nio.file.Files.createDirectories(sessionDir);
+
+        String legacyContent = """
+                {"sessionId":"legacy-ses","createdAt":"2026-06-01T12:00:00Z","workingDirectory":"/tmp",\
+                "messages":[{"role":"USER","contentBlocks":[{"type":"text","text":"hello"}]}]}""";
+        Path legacyPath = sessionDir.resolve("legacy-ses.json");
+        java.nio.file.Files.writeString(legacyPath, legacyContent);
+
+        SessionStorage storage = new SessionStorage(sessionDir);
+        ConversationSession session = storage.load("legacy-ses");
+        storage.save(session);
+
+        assertFalse(java.nio.file.Files.exists(legacyPath), ".json should be gone after save");
+        Path bakPath = sessionDir.resolve("legacy-ses.json.bak");
+        assertTrue(java.nio.file.Files.exists(bakPath), ".json.bak should exist after save");
+        assertEquals(legacyContent, java.nio.file.Files.readString(bakPath),
+                ".json.bak content must match original .json");
+        assertTrue(java.nio.file.Files.exists(sessionDir.resolve("legacy-ses.jsonl")));
+        assertTrue(java.nio.file.Files.exists(sessionDir.resolve("legacy-ses.state.json")));
+    }
+
+    @Test
+    void listSessionsDoesNotProduceEntriesFromBakFiles() throws Exception {
+        Path sessionDir = tempDir.resolve("sessions");
+        java.nio.file.Files.createDirectories(sessionDir);
+
+        String legacyContent = """
+                {"sessionId":"bak-test","createdAt":"2026-06-01T12:00:00Z","workingDirectory":"/tmp",\
+                "messages":[{"role":"USER","contentBlocks":[{"type":"text","text":"hello"}]}]}""";
+        java.nio.file.Files.writeString(sessionDir.resolve("bak-test.json"), legacyContent);
+
+        SessionStorage storage = new SessionStorage(sessionDir);
+        ConversationSession session = storage.load("bak-test");
+        storage.save(session);
+
+        var sessions = storage.listSessions();
+        long count = sessions.stream().filter(s -> s.sessionId().equals("bak-test")).count();
+        assertEquals(1, count, "must not produce duplicate entries from .bak files");
+    }
+
+    @Test
+    void deleteRemovesAllFilesIncludingBak() throws Exception {
+        Path sessionDir = tempDir.resolve("sessions");
+        java.nio.file.Files.createDirectories(sessionDir);
+
+        String legacyContent = """
+                {"sessionId":"del-test","createdAt":"2026-06-01T12:00:00Z","workingDirectory":"/tmp",\
+                "messages":[{"role":"USER","contentBlocks":[{"type":"text","text":"hello"}]}]}""";
+        java.nio.file.Files.writeString(sessionDir.resolve("del-test.json"), legacyContent);
+
+        SessionStorage storage = new SessionStorage(sessionDir);
+        ConversationSession session = storage.load("del-test");
+        storage.save(session);
+
+        assertTrue(java.nio.file.Files.exists(sessionDir.resolve("del-test.json.bak")));
+
+        storage.delete("del-test");
+
+        assertFalse(java.nio.file.Files.exists(sessionDir.resolve("del-test.jsonl")));
+        assertFalse(java.nio.file.Files.exists(sessionDir.resolve("del-test.state.json")));
+        assertFalse(java.nio.file.Files.exists(sessionDir.resolve("del-test.json")));
+        assertFalse(java.nio.file.Files.exists(sessionDir.resolve("del-test.json.bak")));
     }
 
     private static void assertMessagesEqual(List<Message> expected, List<Message> actual) {

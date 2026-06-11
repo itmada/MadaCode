@@ -23,6 +23,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -80,7 +81,10 @@ public final class SessionStorage {
             Files.createDirectories(rootDirectory);
             saveTranscript(session);
             writeStateFile(session);
-            Files.deleteIfExists(legacyJsonPath(session.sessionId()));
+            Path legacyPath = legacyJsonPath(session.sessionId());
+            if (Files.isRegularFile(legacyPath)) {
+                Files.move(legacyPath, legacyJsonBakPath(session.sessionId()), StandardCopyOption.REPLACE_EXISTING);
+            }
             diagnosticEvents.transcriptSaved(session, transcriptPath(session.sessionId()));
         } catch (IOException exception) {
             throw new SessionStorageException(
@@ -140,6 +144,7 @@ public final class SessionStorage {
             Files.deleteIfExists(jsonlPath(sessionId));
             Files.deleteIfExists(statePath(sessionId));
             Files.deleteIfExists(legacyJsonPath(sessionId));
+            Files.deleteIfExists(legacyJsonBakPath(sessionId));
         } catch (IOException e) {
             throw new SessionStorageException("Failed to delete session " + sessionId, e);
         }
@@ -619,6 +624,9 @@ public final class SessionStorage {
         if (fileName.endsWith(".jsonl")) {
             return FileKind.JSONL;
         }
+        if (fileName.endsWith(".bak")) {
+            return FileKind.OTHER;
+        }
         if (fileName.endsWith(".json")) {
             return FileKind.LEGACY_JSON;
         }
@@ -635,6 +643,10 @@ public final class SessionStorage {
 
     private Path legacyJsonPath(String sessionId) {
         return rootDirectory.resolve(SessionIdPolicy.validate(sessionId) + ".json");
+    }
+
+    private Path legacyJsonBakPath(String sessionId) {
+        return rootDirectory.resolve(SessionIdPolicy.validate(sessionId) + ".json.bak");
     }
 
     private void writeJsonLine(OutputStream out, JsonNode node) throws IOException {
