@@ -21,6 +21,9 @@ import java.util.Objects;
 
 final class EnvironmentAssembly {
 
+    private static final int DEFAULT_MAX_OUTPUT_TOKENS = 32_000;
+    private static final int MAX_OUTPUT_TOKENS_UPPER_LIMIT = 64_000;
+    private static final String MAX_OUTPUT_TOKENS_ENV = "MADA_MAX_OUTPUT_TOKENS";
     private static final String MANAGED_DEBUG_DIR_PROPERTY = "madacode.managed.MADA_DEBUG_DIR";
 
     private EnvironmentAssembly() {
@@ -96,10 +99,29 @@ final class EnvironmentAssembly {
                 new MadaApiClient(
                         registry,
                         new ModelResponseLogWriter(modelResponseLogDir(paths)),
+                        resolveMaxOutputTokens(),
                         diagnosticEvents),
                 RetryOptions.defaults(),
                 new ApiErrorClassifier(),
                 diagnosticEvents);
+    }
+
+    private static int resolveMaxOutputTokens() {
+        String configured = firstNonBlank(
+                System.getenv(MAX_OUTPUT_TOKENS_ENV),
+                System.getProperty(MAX_OUTPUT_TOKENS_ENV));
+        if (configured == null) {
+            return DEFAULT_MAX_OUTPUT_TOKENS;
+        }
+        try {
+            int parsed = Integer.parseInt(configured.trim());
+            if (parsed <= 0) {
+                return DEFAULT_MAX_OUTPUT_TOKENS;
+            }
+            return Math.min(parsed, MAX_OUTPUT_TOKENS_UPPER_LIMIT);
+        } catch (NumberFormatException e) {
+            return DEFAULT_MAX_OUTPUT_TOKENS;
+        }
     }
 
     private static Path modelResponseLogDir(RuntimePaths paths) {
