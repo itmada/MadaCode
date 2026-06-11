@@ -1,0 +1,323 @@
+package madacode.core.engine;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.core.model.MetaEvent;
+import madacode.core.model.ToolCall;
+import madacode.core.model.ToolResult;
+import madacode.core.session.ConversationSession;
+import madacode.core.session.SessionListener;
+import madacode.core.turn.CancellationException;
+import madacode.hook.HookManager;
+import madacode.permission.PermissionDecision;
+import madacode.permission.PermissionGate;
+import madacode.tool.Tool;
+import madacode.tool.ToolRegistry;
+import madacode.tool.validation.ToolInputValidator;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ToolExecutorTest {
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void successFiresReachedBeforePermissionStartedExecutionResultAndCompleted() {
+        RecordingListener listener = new RecordingListener();
+        RecordingPermissionGate permissionGate = new RecordingPermissionGate(listener.events, PermissionDecision.allow());
+        RecordingTool tool = RecordingTool.succeeding("capture", listener.events);
+
+        ToolResult result = executorFor(tool, permissionGate, null).execute(
+                call(tool.name(), validInput("hello")),
+                context(listener, tool));
+
+        assertTrue(result.success());
+        assertEquals("received hello", result.output());
+        assertEquals(List.of("reached", "permission", "started", "execute", "result", "completed"),
+                listener.events);
+    }
+
+    @Test
+    void unknownToolReturnsFailedResultWithoutMetaErrorAndCompletes() {
+        RecordingListener listener = new RecordingListener();
+
+        ToolResult result = executorFor(null, PermissionGate.permissive(), null).execute(
+                call("missing_tool", validInput("hello")),
+                context(listener));
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("unknown tool \"missing_tool\""));
+        assertFalse(listener.events.contains("meta-error"));
+        assertTrue(listener.events.contains("completed"));
+        assertEquals(List.of("result", "completed"), listener.events);
+    }
+
+    @Test
+    void validationFailureReturnsFailedResultAndCompletes() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.succeeding("capture", listener.events);
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), null).execute(
+                call(tool.name(), mapper.createObjectNode()),
+                context(listener, tool));
+
+        assertFalse(result.success());
+        assertTrue(result.output().startsWith("Invalid tool input for capture:"));
+        assertTrue(listener.events.contains("completed"));
+        assertEquals(List.of("result", "completed"), listener.events);
+    }
+
+    @Test
+    void permissionDenialReturnsFailedResultAndCompletes() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.succeeding("capture", listener.events);
+
+        ToolResult result = executorFor(
+                        tool,
+                        new RecordingPermissionGate(listener.events, PermissionDecision.deny("nope")),
+                        null)
+                .execute(call(tool.name(), validInput("hello")), context(listener, tool));
+
+        assertFalse(result.success());
+        assertEquals("Permission denied: nope", result.output());
+        assertEquals(List.of("reached", "permission", "result", "completed"), listener.events);
+    }
+
+    @Test
+    void toolExceptionReturnsFailedResultAndCompletes() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.throwing("capture", listener.events, new IllegalStateException("boom"));
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), null).execute(
+                call(tool.name(), validInput("hello")),
+                context(listener, tool));
+
+        assertFalse(result.success());
+        assertEquals("Tool execution failed: boom", result.output());
+        assertEquals(List.of("reached", "started", "execute", "result", "completed"), listener.events);
+    }
+
+    @Test
+    void cancellationExceptionReturnsFailedResultAndCompletes() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.throwing("capture", listener.events, new CancellationException("stopped"));
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), null).execute(
+                call(tool.name(), validInput("hello")),
+                context(listener, tool));
+
+        assertFalse(result.success());
+        assertEquals("Cancelled: stopped", result.output());
+        assertEquals(List.of("reached", "started", "execute", "result", "completed"), listener.events);
+    }
+
+    @Test
+    void planModeRejectsNonReadOnlyToolThatIsNotAllowedByName() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.succeeding("mutating_tool", listener.events, false);
+        ConversationSession session = session(listener, tool);
+        session.setPlanMode(true);
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), null).execute(
+                call(tool.name(), validInput("hello")),
+                new ToolUseContext(tempDir, session));
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("Plan mode active"));
+        assertEquals(List.of("result", "completed"), listener.events);
+    }
+
+    @Test
+    void agentToolSkipsPreAndPostHooksByName() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.succeeding("agent", listener.events);
+        RecordingHookManager hookManager = new RecordingHookManager(tempDir.resolve("hooks.json"));
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), hookManager).execute(
+                call(tool.name(), validInput("hello")),
+                context(listener, tool));
+
+        assertTrue(result.success());
+        assertFalse(hookManager.preHookRan);
+        assertFalse(hookManager.postHookRan);
+        assertEquals(List.of("reached", "started", "execute", "result", "completed"), listener.events);
+    }
+
+    private ToolExecutor executorFor(Tool<?> tool, PermissionGate permissionGate, HookManager hookManager) {
+        ToolRegistry registry = new ToolRegistry();
+        if (tool != null) {
+            registry.register(tool);
+        }
+        return new ToolExecutor(registry, new ToolInputValidator(), permissionGate, hookManager, mapper);
+    }
+
+    private ToolUseContext context(RecordingListener listener, Tool<?> tool) {
+        return new ToolUseContext(tempDir, session(listener, tool));
+    }
+
+    private ToolUseContext context(RecordingListener listener) {
+        ConversationSession session = new ConversationSession(tempDir);
+        session.addListener(listener);
+        return new ToolUseContext(tempDir, session);
+    }
+
+    private ConversationSession session(RecordingListener listener, Tool<?> tool) {
+        ConversationSession session = new ConversationSession(tempDir);
+        session.addListener(listener);
+        session.loadDeferredTool(tool.name());
+        return session;
+    }
+
+    private ToolCall call(String toolName, ObjectNode input) {
+        return new ToolCall("toolu_1", toolName, input);
+    }
+
+    private ObjectNode validInput(String value) {
+        ObjectNode input = mapper.createObjectNode();
+        input.put("value", value);
+        return input;
+    }
+
+    private static final class RecordingListener implements SessionListener {
+        private final List<String> events = new ArrayList<>();
+
+        @Override
+        public void onToolExecutionReached(String toolUseId, String toolName, ObjectNode input) {
+            events.add("reached");
+        }
+
+        @Override
+        public void onToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {
+            events.add("started");
+        }
+
+        @Override
+        public void onToolResultAvailable(String toolUseId, boolean success, String output) {
+            events.add("result");
+        }
+
+        @Override
+        public void onToolExecutionCompleted(String toolUseId, boolean success, long durationMs) {
+            events.add("completed");
+        }
+
+        @Override
+        public void onMetaEvent(MetaEvent meta) {
+            if (meta instanceof MetaEvent.Error) {
+                events.add("meta-error");
+            }
+        }
+    }
+
+    private record RecordingPermissionGate(List<String> events, PermissionDecision decision)
+            implements PermissionGate {
+        @Override
+        public PermissionDecision check(Tool<?> tool, ObjectNode input, ToolUseContext context) {
+            events.add("permission");
+            return decision;
+        }
+    }
+
+    private static final class RecordingHookManager extends HookManager {
+        private boolean preHookRan;
+        private boolean postHookRan;
+
+        private RecordingHookManager(Path configPath) {
+            super(configPath);
+        }
+
+        @Override
+        public PreToolUseResult runPreToolUse(String toolName, ObjectNode toolInput, String sessionId) {
+            preHookRan = true;
+            return new PreToolUseResult(true, null, toolInput);
+        }
+
+        @Override
+        public void runPostToolUse(
+                String toolName, ObjectNode toolInput, String sessionId, boolean success, String output) {
+            postHookRan = true;
+        }
+    }
+
+    private static final class RecordingTool implements Tool<ToolInput> {
+        private final String name;
+        private final List<String> events;
+        private final boolean readOnly;
+        private final RuntimeException thrown;
+
+        private RecordingTool(String name, List<String> events, boolean readOnly, RuntimeException thrown) {
+            this.name = name;
+            this.events = events;
+            this.readOnly = readOnly;
+            this.thrown = thrown;
+        }
+
+        private static RecordingTool succeeding(String name, List<String> events) {
+            return succeeding(name, events, true);
+        }
+
+        private static RecordingTool succeeding(String name, List<String> events, boolean readOnly) {
+            return new RecordingTool(name, events, readOnly, null);
+        }
+
+        private static RecordingTool throwing(String name, List<String> events, RuntimeException thrown) {
+            return new RecordingTool(name, events, true, thrown);
+        }
+
+        @Override
+        public String name() {
+            return name;
+        }
+
+        @Override
+        public String description() {
+            return "Records execution.";
+        }
+
+        @Override
+        public Class<ToolInput> inputType() {
+            return ToolInput.class;
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+
+        @Override
+        public ObjectNode inputSchema(ObjectMapper mapper) {
+            ObjectNode schema = mapper.createObjectNode();
+            schema.put("type", "object");
+            ObjectNode properties = mapper.createObjectNode();
+            ObjectNode value = mapper.createObjectNode();
+            value.put("type", "string");
+            properties.set("value", value);
+            schema.set("properties", properties);
+            schema.putArray("required").add("value");
+            return schema;
+        }
+
+        @Override
+        public ToolResult execute(ToolInput input, ToolUseContext context) {
+            events.add("execute");
+            if (thrown != null) {
+                throw thrown;
+            }
+            return new ToolResult(name, true, "received " + input.value());
+        }
+    }
+
+    private record ToolInput(String value) {
+    }
+}
