@@ -29,6 +29,9 @@ public final class ApiMessageProjection {
                     previous.contentBlocks().size() + message.contentBlocks().size());
             mergedBlocks.addAll(previous.contentBlocks());
             mergedBlocks.addAll(message.contentBlocks());
+            if (previous.role() == MessageRole.USER) {
+                mergedBlocks = stablePartitionToolResults(mergedBlocks);
+            }
             projected.set(projected.size() - 1, Message.of(
                     previous.role(),
                     mergedBlocks,
@@ -41,5 +44,24 @@ public final class ApiMessageProjection {
         return previous.isControllerEvent() && next.isControllerEvent()
                 ? MessageKind.CONTROLLER_EVENT
                 : MessageKind.STANDARD;
+    }
+
+    private static List<ContentBlock> stablePartitionToolResults(List<ContentBlock> blocks) {
+        List<ContentBlock> toolResults = new ArrayList<>();
+        List<ContentBlock> others = new ArrayList<>();
+        for (ContentBlock block : blocks) {
+            if (block instanceof ContentBlock.ToolResultBlock) {
+                toolResults.add(block);
+            } else {
+                others.add(block);
+            }
+        }
+        if (toolResults.isEmpty()) {
+            return blocks;
+        }
+        List<ContentBlock> merged = new ArrayList<>(toolResults.size() + others.size());
+        merged.addAll(toolResults);
+        merged.addAll(others);
+        return merged;
     }
 }
