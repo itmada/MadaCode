@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.util.AtomicFiles;
 import madacode.plan.PlanItem;
 import madacode.plan.PlanStatus;
 import madacode.plan.TodoItem;
@@ -17,10 +18,8 @@ import madacode.logging.DefaultDiagnosticEvents;
 import madacode.logging.DiagnosticEvents;
 
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -68,11 +67,13 @@ public final class SessionStorage {
     public void save(ConversationSession session) {
         Objects.requireNonNull(session, "session");
         Path target = transcriptPath(session.sessionId());
-        Path tempFile = target.resolveSibling(target.getFileName() + ".tmp");
         try {
             Files.createDirectories(rootDirectory);
-            mapper.writerWithDefaultPrettyPrinter().writeValue(tempFile.toFile(), serializeSession(session));
-            moveIntoPlace(tempFile, target);
+            AtomicFiles.writeAtomically(
+                    target,
+                    tempFile -> mapper.writerWithDefaultPrettyPrinter().writeValue(
+                            tempFile.toFile(),
+                            serializeSession(session)));
             diagnosticEvents.transcriptSaved(session, target);
         } catch (IOException exception) {
             throw new SessionStorageException("Failed to save transcript for session " + session.sessionId(), exception);
@@ -262,14 +263,6 @@ public final class SessionStorage {
         }
         node.put("userConfirmationRequired", request.userConfirmationRequired());
         return node;
-    }
-
-    private void moveIntoPlace(Path tempFile, Path target) throws IOException {
-        try {
-            Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException ignored) {
-            Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
-        }
     }
 
     private ObjectNode serializeMessage(Message message) {
