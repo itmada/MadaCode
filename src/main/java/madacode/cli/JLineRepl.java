@@ -308,7 +308,7 @@ public final class JLineRepl extends Repl {
             previousAttributes = terminal.enterRawMode();
             sigintRegistration = new SignalCancellationBridge()
                     .activate(this::requestLongRunningMonitorInterrupt);
-            if (longRunningRuntime == null || !longRunningRuntime.isRunning()) {
+            if (!longRunningCoordinator.isRuntimeRunning()) {
                 if (!startLongRunningRuntime()) {
                     persistSession();
                     return;
@@ -342,7 +342,7 @@ public final class JLineRepl extends Repl {
                     break;
                 }
             }
-            while (longRunningRuntime != null && longRunningRuntime.isRunning()) {
+            while (longRunningCoordinator.isRuntimeRunning()) {
                 drainLongRunningRuntimeCompletions();
                 screen.setLiveStatus(longRunningMonitorLines(true));
                 try {
@@ -388,10 +388,10 @@ public final class JLineRepl extends Repl {
 
     private void applyLongRunningMonitorInterrupt() {
         screen.setLiveStatus(longRunningMonitorLines(true));
-        if (longRunningRuntime != null && longRunningRuntime.isRunning()) {
+        if (longRunningCoordinator.isRuntimeRunning()) {
             recordLongRunningControllerEvent("worker_runtime_interrupt_sent",
                     Map.of("reason", "user_interrupted"));
-            longRunningRuntime.interrupt("user_interrupted");
+            longRunningCoordinator.interruptRuntime("user_interrupted");
         } else {
             recordLongRunningControllerEvent("worker_runtime_interrupt_skipped",
                     Map.of("reason", "runtime_not_running"));

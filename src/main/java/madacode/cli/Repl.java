@@ -13,8 +13,6 @@ import madacode.core.model.Message;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
-import madacode.core.session.LongRunningStage;
-import madacode.core.session.LongRunningTransitionRequest;
 import madacode.core.session.SessionListener;
 import madacode.core.session.SessionStorage;
 import madacode.core.session.SessionStorageException;
@@ -36,21 +34,17 @@ import madacode.tui.widget.SessionContext;
 
 import madacode.longrunning.LongRunningController;
 import madacode.longrunning.LongRunningLauncher;
+import madacode.longrunning.LongRunningReplCoordinator;
 import madacode.longrunning.LongRunningRuntime;
 import madacode.longrunning.LongRunningTaskStore;
-import madacode.longrunning.LongRunningWorkerRunner;
-import madacode.permission.ApprovalResponse;
-import madacode.permission.DefaultPermissionGate;
 import madacode.permission.PermissionGate;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 public abstract class Repl {
 
@@ -69,17 +63,11 @@ public abstract class Repl {
     InterruptController interruptController;
     final TurnExecutor turnExecutor;
     final ModeRouter modeRouter;
-    final LongRunningLauncher launcher;
-    final LongRunningRuntime longRunningRuntime;
-    final ConcurrentLinkedQueue<String> pendingLongRunningControllerTurns =
-            new ConcurrentLinkedQueue<>();
-    final LongRunningController longRunningController;
+    final LongRunningReplCoordinator longRunningCoordinator;
     final UserPromptChannel promptChannel;
-    final PermissionGate permissionGate;
-    final Path workerTurnLogRoot;
     private final List<AutoCloseable> shutdownTargets;
-    private final ConcurrentLinkedQueue<LongRunningRuntime.Completion> longRunningCompletions =
-            new ConcurrentLinkedQueue<>();
+    private volatile Path longRunningTaskStoreDirectory;
+    private volatile LongRunningTaskStore longRunningTaskStore;
 
     Repl(Config config) {
         this.queryEngine = Objects.requireNonNull(config.queryEngine, "queryEngine");
@@ -92,23 +80,37 @@ public abstract class Repl {
         this.sessionContext = config.sessionContext;
         this.providerRegistry = config.providerRegistry;
         this.notifications = config.notifications;
-        this.permissionGate = config.permissionGate;
-        this.workerTurnLogRoot = config.workerTurnLogRoot;
         this.modeRouter = config.modeRouter != null
                 ? config.modeRouter
                 : new ModeRouter(
                         new CommonModeHandler(turnExecutor),
-                        new LongRunningModeHandler(turnExecutor));
-        this.launcher = config.launcher;
-        this.longRunningRuntime = config.longRunningRuntime != null
+                        new LongRunningModeHandler(turnExecutor, this::longRunningTaskStore));
+        LongRunningRuntime longRunningRuntime = config.longRunningRuntime != null
                 ? config.longRunningRuntime
-                : createLongRunningRuntime();
-        this.longRunningController = config.longRunningController != null
+                : LongRunningReplCoordinator.createRuntime(
+                        config.launcher,
+                        config.permissionGate,
+                        queryEngine,
+                        sessionStorage,
+                        () -> session,
+                        config.workerTurnLogRoot,
+                        this::longRunningTaskStore);
+        LongRunningController longRunningController = config.longRunningController != null
                 ? config.longRunningController
-                : new LongRunningController();
+                : new LongRunningController(this::longRunningTaskStore);
         this.promptChannel = config.promptChannel != null
                 ? config.promptChannel
                 : UnavailablePromptChannel.INSTANCE;
+        this.longRunningCoordinator = new LongRunningReplCoordinator(
+                () -> session,
+                screen,
+                longRunningRuntime,
+                longRunningController,
+                promptChannel,
+                () -> interruptController,
+                prompt -> runManagedTurn(turnExecutor.submit(session, prompt)),
+                this::persistSession,
+                this::longRunningTaskStore);
         this.shutdownTargets = config.shutdownTargets != null
                 ? new ArrayList<>(config.shutdownTargets) : new ArrayList<>();
         this.metaEventRenderer = new MetaEventRenderer(screen, sessionContext);
@@ -181,234 +183,33 @@ public abstract class Repl {
 
     public TurnRenderer turnRenderer() { return turnRenderer; }
 
-    private LongRunningRuntime createLongRunningRuntime() {
-        LongRunningLauncher effectiveLauncher = launcher;
-        if (effectiveLauncher != null) {
-            return new LongRunningRuntime(effectiveLauncher);
+    private LongRunningTaskStore longRunningTaskStore(Path projectDirectory) {
+        Path normalized = Objects.requireNonNull(projectDirectory, "projectDirectory")
+                .toAbsolutePath()
+                .normalize();
+        LongRunningTaskStore store = longRunningTaskStore;
+        if (store == null || !Objects.equals(longRunningTaskStoreDirectory, normalized)) {
+            store = new LongRunningTaskStore(normalized);
+            longRunningTaskStore = store;
+            longRunningTaskStoreDirectory = normalized;
         }
-        if (permissionGate == null) {
-            return null;
-        }
-        Path effectiveTurnLogRoot = workerTurnLogRoot != null
-                ? workerTurnLogRoot
-                : sessionStorage.transcriptPath(session.sessionId()).getParent();
-        LongRunningWorkerRunner.QueryEngineFactory engineFactory = (toolRegistry, promptBuilder) ->
-                new madacode.core.engine.QueryEngine(
-                        queryEngine.apiClient(), toolRegistry, promptBuilder,
-                        longRunningWorkerPermissionGate());
-        LongRunningWorkerRunner workerRunner = new LongRunningWorkerRunner(
-                engineFactory, sessionStorage, queryEngine.toolRegistry(), effectiveTurnLogRoot);
-        return new LongRunningRuntime(new LongRunningLauncher(workerRunner));
-    }
-
-    static PermissionGate longRunningWorkerPermissionGate() {
-        return new DefaultPermissionGate((tool, input) -> ApprovalResponse.DENY);
+        return store;
     }
 
     protected boolean startLongRunningRuntime() {
-        String taskId = session.longRunningTaskId();
-        if (taskId == null || taskId.isBlank()) {
-            recordLongRunningControllerEvent("worker_runtime_start_failed",
-                    Map.of("reason", "no_active_task"));
-            screen.scrollback("No active long-running task.");
-            markLongRunningInterrupted("runtime_start_failed");
-            return false;
-        }
-        if (longRunningRuntime == null) {
-            recordLongRunningControllerEvent("worker_runtime_start_failed",
-                    Map.of("reason", "runtime_unavailable"));
-            screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
-            markLongRunningInterrupted("runtime_start_failed");
-            return false;
-        }
-        boolean started;
-        try {
-            started = longRunningRuntime.start(
-                    taskId,
-                    session.workingDirectory(),
-                    session,
-                    longRunningCompletions::add);
-        } catch (RuntimeException exception) {
-            recordLongRunningControllerEvent("worker_runtime_start_failed",
-                    Map.of(
-                            "reason", "runtime_exception",
-                            "detail", exception.getMessage() == null
-                                    ? exception.getClass().getSimpleName()
-                                    : exception.getMessage()));
-            screen.scrollback("Failed to start long-running runtime: "
-                    + (exception.getMessage() == null
-                    ? exception.getClass().getSimpleName()
-                    : exception.getMessage()));
-            markLongRunningInterrupted("runtime_start_failed");
-            return false;
-        }
-        if (!started) {
-            recordLongRunningControllerEvent("worker_runtime_already_running", Map.of());
-            screen.scrollback("Long-running workers are already running for this task.");
-        } else {
-            recordLongRunningControllerEvent("worker_runtime_started", Map.of());
-        }
-        return started;
-    }
-
-    private static String longRunningResultSummary(LongRunningLauncher.LaunchResult result) {
-        String statusTag = switch (result.status()) {
-            case COMPLETED -> "[completed]";
-            case ALREADY_RUNNING -> "[already-running]";
-            case BLOCKED -> "[blocked]";
-            case FAILED -> "[failed]";
-            case NEEDS_USER -> "[needs-user]";
-            case INTERRUPTED -> "[interrupted]";
-            case MAX_WORKERS_EXHAUSTED -> "[exhausted]";
-        };
-        return statusTag + " " + result.message()
-                + " (" + result.workersLaunched() + " worker cycle(s) launched)";
+        return longRunningCoordinator.startRuntime();
     }
 
     final void drainLongRunningRuntimeCompletions() {
-        LongRunningRuntime.Completion completion;
-        while ((completion = longRunningCompletions.poll()) != null) {
-            applyLongRunningRuntimeCompletion(completion);
-        }
-    }
-
-    final void applyLongRunningRuntimeCompletion(LongRunningRuntime.Completion completion) {
-        if (!Objects.equals(session.longRunningTaskId(), completion.taskId())) {
-            screen.scrollback("[stale] Ignored long-running launcher completion for task "
-                    + safeTaskId(completion.taskId()) + "; current task is "
-                    + safeTaskId(session.longRunningTaskId()) + ".");
-            return;
-        }
-        String summary;
-        LongRunningStage targetStage;
-        boolean handoffToController = false;
-        if (completion.error() != null) {
-            Throwable error = completion.error();
-            summary = "[failed] Long-running launcher failed: "
-                    + (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
-            markLongRunningInterrupted("runtime_failed");
-            targetStage = LongRunningStage.INTERRUPT;
-        } else {
-            LongRunningLauncher.LaunchResult result = completion.result();
-            summary = longRunningResultSummary(result);
-            handoffToController = result.status() == LongRunningLauncher.LaunchStatus.COMPLETED;
-            LongRunningStage fallbackStage = switch (result.status()) {
-                case COMPLETED -> LongRunningStage.DONE;
-                case ALREADY_RUNNING, BLOCKED, FAILED, NEEDS_USER, INTERRUPTED, MAX_WORKERS_EXHAUSTED ->
-                        LongRunningStage.INTERRUPT;
-            };
-            if (fallbackStage == LongRunningStage.INTERRUPT) {
-                markTaskInterruptedIfNeeded(completion.taskId(), result.status());
-            }
-            targetStage = stageFromTaskStore(completion.taskId())
-                    .filter(stage -> stage == LongRunningStage.DONE || stage == LongRunningStage.INTERRUPT)
-                    .orElse(fallbackStage);
-        }
-        if (handoffToController) {
-            pendingLongRunningControllerTurns.add(longRunningCompletionPrompt(summary));
-        } else {
-            screen.scrollback("");
-            screen.scrollback(Tk.dim(summary));
-        }
-        session.setLongRunningStage(targetStage);
-        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
-        fields.put("summary", summary);
-        fields.put("result_stage", targetStage.name());
-        if (completion.result() != null) {
-            fields.put("launcher_status", completion.result().status().name());
-            fields.put("workers_launched", String.valueOf(completion.result().workersLaunched()));
-        }
-        if (completion.error() != null) {
-            fields.put("error", completion.error().getMessage() == null
-                    ? completion.error().getClass().getSimpleName()
-                    : completion.error().getMessage());
-        }
-        recordLongRunningControllerEvent("worker_runtime_finished", fields);
-        if (!handoffToController) {
-            session.addMessage(Message.system("[long-running] " + summary));
-        }
-        persistSession();
-    }
-
-    private static String longRunningCompletionPrompt(String summary) {
-        return """
-                [controller-event][long-running]
-                当前 long-running 任务的 worker agent 已经完成。
-
-                这是 worker/launcher 返回的结果：
-                %s
-                """.formatted(summary);
+        longRunningCoordinator.drainCompletions();
     }
 
     protected final void drainPendingLongRunningControllerTurns() {
-        String prompt;
-        while ((prompt = pendingLongRunningControllerTurns.poll()) != null) {
-            runManagedTurn(turnExecutor.submit(session, prompt));
-        }
+        longRunningCoordinator.drainPendingControllerTurns();
     }
 
     protected final void markLongRunningInterrupted(String reason) {
-        session.setLongRunningStage(LongRunningStage.INTERRUPT);
-        session.setLongRunningReason(reason);
-        String taskId = session.longRunningTaskId();
-        if (taskId == null || taskId.isBlank()) {
-            return;
-        }
-        recordLongRunningControllerEvent("task_marked_interrupted",
-                Map.of("reason", reason == null ? "" : reason));
-        try {
-            new LongRunningTaskStore(session.workingDirectory()).markTaskInterrupted(taskId, reason);
-        } catch (RuntimeException exception) {
-            screen.scrollback(Tk.errorTag("long-running") + " "
-                    + "Failed to mark task INTERRUPT: " + exception.getMessage());
-        }
-    }
-
-    private static String safeTaskId(String taskId) {
-        return taskId == null || taskId.isBlank() ? "<none>" : taskId;
-    }
-
-    private Optional<LongRunningStage> stageFromTaskStore(String taskId) {
-        if (taskId == null || taskId.isBlank()) {
-            return Optional.empty();
-        }
-        try {
-            return LongRunningStage.fromWire(
-                    new LongRunningTaskStore(session.workingDirectory()).loadTask(taskId).status());
-        } catch (RuntimeException ignored) {
-            return Optional.empty();
-        }
-    }
-
-    private void markTaskInterruptedIfNeeded(String taskId, LongRunningLauncher.LaunchStatus status) {
-        if (taskId == null || taskId.isBlank()) {
-            return;
-        }
-        if (status == LongRunningLauncher.LaunchStatus.ALREADY_RUNNING) {
-            return;
-        }
-        try {
-            LongRunningTaskStore store = new LongRunningTaskStore(session.workingDirectory());
-            String currentStatus = store.loadTask(taskId).status();
-            if (!"DONE".equals(currentStatus) && !"INTERRUPT".equals(currentStatus)) {
-                store.markTaskInterrupted(taskId, interruptReasonFor(status));
-            }
-        } catch (RuntimeException exception) {
-            screen.scrollback(Tk.errorTag("long-running") + " "
-                    + "Failed to mark task INTERRUPT: " + exception.getMessage());
-        }
-    }
-
-    private static String interruptReasonFor(LongRunningLauncher.LaunchStatus status) {
-        return switch (status) {
-            case ALREADY_RUNNING -> "already_running";
-            case BLOCKED -> "worker_blocked";
-            case FAILED -> "worker_failed";
-            case NEEDS_USER -> "needs_user";
-            case INTERRUPTED -> "user_interrupted";
-            case MAX_WORKERS_EXHAUSTED -> "worker_cycle_budget_exhausted";
-            case COMPLETED -> "task_completed";
-        };
+        longRunningCoordinator.markInterrupted(reason);
     }
 
     private void runManagedTurn(TurnHandle handle) {
@@ -432,74 +233,11 @@ public abstract class Repl {
     }
 
     private void processPendingLongRunningTransitionRequest() {
-        session.pendingLongRunningTransitionRequest()
-                .ifPresent(this::handlePendingLongRunningTransitionRequest);
-    }
-
-    private void handlePendingLongRunningTransitionRequest(LongRunningTransitionRequest request) {
-        recordLongRunningTransitionPromptEvent("transition_confirmation_requested", request);
-        boolean approved = promptChannel.confirm(longRunningTransitionPrompt(request));
-        recordLongRunningTransitionPromptEvent(
-                approved ? "transition_confirmation_approved" : "transition_confirmation_rejected",
-                request);
-        try {
-            if (approved) {
-                LongRunningController.AppliedTransition applied =
-                        longRunningController.applyPendingRequest(session, "user", interruptController);
-                if (applied.targetStage() == LongRunningStage.RUNNING) {
-                    if (startLongRunningRuntime()) {
-                        screen.scrollback("");
-                        screen.scrollback("[long-running] Worker runtime started; monitor active.");
-                    }
-                }
-            } else {
-                longRunningController.rejectPendingRequest(session, "user");
-            }
-        } catch (RuntimeException exception) {
-            screen.scrollback("Failed to apply long-running transition: " + exception.getMessage());
-        }
-    }
-
-    protected static String longRunningTransitionPrompt(LongRunningTransitionRequest request) {
-        LongRunningStage source = request.sourceStage().normalized();
-        LongRunningStage target = request.targetStage().normalized();
-        String suffix = request.summary() == null ? "" : "\n\n" + request.summary();
-        if (source == LongRunningStage.DRAFT && target == LongRunningStage.RUNNING) {
-            return "Start this long-running task now?" + suffix;
-        }
-        if (source == LongRunningStage.INTERRUPT && target == LongRunningStage.RUNNING) {
-            return "Resume this long-running task now?" + suffix;
-        }
-        if (target == LongRunningStage.DONE) {
-            return "Mark this long-running task DONE?" + suffix;
-        }
-        return "Apply long-running transition " + source + " -> " + target + "?" + suffix;
+        longRunningCoordinator.processPendingTransitionRequest();
     }
 
     protected final void recordLongRunningControllerEvent(String event, Map<String, String> fields) {
-        LinkedHashMap<String, String> ordered = new LinkedHashMap<>();
-        ordered.put("event", event);
-        ordered.put("task", safeTaskId(session.longRunningTaskId()));
-        LongRunningStage stage = session.longRunningStage();
-        if (stage != null) {
-            ordered.put("stage", stage.name());
-        }
-        if (fields != null) {
-            ordered.putAll(fields);
-        }
-        session.addControllerEvent("long-running", ordered);
-    }
-
-    private void recordLongRunningTransitionPromptEvent(
-            String event,
-            LongRunningTransitionRequest request) {
-        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
-        fields.put("transition", request.sourceStage() + " -> " + request.targetStage());
-        fields.put("reason", request.reason());
-        if (request.summary() != null) {
-            fields.put("summary", request.summary());
-        }
-        recordLongRunningControllerEvent(event, fields);
+        longRunningCoordinator.recordControllerEvent(event, fields);
     }
 
     private Optional<ModeExecution> runAfterTurnHook(ModeExecution.AfterTurn afterTurn) {
@@ -650,9 +388,7 @@ public abstract class Repl {
     }
 
     protected void closeResources() {
-        if (longRunningRuntime != null) {
-            longRunningRuntime.close();
-        }
+        longRunningCoordinator.close();
         for (AutoCloseable target : shutdownTargets) {
             try {
                 target.close();
