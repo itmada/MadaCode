@@ -4,13 +4,11 @@ import madacode.core.session.ConversationSession;
 import madacode.core.turn.CancellationToken;
 import madacode.cli.UnavailablePromptChannel;
 import madacode.cli.UserPromptChannel;
-import madacode.tool.Tool;
+import madacode.tool.VisibleTools;
 
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public final class ToolUseContext {
 
@@ -109,10 +107,10 @@ public final class ToolUseContext {
      * snapshot as a hard boundary, so tools loaded or hidden after the request
      * cannot be smuggled into the same tool batch.
      */
-    public ToolUseContext withExposedTools(Collection<Tool<?>> tools) {
+    public ToolUseContext withExposedTools(VisibleTools tools) {
         Set<String> names = tools == null
                 ? Set.of()
-                : tools.stream().map(Tool::name).collect(Collectors.toUnmodifiableSet());
+                : Set.copyOf(tools.names());
         return new ToolUseContext(
                 workingDirectory, session, depth, maxDepth,
                 cancellationToken, userPrompts, names);

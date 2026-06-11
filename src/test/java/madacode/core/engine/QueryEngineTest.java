@@ -23,11 +23,11 @@ import madacode.services.api.ApiClientException;
 import madacode.services.api.ApiStreamSink;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
+import madacode.tool.VisibleTools;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Queue;
 
@@ -121,7 +121,7 @@ class QueryEngineTest {
         TurnResult result = QueryEngine.builder(
                         apiClient,
                         registry,
-                        new SystemPromptBuilder(),
+                        SystemPromptBuilder.builder().build(),
                         PermissionGate.permissive())
                 .maxIterations(1)
                 .build()
@@ -210,7 +210,7 @@ class QueryEngineTest {
         return new QueryEngine(
                 apiClient,
                 registry,
-                new SystemPromptBuilder(),
+                SystemPromptBuilder.builder().build(),
                 PermissionGate.permissive());
     }
 
@@ -255,10 +255,10 @@ class QueryEngineTest {
         public ApiResponse send(
                 List<Message> messages,
                 String systemPrompt,
-                Collection<Tool<?>> tools,
+                VisibleTools tools,
                 ApiStreamSink sink,
                 CancellationToken cancellationToken) {
-            calls.add(new Call(List.copyOf(messages), systemPrompt, List.copyOf(tools)));
+            calls.add(new Call(List.copyOf(messages), systemPrompt, tools.tools()));
             Object next = script.remove();
             if (next instanceof ApiClientException exception) {
                 throw exception;

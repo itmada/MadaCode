@@ -33,17 +33,21 @@ public final class ToolVisibility {
         return ALWAYS_VISIBLE.contains(toolName);
     }
 
-    public static Collection<Tool<?>> visibleToolsForSession(Collection<Tool<?>> tools,
-                                                             ConversationSession session) {
+    public static VisibleTools visibleToolsForSession(Collection<Tool<?>> tools,
+                                                      ConversationSession session) {
         Collection<Tool<?>> safeTools = tools == null ? java.util.List.of() : tools;
         Set<String> loaded = session == null ? Set.of() : session.loadedDeferredTools();
-        return safeTools.stream()
+        return new VisibleTools(safeTools.stream()
                 .filter(tool -> LongRunningToolPolicy.isToolVisible(tool, session))
                 .filter(tool -> isAlwaysVisible(tool.name())
                         || loaded.contains(tool.name())
                         || isActiveLongRunningTool(tool, session)
                         || isWorkerVisibleOrdinaryTool(tool, session))
-                .toList();
+                .toList());
+    }
+
+    public static VisibleTools empty() {
+        return new VisibleTools(java.util.List.of());
     }
 
     public static String executionDenialReason(Tool<?> tool, ConversationSession session) {

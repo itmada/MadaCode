@@ -16,12 +16,13 @@ import madacode.provider.ActiveState;
 import madacode.provider.Provider;
 import madacode.provider.ProviderRegistry;
 import madacode.tool.Tool;
+import madacode.tool.ToolVisibility;
+import madacode.tool.VisibleTools;
 
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -80,7 +81,7 @@ public class MadaApiClient implements ApiClient {
     public ApiResponse send(
             List<Message> messages,
             String systemPrompt,
-            Collection<Tool<?>> tools,
+            VisibleTools tools,
             ApiStreamSink sink,
             CancellationToken cancellationToken) {
         Objects.requireNonNull(sink, "sink");
@@ -232,7 +233,8 @@ public class MadaApiClient implements ApiClient {
             ApiStreamSink sink,
             long requestStartNanos,
             CancellationToken cancellationToken) {
-        return parseStreamingResponse(responseLines, sink, requestStartNanos, cancellationToken, List.of());
+        return parseStreamingResponse(responseLines, sink, requestStartNanos,
+                cancellationToken, ToolVisibility.empty());
     }
 
     ApiResponse parseStreamingResponse(
@@ -240,7 +242,7 @@ public class MadaApiClient implements ApiClient {
             ApiStreamSink sink,
             long requestStartNanos,
             CancellationToken cancellationToken,
-            Collection<Tool<?>> tools) {
+            VisibleTools tools) {
         return parseStreamingResponse(responseLines, sink, requestStartNanos,
                 cancellationToken, tools, null);
     }
@@ -250,7 +252,7 @@ public class MadaApiClient implements ApiClient {
             ApiStreamSink sink,
             long requestStartNanos,
             CancellationToken cancellationToken,
-            Collection<Tool<?>> tools,
+            VisibleTools tools,
             List<String> rawResponseLines) {
         StreamState state = new StreamState(requestStartNanos);
         Map<String, Set<String>> requiredFieldsByTool = requiredFieldsByTool(tools);
@@ -480,7 +482,7 @@ public class MadaApiClient implements ApiClient {
                 + "Anthropic endpoint, or split large writes.";
     }
 
-    private Map<String, Set<String>> requiredFieldsByTool(Collection<Tool<?>> tools) {
+    private Map<String, Set<String>> requiredFieldsByTool(VisibleTools tools) {
         Map<String, Set<String>> result = new HashMap<>();
         if (tools == null) {
             return result;

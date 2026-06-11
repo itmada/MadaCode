@@ -19,10 +19,10 @@ import madacode.permission.PermissionGate;
 import madacode.tool.ToolSearchTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
+import madacode.tool.VisibleTools;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayDeque;
-import java.util.Collection;
 import java.util.List;
 import java.util.Queue;
 
@@ -54,7 +54,7 @@ public class ToolProtocolTest {
         QueryEngine queryEngine = new QueryEngine(
                 apiClient,
                 registry,
-                new SystemPromptBuilder(),
+                SystemPromptBuilder.builder().build(),
                 PermissionGate.permissive());
         ConversationSession session = new ConversationSession();
         session.loadDeferredTool(tool.name());
@@ -94,7 +94,7 @@ public class ToolProtocolTest {
         QueryEngine queryEngine = new QueryEngine(
                 apiClient,
                 registry,
-                new SystemPromptBuilder(),
+                SystemPromptBuilder.builder().build(),
                 PermissionGate.permissive());
         ConversationSession session = new ConversationSession();
 
@@ -164,7 +164,7 @@ public class ToolProtocolTest {
         public ApiResponse send(
                 List<Message> messages,
                 String systemPrompt,
-                Collection<Tool<?>> tools,
+                VisibleTools tools,
                 ApiStreamSink sink,
                 CancellationToken cancellationToken) {
             ApiResponse resp = responses.remove();

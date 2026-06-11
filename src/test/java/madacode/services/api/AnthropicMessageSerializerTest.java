@@ -3,6 +3,7 @@ package madacode.services.api;
 import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
 import madacode.core.model.FinishReason;
+import madacode.tool.ToolVisibility;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -29,7 +30,7 @@ class AnthropicMessageSerializerTest {
                         Message.user("[CompactBoundary: 4 messages summarized]\nsummary body"),
                         Message.user("fresh question")),
                 "system prompt",
-                List.of());
+                ToolVisibility.empty());
 
         JsonNode root = mapper.readTree(body);
         assertEquals("system prompt", root.path("system").asText());
@@ -51,7 +52,7 @@ class AnthropicMessageSerializerTest {
                         Message.system("(Reached max iterations: 15)"),
                         Message.user("next prompt")),
                 "system prompt",
-                List.of());
+                ToolVisibility.empty());
 
         JsonNode messages = mapper.readTree(body).path("messages");
         assertEquals(1, messages.size());
@@ -76,7 +77,7 @@ class AnthropicMessageSerializerTest {
                                 + "summary: interrupted by user"),
                         Message.user("what happened?"))),
                 "system prompt",
-                List.of());
+                ToolVisibility.empty());
 
         JsonNode messages = mapper.readTree(body).path("messages");
         assertEquals(1, messages.size());
@@ -104,7 +105,7 @@ class AnthropicMessageSerializerTest {
                         Message.controllerEvent("[controller-event][long-running]\n"
                                 + "event: transition_request_pending"))),
                 "system prompt",
-                List.of());
+                ToolVisibility.empty());
 
         JsonNode messages = mapper.readTree(body).path("messages");
         assertEquals("assistant", messages.get(0).path("role").asText());
@@ -123,7 +124,7 @@ class AnthropicMessageSerializerTest {
                 4096,
                 List.of(Message.assistantTerminal("(Cancelled: esc)", FinishReason.CANCELLED)),
                 "system prompt",
-                List.of());
+                ToolVisibility.empty());
 
         JsonNode message = mapper.readTree(body).path("messages").get(0);
         assertEquals("assistant", message.path("role").asText());

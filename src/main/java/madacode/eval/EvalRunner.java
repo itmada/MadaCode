@@ -80,7 +80,7 @@ public class EvalRunner {
         registry.register(new madacode.tool.LongRunTaskUpdateTool());
 
         return new QueryEngine(apiClient, registry,
-                new SystemPromptBuilder(), gate);
+                SystemPromptBuilder.builder().build(), gate);
     }
 
     private int countToolCalls(ConversationSession session) {
