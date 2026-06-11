@@ -1,6 +1,7 @@
 package madacode.cli.slash;
 
 import madacode.tui.theme.Themes;
+import madacode.tui.theme.ThemeBootstrap;
 
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +43,7 @@ final class ThemeCommand implements SlashCommand {
             ctx.screen().scrollback("Unknown theme: " + theme);
             return new SlashAction.Handled();
         }
+        ThemeBootstrap.savePreference(theme);
         // SessionContext is now inline — no repaint needed.
         SlashFeedback.muted(ctx.screen(), "Theme set to: " + theme);
         return new SlashAction.Handled();
