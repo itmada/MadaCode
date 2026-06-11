@@ -28,7 +28,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -78,7 +77,7 @@ public class ConversationSession {
     private volatile madacode.longrunning.WorkerReport lastWorkerReport;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
-    private final List<SessionListener> listeners = new CopyOnWriteArrayList<>();
+    private final SessionEventBus eventBus = new SessionEventBus();
     private volatile StreamingAssistantHandle currentStream;
     private final ReadFileState readFileState = new ReadFileState();
     private final AtomicReference<Set<String>> loadedDeferredToolsRef =
@@ -150,13 +149,7 @@ public class ConversationSession {
         }
         int index = snapshot.size();
         messagesRef.set(append(snapshot, message));
-        for (SessionListener l : listeners) {
-            try {
-                l.onMessageAppended(index, message);
-            } catch (RuntimeException e) {
-                logListenerCrash("onMessageAppended", e);
-            }
-        }
+        eventBus.fireMessageAppended(index, message);
     }
 
     /**
@@ -231,16 +224,18 @@ public class ConversationSession {
 
     // ---- Listeners -------------------------------------------------------
 
+    public SessionEventBus eventBus() {
+        return eventBus;
+    }
+
+    @Deprecated
     public void addListener(SessionListener listener) {
-        listeners.add(Objects.requireNonNull(listener, "listener"));
+        eventBus.addListener(listener);
     }
 
+    @Deprecated
     public void removeListener(SessionListener listener) {
-        listeners.remove(listener);
-    }
-
-    List<SessionListener> listenerList() {
-        return listeners;
+        eventBus.removeListener(listener);
     }
 
     /** Replay all current messages into a listener without firing transient events. */
@@ -253,97 +248,57 @@ public class ConversationSession {
 
     // ---- Firing helpers (called by QueryEngine / ToolOrchestrator) -------
 
+    @Deprecated
     public void fireToolExecutionReached(String toolUseId, String toolName, ObjectNode input) {
-        for (SessionListener l : listeners) {
-            try {
-                l.onToolExecutionReached(toolUseId, toolName, input);
-            } catch (RuntimeException e) {
-                logListenerCrash("onToolExecutionReached", e);
-            }
-        }
+        eventBus.fireToolExecutionReached(toolUseId, toolName, input);
     }
 
+    @Deprecated
     public void fireToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {
-        for (SessionListener l : listeners) {
-            try {
-                l.onToolExecutionStarted(toolUseId, toolName, input);
-            } catch (RuntimeException e) {
-                logListenerCrash("onToolExecutionStarted", e);
-            }
-        }
+        eventBus.fireToolExecutionStarted(toolUseId, toolName, input);
     }
 
+    @Deprecated
     public void fireToolExecutionCompleted(String toolUseId, boolean success, long durationMs) {
-        for (SessionListener l : listeners) {
-            try {
-                l.onToolExecutionCompleted(toolUseId, success, durationMs);
-            } catch (RuntimeException e) {
-                logListenerCrash("onToolExecutionCompleted", e);
-            }
-        }
+        eventBus.fireToolExecutionCompleted(toolUseId, success, durationMs);
     }
 
+    @Deprecated
     public void fireToolResultAvailable(String toolUseId, boolean success, String output) {
-        for (SessionListener l : listeners) {
-            try {
-                l.onToolResultAvailable(toolUseId, success, output);
-            } catch (RuntimeException e) {
-                logListenerCrash("onToolResultAvailable", e);
-            }
-        }
+        eventBus.fireToolResultAvailable(toolUseId, success, output);
     }
 
+    @Deprecated
     public void fireToolExecutionProgress(String toolUseId, String progressText) {
-        for (SessionListener l : listeners) {
-            try {
-                l.onToolExecutionProgress(toolUseId, progressText);
-            } catch (RuntimeException e) {
-                logListenerCrash("onToolExecutionProgress", e);
-            }
-        }
+        eventBus.fireToolExecutionProgress(toolUseId, progressText);
     }
 
+    @Deprecated
     public void fireToolExecutionActivity(String toolUseId, String activityText) {
-        for (SessionListener l : listeners) {
-            try {
-                l.onToolExecutionActivity(toolUseId, activityText);
-            } catch (RuntimeException e) {
-                logListenerCrash("onToolExecutionActivity", e);
-            }
-        }
+        eventBus.fireToolExecutionActivity(toolUseId, activityText);
     }
 
+    @Deprecated
     public void fireToolExecutionMetric(String toolUseId, String metricText) {
-        for (SessionListener l : listeners) {
-            try {
-                l.onToolExecutionMetric(toolUseId, metricText);
-            } catch (RuntimeException e) {
-                logListenerCrash("onToolExecutionMetric", e);
-            }
-        }
+        eventBus.fireToolExecutionMetric(toolUseId, metricText);
     }
 
+    @Deprecated
     public void fireTurnEnd() {
-        for (SessionListener l : listeners) {
-            try {
-                l.onTurnEnd();
-            } catch (RuntimeException e) {
-                logListenerCrash("onTurnEnd", e);
-            }
-        }
+        eventBus.fireTurnEnd();
     }
 
+    /**
+     * Fires a meta event and applies session-owned token accounting.
+     *
+     * <p>Token usage updates intentionally remain on {@code ConversationSession};
+     * {@link SessionEventBus} only broadcasts the event.
+     */
     public void fireMetaEvent(MetaEvent meta) {
         if (meta instanceof MetaEvent.TokenReport report) {
             tokenUsageRef.updateAndGet(curr -> curr.plus(report.usage()));
         }
-        for (SessionListener l : listeners) {
-            try {
-                l.onMetaEvent(meta);
-            } catch (RuntimeException e) {
-                logListenerCrash("onMetaEvent", e);
-            }
-        }
+        eventBus.fireMetaEvent(meta);
     }
 
     /** Begin a streaming assistant message. Only one may be open at a time. */
@@ -357,12 +312,6 @@ public class ConversationSession {
 
     public String sessionId() {
         return sessionId;
-    }
-
-    private static void logListenerCrash(String callbackName, RuntimeException error) {
-        // TODO(P2-1): Keep listener crash logging on the static facade until
-        // session listener fanout can accept injected DiagnosticEvents cleanly.
-        madacode.logging.DiagnosticEventLogger.listenerCrashed(callbackName, error);
     }
 
     public ReadFileState readFileState() {
@@ -468,13 +417,7 @@ public class ConversationSession {
         }
         int index = snapshot.size();
         messagesRef.set(append(snapshot, message));
-        for (SessionListener l : listeners) {
-            try {
-                l.onMessageAppended(index, message);
-            } catch (RuntimeException e) {
-                logListenerCrash("onMessageAppended", e);
-            }
-        }
+        eventBus.fireMessageAppended(index, message);
     }
 
     private static String controllerEventText(String domain, Map<String, String> fields) {

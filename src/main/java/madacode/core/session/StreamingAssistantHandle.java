@@ -28,26 +28,14 @@ public final class StreamingAssistantHandle {
     public synchronized void appendText(String chunk) {
         check();
         textBuf.append(chunk);
-        for (SessionListener l : session.listenerList()) {
-            try {
-                l.onAssistantTextChunk(reservedIndex, chunk);
-            } catch (RuntimeException e) {
-                logListenerCrash("onAssistantTextChunk", e);
-            }
-        }
+        session.eventBus().fireAssistantTextChunk(reservedIndex, chunk);
     }
 
     public synchronized void appendBlock(ContentBlock block) {
         check();
         flushPendingText();
         blocks.add(block);
-        for (SessionListener l : session.listenerList()) {
-            try {
-                l.onAssistantBlockAppended(reservedIndex, block);
-            } catch (RuntimeException e) {
-                logListenerCrash("onAssistantBlockAppended", e);
-            }
-        }
+        session.eventBus().fireAssistantBlockAppended(reservedIndex, block);
     }
 
     /** Finalize the stream: flushes any pending text, assembles the final
@@ -65,13 +53,7 @@ public final class StreamingAssistantHandle {
             message = Message.assistant(List.copyOf(blocks));
         }
         session.appendStreamedMessage(message);
-        for (SessionListener l : session.listenerList()) {
-            try {
-                l.onAssistantStreamFinalized(reservedIndex);
-            } catch (RuntimeException e) {
-                logListenerCrash("onAssistantStreamFinalized", e);
-            }
-        }
+        session.eventBus().fireAssistantStreamFinalized(reservedIndex);
         return message;
     }
 
@@ -86,13 +68,7 @@ public final class StreamingAssistantHandle {
         if (finalized) return;
         finalized = true;
         session.clearStream();
-        for (SessionListener l : session.listenerList()) {
-            try {
-                l.onAssistantStreamFinalized(reservedIndex);
-            } catch (RuntimeException e) {
-                logListenerCrash("onAssistantStreamFinalized", e);
-            }
-        }
+        session.eventBus().fireAssistantStreamFinalized(reservedIndex);
     }
 
     public int reservedIndex() {
@@ -109,9 +85,4 @@ public final class StreamingAssistantHandle {
         if (finalized) throw new IllegalStateException("stream already finalized");
     }
 
-    private static void logListenerCrash(String callbackName, RuntimeException error) {
-        // TODO(P2-1): Keep listener crash logging on the static facade until
-        // session listener fanout can accept injected DiagnosticEvents cleanly.
-        madacode.logging.DiagnosticEventLogger.listenerCrashed(callbackName, error);
-    }
 }
