@@ -8,7 +8,7 @@ import madacode.cli.slash.SlashCommandRegistry;
 import madacode.core.engine.QueryEngineTurnRunner;
 import madacode.core.turn.TurnExecutor;
 import madacode.core.turn.TurnLog;
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
 
@@ -27,7 +27,8 @@ final class InteractionAssembly {
             ToolRuntime tools,
             EngineRuntime engine,
             SessionRuntime session,
-            BootstrapResources resources) {
+            BootstrapResources resources,
+            AppEventPublisher publisher) {
         SlashCommandRegistry slashRegistry = SlashCommandRegistry.create(
                 tools.skillRegistry());
 
@@ -45,7 +46,7 @@ final class InteractionAssembly {
         var turnRunner = new QueryEngineTurnRunner(engine.engine(), channel);
         var turnLog = new TurnLog(environment.paths().workspaceSessionsDir());
         var turnExecutor = resources.own(new TurnExecutor(turnRunner, turnLog));
-        recoverUnfinishedTurns(turnExecutor, session);
+        recoverUnfinishedTurns(turnExecutor, session, publisher);
 
         return new InteractionRuntime(
                 slashRegistry,
@@ -57,10 +58,11 @@ final class InteractionAssembly {
 
     private static void recoverUnfinishedTurns(
             TurnExecutor turnExecutor,
-            SessionRuntime session) {
+            SessionRuntime session,
+            AppEventPublisher publisher) {
         List<String> unfinished = turnExecutor.recoverOnStartup();
         if (!unfinished.isEmpty()) {
-            AppEvents.publisher().publish(DiagnosticEvent.info(
+            publisher.publish(DiagnosticEvent.info(
                     EventContext.of(session.session(), "Bootstrapper"),
                     "Recovered " + unfinished.size()
                             + " unfinished turn(s) from previous run, marked as FAILED"));

@@ -3,6 +3,7 @@ package madacode.permission;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.events.AuditEvent;
+import madacode.events.AppEventPublisher;
 import madacode.events.AppEvents;
 import madacode.events.EventContext;
 import madacode.logging.DefaultDiagnosticEvents;
@@ -40,16 +41,19 @@ public class DefaultPermissionGate implements PermissionGate {
     private final List<PermissionRule> rules;
     private final Set<String> sessionApprovedInputs;
     private final DiagnosticEvents diagnosticEvents;
+    private final AppEventPublisher publisher;
 
     private DefaultPermissionGate(
             UserApprovalPrompt prompt,
             List<PermissionRule> rules,
             Set<String> sessionApprovedInputs,
-            DiagnosticEvents diagnosticEvents) {
+            DiagnosticEvents diagnosticEvents,
+            AppEventPublisher publisher) {
         this.prompt = Objects.requireNonNull(prompt, "prompt");
         this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));
         this.sessionApprovedInputs = Objects.requireNonNull(sessionApprovedInputs);
         this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
+        this.publisher = Objects.requireNonNull(publisher, "publisher");
     }
 
     public DefaultPermissionGate(UserApprovalPrompt prompt) {
@@ -57,7 +61,8 @@ public class DefaultPermissionGate implements PermissionGate {
     }
 
     public DefaultPermissionGate(UserApprovalPrompt prompt, DiagnosticEvents diagnosticEvents) {
-        this(prompt, defaultRules(List.of()), ConcurrentHashMap.newKeySet(), diagnosticEvents);
+        this(prompt, defaultRules(List.of()), ConcurrentHashMap.newKeySet(),
+                diagnosticEvents, AppEvents.publisher());
     }
 
     public DefaultPermissionGate(UserApprovalPrompt prompt, List<Path> trustedRoots) {
@@ -68,7 +73,23 @@ public class DefaultPermissionGate implements PermissionGate {
             UserApprovalPrompt prompt,
             List<Path> trustedRoots,
             DiagnosticEvents diagnosticEvents) {
-        this(prompt, defaultRules(trustedRoots), ConcurrentHashMap.newKeySet(), diagnosticEvents);
+        this(prompt, trustedRoots, diagnosticEvents, AppEvents.publisher());
+    }
+
+    public DefaultPermissionGate(
+            UserApprovalPrompt prompt,
+            List<Path> trustedRoots,
+            AppEventPublisher publisher) {
+        this(prompt, trustedRoots, new DefaultDiagnosticEvents(), publisher);
+    }
+
+    public DefaultPermissionGate(
+            UserApprovalPrompt prompt,
+            List<Path> trustedRoots,
+            DiagnosticEvents diagnosticEvents,
+            AppEventPublisher publisher) {
+        this(prompt, defaultRules(trustedRoots), ConcurrentHashMap.newKeySet(),
+                diagnosticEvents, publisher);
     }
 
     @Override
@@ -128,7 +149,7 @@ public class DefaultPermissionGate implements PermissionGate {
             PermissionDecision decision,
             long waitMs) {
         diagnosticEvents.permissionDecision(context.session(), tool.name(), decision, waitMs);
-        AppEvents.publisher().publish(AuditEvent.permissionDecision(
+        publisher.publish(AuditEvent.permissionDecision(
                 EventContext.of(context.session(), "Permission"),
                 tool.name(),
                 decision.isAllowed(),

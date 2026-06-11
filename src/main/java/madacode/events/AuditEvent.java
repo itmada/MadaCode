@@ -33,7 +33,7 @@ public record AuditEvent(
             String inputPreview) {
         return new AuditEvent(
                 Instant.now(),
-                AppEvents.publisher().nextSequence(),
+                AppEvents.nextSequence(),
                 context,
                 tool,
                 allowed,

@@ -1,6 +1,6 @@
 package madacode.agent;
 
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
 
@@ -23,9 +23,11 @@ import java.util.stream.Stream;
 public final class DiskAgentLoader implements AgentLoader {
 
     private final Path rootDir;
+    private final AppEventPublisher publisher;
 
-    public DiskAgentLoader(Path rootDir) {
+    public DiskAgentLoader(Path rootDir, AppEventPublisher publisher) {
         this.rootDir = rootDir;
+        this.publisher = publisher;
     }
 
     @Override
@@ -47,16 +49,16 @@ public final class DiskAgentLoader implements AgentLoader {
                     String fileName = file.getFileName().toString();
                     String fallback = fileName.substring(0, fileName.length() - ".md".length());
                     Optional<AgentDefinition> def =
-                            AgentDefinitionParser.parse(content, fallback, file);
+                            AgentDefinitionParser.parse(content, fallback, file, publisher);
                     def.ifPresent(result::add);
                 } catch (IOException e) {
-                    AppEvents.publisher().publish(DiagnosticEvent.warn(
+                    publisher.publish(DiagnosticEvent.warn(
                             EventContext.bootstrap("DiskAgentLoader"),
                             "failed to read " + file + ": " + e.getMessage(), e));
                 }
             }
         } catch (IOException e) {
-            AppEvents.publisher().publish(DiagnosticEvent.warn(
+            publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("DiskAgentLoader"),
                     "failed to scan " + rootDir + ": " + e.getMessage(), e));
         }

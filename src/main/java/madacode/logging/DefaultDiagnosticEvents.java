@@ -2,6 +2,7 @@ package madacode.logging;
 
 import madacode.core.model.FinishReason;
 import madacode.core.session.ConversationSession;
+import madacode.events.AppEventPublisher;
 import madacode.events.AppEvents;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
@@ -13,6 +14,16 @@ import java.util.Collection;
 import java.util.Objects;
 
 public final class DefaultDiagnosticEvents implements DiagnosticEvents {
+
+    private final AppEventPublisher publisher;
+
+    public DefaultDiagnosticEvents() {
+        this(AppEvents.publisher());
+    }
+
+    public DefaultDiagnosticEvents(AppEventPublisher publisher) {
+        this.publisher = Objects.requireNonNull(publisher, "publisher");
+    }
 
     @Override
     public void turnStarted(ConversationSession session, Integer maxIterations) {
@@ -65,9 +76,9 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
                         waitMs,
                         sanitize(decision.reason()));
         if (!decision.isAllowed() && BashSafetyPermissionRule.SOURCE.equals(decision.source())) {
-            warn(EventContext.of(session, "Permission"), message);
+            warnEvent(EventContext.of(session, "Permission"), message);
         } else {
-            debug(EventContext.of(session, "Permission"), message);
+            debugEvent(EventContext.of(session, "Permission"), message);
         }
     }
 
@@ -95,14 +106,14 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
 
     @Override
     public void apiRequest(String model, int messageCount, int maxTokens) {
-        debug(EventContext.bootstrap("ApiClient"),
+        debugEvent(EventContext.bootstrap("ApiClient"),
                 "api_request model=%s messages=%d maxTokens=%d"
                         .formatted(model, messageCount, maxTokens));
     }
 
     @Override
     public void apiResponse(int statusCode, long durationMs) {
-        debug(EventContext.bootstrap("ApiClient"),
+        debugEvent(EventContext.bootstrap("ApiClient"),
                 "api_response status=%d durationMs=%d".formatted(statusCode, durationMs));
     }
 
@@ -114,20 +125,20 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
             int charCount,
             Path path) {
         if (path == null) {
-            warn(EventContext.bootstrap("ApiClient"),
+            warnEvent(EventContext.bootstrap("ApiClient"),
                     "api_model_response_full model=%s status=%d lines=%d chars=%d path=<write-failed>"
                             .formatted(sanitize(model), statusCode, lineCount, charCount));
             return;
         }
-        debug(EventContext.bootstrap("ApiClient"),
+        debugEvent(EventContext.bootstrap("ApiClient"),
                 "api_model_response_full model=%s status=%d lines=%d chars=%d path=%s"
                         .formatted(sanitize(model), statusCode, lineCount, charCount, path));
     }
 
     @Override
     public void apiError(int statusCode, String bodyPreview) {
-        warn(EventContext.bootstrap("ApiClient"), "api_error status=%d".formatted(statusCode));
-        debug(EventContext.bootstrap("ApiClient"),
+        warnEvent(EventContext.bootstrap("ApiClient"), "api_error status=%d".formatted(statusCode));
+        debugEvent(EventContext.bootstrap("ApiClient"),
                 "api_error_body preview=\"%s\"".formatted(sanitize(bodyPreview)));
     }
 
@@ -138,7 +149,7 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
             int deltaCount,
             int inputChars,
             boolean empty) {
-        debug(EventContext.bootstrap("ApiClient"),
+        debugEvent(EventContext.bootstrap("ApiClient"),
                 "api_tool_input_stream tool=%s id=%s deltas=%d chars=%d empty=%s"
                         .formatted(
                                 sanitize(toolName),
@@ -153,7 +164,7 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
             String toolName,
             String toolUseId,
             int inputChars) {
-        warn(EventContext.bootstrap("ApiClient"),
+        warnEvent(EventContext.bootstrap("ApiClient"),
                 "api_tool_input_json_parse_failed tool=%s id=%s chars=%d"
                         .formatted(
                                 sanitize(toolName),
@@ -163,16 +174,32 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
 
     @Override
     public void apiRetry(int attempt, int maxRetries, String type, long backoffMs) {
-        debug(EventContext.bootstrap("ApiClient"),
+        debugEvent(EventContext.bootstrap("ApiClient"),
                 "api_retry attempt=%d maxRetries=%d type=%s backoffMs=%d"
                         .formatted(attempt, maxRetries, type, backoffMs));
     }
 
     @Override
     public void apiFinalFailure(int attempts, String type, boolean retryable) {
-        debug(EventContext.bootstrap("ApiClient"),
+        debugEvent(EventContext.bootstrap("ApiClient"),
                 "api_final_failure attempts=%d type=%s retryable=%s"
                         .formatted(attempts, type, retryable));
+    }
+
+    private void debugEvent(EventContext context, String message) {
+        publisher.publish(DiagnosticEvent.debug(context, message));
+    }
+
+    private void warnEvent(EventContext context, String message) {
+        publisher.publish(DiagnosticEvent.warn(context, message));
+    }
+
+    private void warnEvent(EventContext context, String message, Throwable error) {
+        publisher.publish(DiagnosticEvent.warn(context, message, error));
+    }
+
+    private void errorEvent(EventContext context, String message, Throwable error) {
+        publisher.publish(DiagnosticEvent.error(context, message, error));
     }
 
     static void debug(EventContext context, String message) {
@@ -198,8 +225,8 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
         return value.replace('\n', ' ').replace('\r', ' ').replace('"', '\'');
     }
 
-    private static void emit(ConversationSession session, String message) {
+    private void emit(ConversationSession session, String message) {
         Objects.requireNonNull(session, "session");
-        debug(EventContext.of(session, "Session"), message);
+        debugEvent(EventContext.of(session, "Session"), message);
     }
 }

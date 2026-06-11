@@ -20,7 +20,7 @@ public record FatalEvent(
     public static FatalEvent create(EventContext context, String message, Throwable error, int exitCode) {
         return new FatalEvent(
                 Instant.now(),
-                AppEvents.publisher().nextSequence(),
+                AppEvents.nextSequence(),
                 context,
                 message,
                 error,

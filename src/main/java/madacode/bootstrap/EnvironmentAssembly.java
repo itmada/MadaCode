@@ -5,6 +5,7 @@ import madacode.provider.ProviderLoader;
 import madacode.provider.ProviderRegistry;
 import madacode.provider.ProviderStateStore;
 import madacode.provider.TemplateCreatedException;
+import madacode.events.AppEventPublisher;
 import madacode.logging.DefaultDiagnosticEvents;
 import madacode.logging.DiagnosticEvents;
 import madacode.logging.ModelResponseLogWriter;
@@ -44,7 +45,11 @@ final class EnvironmentAssembly {
         }
     }
 
-    static EnvironmentRuntime create(CliArgs args, TerminalRuntime terminal, RuntimePaths paths) {
+    static EnvironmentRuntime create(
+            CliArgs args,
+            TerminalRuntime terminal,
+            RuntimePaths paths,
+            AppEventPublisher publisher) {
         ProviderStateStore stateStore = ProviderStateStore.forFile(paths.globalStateFile());
         ProviderLoader loader = new ProviderLoader(paths.globalProvidersFile());
         var providers = loadProviders(loader, terminal);
@@ -57,7 +62,7 @@ final class EnvironmentAssembly {
         }
 
         boolean memoryEnabled = !args.noMemory();
-        DiagnosticEvents diagnosticEvents = new DefaultDiagnosticEvents();
+        DiagnosticEvents diagnosticEvents = new DefaultDiagnosticEvents(publisher);
         return new EnvironmentRuntime(
                 args,
                 registry,

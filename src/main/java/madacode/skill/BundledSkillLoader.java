@@ -1,6 +1,6 @@
 package madacode.skill;
 
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
 import madacode.util.ToolNameNormalizer;
@@ -28,42 +28,50 @@ import java.util.stream.Stream;
 public final class BundledSkillLoader implements SkillLoader {
 
     private static final String BUNDLED_DIR = "skills";
+    private final AppEventPublisher publisher;
+
+    public BundledSkillLoader(AppEventPublisher publisher) {
+        this.publisher = publisher;
+    }
 
     @Override
     public List<Skill> load() {
         try {
-            return loadFromClasspath();
+            return loadFromClasspath(publisher);
         } catch (IOException | URISyntaxException e) {
-            AppEvents.publisher().publish(DiagnosticEvent.warn(
+            publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("BundledSkillLoader"),
                     "Failed to load bundled skills: " + e.getMessage(), e));
             return List.of();
         }
     }
 
-    private static List<Skill> loadFromClasspath() throws IOException, URISyntaxException {
+    private static List<Skill> loadFromClasspath(AppEventPublisher publisher)
+            throws IOException, URISyntaxException {
         var url = BundledSkillLoader.class.getClassLoader().getResource(BUNDLED_DIR);
         if (url == null) return List.of();
 
         if ("jar".equals(url.getProtocol())) {
-            return loadFromJar(url);
+            return loadFromJar(url, publisher);
         }
-        return loadFromDirectory(Path.of(url.toURI()));
+        return loadFromDirectory(Path.of(url.toURI()), publisher);
     }
 
-    private static List<Skill> loadFromJar(java.net.URL dirUrl) throws IOException {
+    private static List<Skill> loadFromJar(java.net.URL dirUrl, AppEventPublisher publisher)
+            throws IOException {
         List<Skill> skills = new ArrayList<>();
         String jarPath = dirUrl.getPath().substring(5, dirUrl.getPath().indexOf('!'));
         try (FileSystem fs = FileSystems.newFileSystem(
                 URI.create("jar:file:" + jarPath), Collections.emptyMap())) {
             Path skillsRoot = fs.getPath(BUNDLED_DIR);
             if (!Files.isDirectory(skillsRoot)) return List.of();
-            skills.addAll(loadFromDirectory(skillsRoot));
+            skills.addAll(loadFromDirectory(skillsRoot, publisher));
         }
         return skills;
     }
 
-    private static List<Skill> loadFromDirectory(Path dir) throws IOException {
+    private static List<Skill> loadFromDirectory(Path dir, AppEventPublisher publisher)
+            throws IOException {
         List<Skill> skills = new ArrayList<>();
         try (Stream<Path> entries = Files.list(dir)) {
             for (Path entry : entries.filter(Files::isDirectory).sorted().toList()) {
@@ -72,7 +80,7 @@ public final class BundledSkillLoader implements SkillLoader {
 
                 String content = Files.readString(skillMd, StandardCharsets.UTF_8);
                 Skill s = buildSkill(content, entry.getFileName().toString(),
-                        SkillSource.BUNDLED, skillMd, entry);
+                        SkillSource.BUNDLED, skillMd, entry, publisher);
                 if (s != null) skills.add(s);
             }
         }
@@ -80,17 +88,18 @@ public final class BundledSkillLoader implements SkillLoader {
     }
 
     static Skill buildSkill(String content, String dirName,
-                            SkillSource source, Path mdPath, Path dirPath) {
+                            SkillSource source, Path mdPath, Path dirPath,
+                            AppEventPublisher publisher) {
         SkillFrontmatterParser.Result parsed = SkillFrontmatterParser.parse(content);
         for (String w : parsed.warnings()) {
-            AppEvents.publisher().publish(DiagnosticEvent.warn(
+            publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("BundledSkillLoader"),
                     mdPath + ": " + w));
         }
 
         Map<String, Object> fm = parsed.frontmatter();
         if (fm.containsKey("max_tool_calls")) {
-            AppEvents.publisher().publish(DiagnosticEvent.warn(
+            publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("BundledSkillLoader"),
                     mdPath + ": max_tool_calls is no longer supported; skipping skill"));
             return null;
@@ -114,13 +123,17 @@ public final class BundledSkillLoader implements SkillLoader {
                 SkillFrontmatterParser.stringListField(fm, "allowed_tools"));
         List<String> disallowed = ToolNameNormalizer.normalize(
                 SkillFrontmatterParser.stringListField(fm, "disallowed_tools"));
-        Integer maxIter = optionalPositiveInt(fm, "max_iterations", mdPath);
+        Integer maxIter = optionalPositiveInt(fm, "max_iterations", mdPath, publisher);
 
         return new Skill(name, desc, when, tags, source, parsed.body(),
                 mdPath, dirPath, mode, allowed, disallowed, maxIter);
     }
 
-    private static Integer optionalPositiveInt(Map<String, Object> fm, String field, Path source) {
+    private static Integer optionalPositiveInt(
+            Map<String, Object> fm,
+            String field,
+            Path source,
+            AppEventPublisher publisher) {
         if (!fm.containsKey(field)) {
             return null;
         }
@@ -135,7 +148,7 @@ public final class BundledSkillLoader implements SkillLoader {
                 // Warn below with the original value.
             }
         }
-        AppEvents.publisher().publish(DiagnosticEvent.warn(
+        publisher.publish(DiagnosticEvent.warn(
                 EventContext.bootstrap("BundledSkillLoader"),
                 source + ": " + field + " must be a positive integer; leaving unbounded"));
         return null;

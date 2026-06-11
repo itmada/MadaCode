@@ -2,7 +2,7 @@ package madacode.bootstrap;
 
 import madacode.cli.CliArgs;
 import madacode.cli.Repl;
-import madacode.events.AppEvents;
+import madacode.events.AppEventPublisher;
 import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.permission.PermissionGate;
@@ -33,23 +33,25 @@ public final class Bootstrapper {
             var paths = EnvironmentAssembly.pathsForCurrentProject();
             EnvironmentAssembly.configureEarlyLogPaths(paths);
             EventsRuntime events = EventsAssembly.install(paths, terminal, resources);
-            EnvironmentRuntime environment = EnvironmentAssembly.create(args, terminal, paths);
-            PermissionGate permission = PermissionAssembly.create(environment, terminal);
-            ToolRuntime tools = ToolAssembly.create(environment, resources, permission);
+            AppEventPublisher appEvents = events.publisher();
+            terminal.interrupts().appEvents(appEvents);
+            EnvironmentRuntime environment = EnvironmentAssembly.create(args, terminal, paths, appEvents);
+            PermissionGate permission = PermissionAssembly.create(environment, terminal, appEvents);
+            ToolRuntime tools = ToolAssembly.create(environment, resources, permission, appEvents);
             EngineRuntime engine = EngineAssembly.create(environment, tools, permission);
-            SessionRuntime session = SessionAssembly.resolve(environment, terminal);
+            SessionRuntime session = SessionAssembly.resolve(environment, terminal, appEvents);
 
             // Apply dangerously-bypass-permissions flag if set
             if (args.dangerouslyBypassPermissions()) {
                 session.session().setPermissionMode(PermissionMode.BYPASS);
-                AppEvents.publisher().publish(UserVisibleEvent.error(
+                appEvents.publish(UserVisibleEvent.error(
                         EventContext.bootstrap("Permission"),
                         "Warning: Bypass permission mode active — interactive approval suppressed. Structural safety rules (dangerous bash commands) still apply."));
             }
 
             events.foreground().setInitial(session.session());
             InteractionRuntime interaction = InteractionAssembly.create(
-                    environment, terminal, tools, engine, session, resources);
+                    environment, terminal, tools, engine, session, resources, appEvents);
             Repl repl = ReplAssembly.create(
                     environment, terminal, engine, session, interaction);
 

@@ -1,5 +1,6 @@
 package madacode.bootstrap;
 
+import madacode.events.AppEventPublisher;
 import madacode.permission.DefaultPermissionGate;
 import madacode.permission.PermissionGate;
 
@@ -11,11 +12,15 @@ final class PermissionAssembly {
     private PermissionAssembly() {
     }
 
-    static PermissionGate create(EnvironmentRuntime environment, TerminalRuntime terminal) {
+    static PermissionGate create(
+            EnvironmentRuntime environment,
+            TerminalRuntime terminal,
+            AppEventPublisher publisher) {
         List<Path> trustedRoots = List.of(environment.paths().globalBlobsDir());
         return new DefaultPermissionGate(
                 terminal.approval(),
                 trustedRoots,
-                environment.diagnosticEvents());
+                environment.diagnosticEvents(),
+                publisher);
     }
 }

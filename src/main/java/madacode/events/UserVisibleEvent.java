@@ -39,7 +39,7 @@ public record UserVisibleEvent(
             Throwable error) {
         return new UserVisibleEvent(
                 Instant.now(),
-                AppEvents.publisher().nextSequence(),
+                AppEvents.nextSequence(),
                 context,
                 level,
                 message,
