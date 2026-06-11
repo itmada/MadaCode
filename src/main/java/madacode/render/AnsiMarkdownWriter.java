@@ -5,27 +5,17 @@ import madacode.tui.theme.Tk;
 
 import org.commonmark.node.BlockQuote;
 import org.commonmark.node.BulletList;
-import org.commonmark.node.Code;
-import org.commonmark.node.Emphasis;
 import org.commonmark.node.FencedCodeBlock;
-import org.commonmark.node.HardLineBreak;
 import org.commonmark.node.Heading;
 import org.commonmark.node.HtmlBlock;
-import org.commonmark.node.HtmlInline;
-import org.commonmark.node.Image;
 import org.commonmark.node.IndentedCodeBlock;
-import org.commonmark.node.Link;
 import org.commonmark.node.ListBlock;
 import org.commonmark.node.ListItem;
 import org.commonmark.node.Node;
 import org.commonmark.node.OrderedList;
 import org.commonmark.node.Paragraph;
-import org.commonmark.node.SoftLineBreak;
-import org.commonmark.node.StrongEmphasis;
-import org.commonmark.node.Text;
 import org.commonmark.node.ThematicBreak;
 
-import org.commonmark.ext.gfm.strikethrough.Strikethrough;
 import org.commonmark.ext.task.list.items.TaskListItemMarker;
 import org.commonmark.ext.gfm.tables.TableBlock;
 import org.commonmark.ext.gfm.tables.TableBody;
@@ -417,122 +407,13 @@ final class AnsiMarkdownWriter {
     }
 
     private List<InlineMarkdown.Line> cellToLines(TableCell tc) {
-        List<InlineMarkdown.Line> result = new ArrayList<>();
-        List<List<InlineMarkdown.Run>> segments = new ArrayList<>();
-        segments.add(new ArrayList<>());
-        collectRunsWithBreaks(tc, segments);
-        for (List<InlineMarkdown.Run> seg : segments) {
-            result.add(seg.isEmpty() ? InlineMarkdown.Line.empty() : new InlineMarkdown.Line(seg));
-        }
-        if (result.isEmpty()) result.add(InlineMarkdown.Line.empty());
-        return result;
+        return InlineMarkdown.collectLinesWithBreaks(tc);
     }
 
     // ---- Inline -> InlineMarkdown.Line conversion ---------------------------
 
     private InlineMarkdown.Line collectLine(Node container) {
-        List<InlineMarkdown.Run> runs = new ArrayList<>();
-        collectRuns(container, runs, InlineMarkdown.Style.NORMAL);
-        return runs.isEmpty() ? InlineMarkdown.Line.empty() : new InlineMarkdown.Line(runs);
-    }
-
-    private void collectRuns(Node parent, List<InlineMarkdown.Run> runs, InlineMarkdown.Style style) {
-        for (Node child = parent.getFirstChild(); child != null; child = child.getNext()) {
-            if (child instanceof Text t) {
-                addRun(runs, t.getLiteral(), style);
-            } else if (child instanceof Code c) {
-                addRun(runs, c.getLiteral(), InlineMarkdown.Style.INLINE_CODE);
-            } else if (child instanceof Emphasis) {
-                collectRuns(child, runs, InlineMarkdown.Style.ITALIC);
-            } else if (child instanceof StrongEmphasis) {
-                collectRuns(child, runs, InlineMarkdown.Style.BOLD);
-            } else if (child instanceof Strikethrough) {
-                collectRuns(child, runs, InlineMarkdown.Style.STRIKE);
-            } else if (child instanceof Link link) {
-                addRun(runs, collectPlainText(link), InlineMarkdown.Style.LINK);
-            } else if (child instanceof Image img) {
-                String alt = collectPlainText(img);
-                addRun(runs, alt, InlineMarkdown.Style.NORMAL);
-                String url = img.getDestination();
-                if (url != null && !url.isEmpty()) {
-                    addRun(runs, "(" + url + ")", InlineMarkdown.Style.NORMAL);
-                }
-            } else if (child instanceof HtmlInline html) {
-                addRun(runs, html.getLiteral(), InlineMarkdown.Style.NORMAL);
-            } else if (child instanceof SoftLineBreak) {
-                addRun(runs, " ", style);
-            } else if (child instanceof HardLineBreak) {
-                addRun(runs, " ", style);
-            } else {
-                collectRuns(child, runs, style);
-            }
-        }
-    }
-
-    private void collectRunsWithBreaks(Node parent, List<List<InlineMarkdown.Run>> segments) {
-        List<InlineMarkdown.Run> current = segments.getLast();
-        for (Node child = parent.getFirstChild(); child != null; child = child.getNext()) {
-            if (child instanceof Text t) {
-                addRun(current, t.getLiteral(), InlineMarkdown.Style.NORMAL);
-            } else if (child instanceof Code c) {
-                addRun(current, c.getLiteral(), InlineMarkdown.Style.INLINE_CODE);
-            } else if (child instanceof Emphasis) {
-                List<InlineMarkdown.Run> nested = new ArrayList<>();
-                collectRuns(child, nested, InlineMarkdown.Style.ITALIC);
-                current.addAll(nested);
-            } else if (child instanceof StrongEmphasis) {
-                List<InlineMarkdown.Run> nested = new ArrayList<>();
-                collectRuns(child, nested, InlineMarkdown.Style.BOLD);
-                current.addAll(nested);
-            } else if (child instanceof Strikethrough) {
-                List<InlineMarkdown.Run> nested = new ArrayList<>();
-                collectRuns(child, nested, InlineMarkdown.Style.STRIKE);
-                current.addAll(nested);
-            } else if (child instanceof Link link) {
-                addRun(current, collectPlainText(link), InlineMarkdown.Style.LINK);
-            } else if (child instanceof HtmlInline html) {
-                String literal = html.getLiteral().strip();
-                if (literal.equalsIgnoreCase("<br>") || literal.equalsIgnoreCase("<br/>") || literal.equalsIgnoreCase("<br />")) {
-                    segments.add(new ArrayList<>());
-                    current = segments.getLast();
-                } else {
-                    addRun(current, html.getLiteral(), InlineMarkdown.Style.NORMAL);
-                }
-            } else if (child instanceof SoftLineBreak) {
-                addRun(current, " ", InlineMarkdown.Style.NORMAL);
-            } else if (child instanceof HardLineBreak) {
-                segments.add(new ArrayList<>());
-                current = segments.getLast();
-            } else {
-                collectRuns(child, current, InlineMarkdown.Style.NORMAL);
-            }
-        }
-    }
-
-    private static void addRun(List<InlineMarkdown.Run> runs, String text, InlineMarkdown.Style style) {
-        if (text == null || text.isEmpty()) return;
-        if (!runs.isEmpty()) {
-            InlineMarkdown.Run last = runs.getLast();
-            if (last.style() == style) {
-                runs.set(runs.size() - 1, new InlineMarkdown.Run(last.text() + text, style));
-                return;
-            }
-        }
-        runs.add(new InlineMarkdown.Run(text, style));
-    }
-
-    private String collectPlainText(Node parent) {
-        StringBuilder sb = new StringBuilder();
-        for (Node child = parent.getFirstChild(); child != null; child = child.getNext()) {
-            if (child instanceof Text t) {
-                sb.append(t.getLiteral());
-            } else if (child instanceof Code c) {
-                sb.append(c.getLiteral());
-            } else {
-                sb.append(collectPlainText(child));
-            }
-        }
-        return sb.toString();
+        return InlineMarkdown.collectLine(container);
     }
 
     // ---- Table layout (ported from old MarkdownRenderer) --------------------

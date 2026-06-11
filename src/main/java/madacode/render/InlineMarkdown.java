@@ -3,10 +3,24 @@ package madacode.render;
 import madacode.tui.TerminalText;
 import madacode.tui.theme.Tk;
 
+import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
+import org.commonmark.ext.gfm.strikethrough.Strikethrough;
+import org.commonmark.ext.task.list.items.TaskListItemsExtension;
+import org.commonmark.ext.gfm.tables.TablesExtension;
+import org.commonmark.node.Code;
+import org.commonmark.node.Emphasis;
+import org.commonmark.node.HardLineBreak;
+import org.commonmark.node.HtmlInline;
+import org.commonmark.node.Image;
+import org.commonmark.node.Link;
+import org.commonmark.node.Node;
+import org.commonmark.node.SoftLineBreak;
+import org.commonmark.node.StrongEmphasis;
+import org.commonmark.node.Text;
+import org.commonmark.parser.Parser;
+
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class InlineMarkdown {
 
@@ -36,10 +50,9 @@ final class InlineMarkdown {
         }
     }
 
-    private static final Pattern BOLD = Pattern.compile("\\*\\*(.+?)\\*\\*");
-    private static final Pattern ITALIC = Pattern.compile("(?<![*\\w])\\*(?!\\s)([^*\\n]+?)\\*(?![*\\w])");
-    private static final Pattern STRIKE = Pattern.compile("~~(.+?)~~");
-    private static final Pattern LINK = Pattern.compile("\\[([^]]+)]\\(([^)]*)\\)");
+    private static final Parser INLINE_PARSER = Parser.builder()
+            .extensions(List.of(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create()))
+            .build();
 
     private InlineMarkdown() {}
 
@@ -47,29 +60,8 @@ final class InlineMarkdown {
         if (raw == null || raw.isEmpty()) {
             return Line.empty();
         }
-
-        List<Run> runs = new ArrayList<>();
-        int index = 0;
-        while (index < raw.length()) {
-            int open = nextUnescaped(raw, '`', index);
-            if (open < 0) {
-                addNormal(runs, raw.substring(index));
-                break;
-            }
-
-            int ticks = countRepeated(raw, open, '`');
-            int close = closingBackticks(raw, open + ticks, ticks);
-            if (close < 0) {
-                addNormal(runs, raw.substring(index));
-                break;
-            }
-
-            addNormal(runs, raw.substring(index, open));
-            addRun(runs, raw.substring(open + ticks, close), Style.INLINE_CODE);
-            index = close + ticks;
-        }
-
-        return compact(runs);
+        Line line = collectLine(INLINE_PARSER.parse("x " + raw));
+        return dropLeadingText(line, 2);
     }
 
     static List<Line> wrap(Line line, int maxWidth) {
@@ -157,6 +149,27 @@ final class InlineMarkdown {
             remaining = 0;
         }
         return compact(runs);
+    }
+
+    static Line collectLine(Node container) {
+        List<Run> runs = new ArrayList<>();
+        collectRuns(container, runs, Style.NORMAL);
+        return compact(runs);
+    }
+
+    static List<Line> collectLinesWithBreaks(Node container) {
+        List<List<Run>> segments = new ArrayList<>();
+        segments.add(new ArrayList<>());
+        collectRunsWithBreaks(container, segments);
+
+        List<Line> result = new ArrayList<>(segments.size());
+        for (List<Run> segment : segments) {
+            result.add(segment.isEmpty() ? Line.empty() : new Line(segment));
+        }
+        if (result.isEmpty()) {
+            result.add(Line.empty());
+        }
+        return result;
     }
 
     private static PendingSpace appendWrappedRun(
@@ -283,59 +296,6 @@ final class InlineMarkdown {
         };
     }
 
-    private static void addNormal(List<Run> runs, String text) {
-        if (text == null || text.isEmpty()) {
-            return;
-        }
-
-        int index = 0;
-        while (index < text.length()) {
-            Match next = nextInlineMatch(text, index);
-            if (next == null) {
-                addRun(runs, unescape(text.substring(index)), Style.NORMAL);
-                break;
-            }
-            if (next.start() > index) {
-                addRun(runs, unescape(text.substring(index, next.start())), Style.NORMAL);
-            }
-            addRun(runs, unescape(next.content()), next.style());
-            index = next.end();
-        }
-    }
-
-    private static Match nextInlineMatch(String text, int start) {
-        Match best = null;
-        best = pickEarlier(best, find(BOLD, text, start, Style.BOLD, 1, 0));
-        best = pickEarlier(best, find(STRIKE, text, start, Style.STRIKE, 1, 1));
-        best = pickEarlier(best, find(ITALIC, text, start, Style.ITALIC, 1, 2));
-        best = pickEarlier(best, find(LINK, text, start, Style.LINK, 1, 3));
-        return best;
-    }
-
-    private static Match find(Pattern pattern, String text, int start, Style style, int group, int priority) {
-        Matcher matcher = pattern.matcher(text);
-        if (!matcher.find(start)) {
-            return null;
-        }
-        return new Match(matcher.start(), matcher.end(), matcher.group(group), style, priority);
-    }
-
-    private static Match pickEarlier(Match current, Match candidate) {
-        if (candidate == null) {
-            return current;
-        }
-        if (current == null) {
-            return candidate;
-        }
-        if (candidate.start() < current.start()) {
-            return candidate;
-        }
-        if (candidate.start() == current.start() && candidate.priority() < current.priority()) {
-            return candidate;
-        }
-        return current;
-    }
-
     private static Line compact(List<Run> input) {
         if (input.isEmpty()) {
             return Line.empty();
@@ -345,6 +305,77 @@ final class InlineMarkdown {
             addRun(runs, run.text(), run.style());
         }
         return new Line(runs.isEmpty() ? List.of(new Run("", Style.NORMAL)) : runs);
+    }
+
+    private static void collectRuns(Node parent, List<Run> runs, Style style) {
+        for (Node child = parent.getFirstChild(); child != null; child = child.getNext()) {
+            if (child instanceof Text text) {
+                addRun(runs, text.getLiteral(), style);
+            } else if (child instanceof Code code) {
+                addRun(runs, code.getLiteral(), Style.INLINE_CODE);
+            } else if (child instanceof Emphasis) {
+                collectRuns(child, runs, Style.ITALIC);
+            } else if (child instanceof StrongEmphasis) {
+                collectRuns(child, runs, Style.BOLD);
+            } else if (child instanceof Strikethrough) {
+                collectRuns(child, runs, Style.STRIKE);
+            } else if (child instanceof Link link) {
+                addRun(runs, collectPlainText(link), Style.LINK);
+            } else if (child instanceof Image image) {
+                String alt = collectPlainText(image);
+                addRun(runs, alt, Style.NORMAL);
+                String url = image.getDestination();
+                if (url != null && !url.isEmpty()) {
+                    addRun(runs, "(" + url + ")", Style.NORMAL);
+                }
+            } else if (child instanceof HtmlInline html) {
+                addRun(runs, html.getLiteral(), Style.NORMAL);
+            } else if (child instanceof SoftLineBreak || child instanceof HardLineBreak) {
+                addRun(runs, " ", style);
+            } else {
+                collectRuns(child, runs, style);
+            }
+        }
+    }
+
+    private static void collectRunsWithBreaks(Node parent, List<List<Run>> segments) {
+        List<Run> current = segments.getLast();
+        for (Node child = parent.getFirstChild(); child != null; child = child.getNext()) {
+            if (child instanceof Text text) {
+                addRun(current, text.getLiteral(), Style.NORMAL);
+            } else if (child instanceof Code code) {
+                addRun(current, code.getLiteral(), Style.INLINE_CODE);
+            } else if (child instanceof Emphasis) {
+                List<Run> nested = new ArrayList<>();
+                collectRuns(child, nested, Style.ITALIC);
+                current.addAll(nested);
+            } else if (child instanceof StrongEmphasis) {
+                List<Run> nested = new ArrayList<>();
+                collectRuns(child, nested, Style.BOLD);
+                current.addAll(nested);
+            } else if (child instanceof Strikethrough) {
+                List<Run> nested = new ArrayList<>();
+                collectRuns(child, nested, Style.STRIKE);
+                current.addAll(nested);
+            } else if (child instanceof Link link) {
+                addRun(current, collectPlainText(link), Style.LINK);
+            } else if (child instanceof HtmlInline html) {
+                String literal = html.getLiteral().strip();
+                if (literal.equalsIgnoreCase("<br>") || literal.equalsIgnoreCase("<br/>") || literal.equalsIgnoreCase("<br />")) {
+                    segments.add(new ArrayList<>());
+                    current = segments.getLast();
+                } else {
+                    addRun(current, html.getLiteral(), Style.NORMAL);
+                }
+            } else if (child instanceof SoftLineBreak) {
+                addRun(current, " ", Style.NORMAL);
+            } else if (child instanceof HardLineBreak) {
+                segments.add(new ArrayList<>());
+                current = segments.getLast();
+            } else {
+                collectRuns(child, current, Style.NORMAL);
+            }
+        }
     }
 
     private static void addRun(List<Run> runs, String text, Style style) {
@@ -361,74 +392,19 @@ final class InlineMarkdown {
         runs.add(new Run(text, style));
     }
 
-    private static int nextUnescaped(String text, char ch, int start) {
-        int index = start;
-        while (index < text.length()) {
-            int found = text.indexOf(ch, index);
-            if (found < 0) {
-                return -1;
+    private static String collectPlainText(Node parent) {
+        StringBuilder sb = new StringBuilder();
+        for (Node child = parent.getFirstChild(); child != null; child = child.getNext()) {
+            if (child instanceof Text text) {
+                sb.append(text.getLiteral());
+            } else if (child instanceof Code code) {
+                sb.append(code.getLiteral());
+            } else {
+                sb.append(collectPlainText(child));
             }
-            if (!isEscaped(text, found)) {
-                return found;
-            }
-            index = found + 1;
-        }
-        return -1;
-    }
-
-    private static int closingBackticks(String text, int start, int count) {
-        int index = start;
-        while (index < text.length()) {
-            int found = nextUnescaped(text, '`', index);
-            if (found < 0) {
-                return -1;
-            }
-            int ticks = countRepeated(text, found, '`');
-            if (ticks == count) {
-                return found;
-            }
-            index = found + ticks;
-        }
-        return -1;
-    }
-
-    private static int countRepeated(String text, int start, char ch) {
-        int index = start;
-        while (index < text.length() && text.charAt(index) == ch) {
-            index++;
-        }
-        return index - start;
-    }
-
-    private static boolean isEscaped(String text, int index) {
-        int slashCount = 0;
-        for (int i = index - 1; i >= 0 && text.charAt(i) == '\\'; i--) {
-            slashCount++;
-        }
-        return slashCount % 2 == 1;
-    }
-
-    private static String unescape(String text) {
-        if (text == null || text.indexOf('\\') < 0) {
-            return text == null ? "" : text;
-        }
-        StringBuilder sb = new StringBuilder(text.length());
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (ch == '\\' && i + 1 < text.length()) {
-                char next = text.charAt(i + 1);
-                if ("\\`*_[\\]()|~".indexOf(next) >= 0) {
-                    sb.append(next);
-                    i++;
-                    continue;
-                }
-            }
-            sb.append(ch);
         }
         return sb.toString();
     }
-
-    private record Match(int start, int end, String content, Style style, int priority) {}
 
     private record Token(String text, boolean whitespace, Style style) {}
 
