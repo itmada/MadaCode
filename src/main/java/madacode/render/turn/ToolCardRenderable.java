@@ -36,6 +36,7 @@ public final class ToolCardRenderable implements Renderable {
     private final String toolName;
     private final ObjectNode input;
     private final ToolDisplayRegistry displayRegistry;
+    private final madacode.render.Spinner spinner = madacode.render.Spinner.dots();
     private final List<ToolProgressLine> progressLines = new ArrayList<>();
     private int droppedProgressLineCount;
     private int droppedActivityLineCount;
@@ -159,7 +160,8 @@ public final class ToolCardRenderable implements Renderable {
                 display = started
                         ? displayRegistry.renderRunning(toolName, input, progressSnapshot())
                         : displayRegistry.renderQueued(toolName, input);
-                lines.addAll(ToolActivityCardRenderer.card(display, maxWidth));
+                lines.addAll(ToolActivityCardRenderer.card(
+                        display, maxWidth, started ? spinner.tick() : null));
                 if (started && display.detailLines().isEmpty()) {
                     int total = progressLines.size();
                     int start = Math.max(0, total - PROGRESS_RENDER_CAP);

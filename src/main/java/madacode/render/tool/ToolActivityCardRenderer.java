@@ -30,9 +30,14 @@ public final class ToolActivityCardRenderer {
 
     /** Render a full tool card whose every line fits within {@code maxWidth}. */
     public static List<String> card(ToolDisplay display, int maxWidth) {
+        return card(display, maxWidth, null);
+    }
+
+    /** Live-region variant: animates the RUNNING bullet with a spinner frame. */
+    public static List<String> card(ToolDisplay display, int maxWidth, String runningGlyphOverride) {
         Objects.requireNonNull(display, "display");
         StageWriter.Stage stage = stage(display, false);
-        return clampWidth(StageWriter.render(stage), maxWidth);
+        return clampWidth(StageWriter.render(stage, runningGlyphOverride), maxWidth);
     }
 
     // ---- Stage assembly (used by ToolCardWriter) ----------------------

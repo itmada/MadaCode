@@ -45,9 +45,22 @@ public final class StageWriter {
     }
 
     public static List<String> render(Stage stage) {
+        return render(stage, null);
+    }
+
+    /**
+     * Render with an optional glyph override for the RUNNING state, used by
+     * live tool cards to animate a spinner frame in place of the static bullet.
+     * Non-RUNNING stages ignore the override.
+     */
+    public static List<String> render(Stage stage, String runningGlyphOverride) {
         Objects.requireNonNull(stage, "stage");
+        String glyph = (stage.status() == Status.RUNNING && runningGlyphOverride != null
+                && !runningGlyphOverride.isBlank())
+                ? runningGlyphOverride
+                : glyph(stage.status());
         List<String> lines = new ArrayList<>();
-        lines.add(colored(stage.status(), glyph(stage.status())) + " " + styledTitle(stage.title()));
+        lines.add(colored(stage.status(), glyph) + " " + styledTitle(stage.title()));
         for (int i = 0; i < stage.summary().size(); i++) {
             boolean last = i == stage.summary().size() - 1
                     && !(stage.hasMore() && !stage.verbose().isEmpty());
