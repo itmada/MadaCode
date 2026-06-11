@@ -21,6 +21,7 @@ import madacode.tool.ToolRegistry;
 import madacode.tool.validation.ToolInputCoercion;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,30 +54,33 @@ public final class ToolOrchestrator {
         Objects.requireNonNull(context, "context");
         if (toolCalls.isEmpty()) return List.of();
 
+        List<ResolvedToolCall> resolvedCalls = toolCalls.stream()
+                .map(this::resolve)
+                .toList();
         List<ToolResult> results = new ArrayList<>(Collections.nCopies(toolCalls.size(), null));
         int i = 0;
         while (i < toolCalls.size()) {
             int segmentStart = i;
-            boolean safe = isConcurrencySafe(toolCalls.get(i));
+            boolean safe = isConcurrencySafe(resolvedCalls.get(i));
             i++;
-            while (i < toolCalls.size() && isConcurrencySafe(toolCalls.get(i)) == safe) i++;
+            while (i < toolCalls.size() && isConcurrencySafe(resolvedCalls.get(i)) == safe) i++;
             int segmentEnd = i;
 
             if (safe && segmentEnd - segmentStart > 1) {
-                runConcurrentSegment(toolCalls, results, segmentStart, segmentEnd, context);
+                runConcurrentSegment(resolvedCalls, results, segmentStart, segmentEnd, context);
             } else {
                 for (int k = segmentStart; k < segmentEnd; k++) {
                     if (context.cancellationToken().isCancelled()) {
                         i = k; // let post-segment cancellation handler fill from here
                         break;
                     }
-                    results.set(k, toolExecutor.execute(toolCalls.get(k), context));
+                    results.set(k, toolExecutor.execute(resolvedCalls.get(k), context));
                 }
             }
             if (context.cancellationToken().isCancelled() && i < toolCalls.size()) {
                 String reason = reasonOrDefault(context);
                 for (int k = i; k < toolCalls.size(); k++) {
-                    results.set(k, errorResult(toolCalls.get(k),
+                    results.set(k, errorResult(resolvedCalls.get(k).toolCall(),
                             "Cancelled before execution: " + reason, context));
                 }
                 return results;
@@ -85,7 +89,7 @@ public final class ToolOrchestrator {
         return results;
     }
 
-    private void runConcurrentSegment(List<ToolCall> toolCalls,
+    private void runConcurrentSegment(List<ResolvedToolCall> toolCalls,
                                       List<ToolResult> results,
                                       int start, int endExclusive,
                                       ToolUseContext context) {
@@ -97,7 +101,7 @@ public final class ToolOrchestrator {
             CompletionService<IndexedToolResult> completion = new ExecutorCompletionService<>(executor);
             int submitted = 0;
             for (int k = start; k < endExclusive; k++) {
-                ToolCall call = toolCalls.get(k);
+                ResolvedToolCall call = toolCalls.get(k);
                 final int slot = k;
                 completion.submit(() -> {
                     try {
@@ -109,7 +113,7 @@ public final class ToolOrchestrator {
                         String message = t instanceof CancellationException
                                 ? "Cancelled: " + t.getMessage()
                                 : "Tool execution failed: " + t.getMessage();
-                        return new IndexedToolResult(slot, errorResult(call, message, context));
+                        return new IndexedToolResult(slot, errorResult(call.toolCall(), message, context));
                     }
                 });
                 submitted++;
@@ -140,14 +144,14 @@ public final class ToolOrchestrator {
         // killSub auto-closes here via try-with-resources.
     }
 
-    private static void fillMissingConcurrentResults(List<ToolCall> toolCalls,
+    private static void fillMissingConcurrentResults(List<ResolvedToolCall> toolCalls,
                                                      List<ToolResult> results,
                                                      int start, int endExclusive,
                                                      String message,
                                                      ToolUseContext context) {
         for (int slot = start; slot < endExclusive; slot++) {
             if (results.get(slot) == null) {
-                results.set(slot, errorResult(toolCalls.get(slot), message, context));
+                results.set(slot, errorResult(toolCalls.get(slot).toolCall(), message, context));
             }
         }
     }
@@ -157,13 +161,16 @@ public final class ToolOrchestrator {
         return r == null ? "interrupted" : r;
     }
 
+    private ResolvedToolCall resolve(ToolCall call) {
+        return ResolvedToolCall.resolve(call, toolRegistry, mapper);
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private boolean isConcurrencySafe(ToolCall call) {
-        Tool<?> tool = toolRegistry.find(call.toolName()).orElse(null);
-        if (tool == null) return false;
+    private boolean isConcurrencySafe(ResolvedToolCall call) {
+        Tool<?> tool = call.tool();
+        if (tool == null || !call.hasReusableTypedInput(call.toolCall().input())) return false;
         try {
-            Object typed = ToolInputCoercion.coerceUnchecked(tool, call.input(), mapper);
-            return ((Tool) tool).isConcurrencySafe(typed);
+            return ((Tool) tool).isConcurrencySafe(call.typedInput());
         } catch (RuntimeException e) {
             return false;
         }
@@ -177,4 +184,50 @@ public final class ToolOrchestrator {
     }
 
     private record IndexedToolResult(int index, ToolResult result) {}
+
+    record ResolvedToolCall(
+            ToolCall toolCall,
+            Tool<?> tool,
+            ObjectNode inputSnapshot,
+            Object typedInput,
+            ToolInputCoercion.ToolInputCoercionException coercionFailure,
+            boolean resolved) {
+
+        static ResolvedToolCall unresolved(ToolCall toolCall) {
+            return new ResolvedToolCall(toolCall, null, null, null, null, false);
+        }
+
+        static ResolvedToolCall resolve(ToolCall toolCall, ToolRegistry toolRegistry, ObjectMapper mapper) {
+            Tool<?> tool = toolRegistry.find(toolCall.toolName()).orElse(null);
+            if (tool == null) {
+                return new ResolvedToolCall(toolCall, null, toolCall.input().deepCopy(), null, null, true);
+            }
+            try {
+                Object typedInput = ToolInputCoercion.coerceUnchecked(tool, toolCall.input(), mapper);
+                return new ResolvedToolCall(
+                        toolCall, tool, toolCall.input().deepCopy(), typedInput, null, true);
+            } catch (ToolInputCoercion.ToolInputCoercionException e) {
+                return new ResolvedToolCall(
+                        toolCall, tool, toolCall.input().deepCopy(), null, e, true);
+            }
+        }
+
+        ResolvedToolCall resolveIfNeeded(ToolRegistry toolRegistry, ObjectMapper mapper) {
+            return resolved ? this : resolve(toolCall, toolRegistry, mapper);
+        }
+
+        boolean hasReusableTypedInput(ObjectNode effectiveInput) {
+            return tool != null
+                    && coercionFailure == null
+                    && inputSnapshot != null
+                    && inputSnapshot.equals(effectiveInput);
+        }
+
+        boolean hasReusableCoercionFailure(ObjectNode effectiveInput) {
+            return tool != null
+                    && coercionFailure != null
+                    && inputSnapshot != null
+                    && inputSnapshot.equals(effectiveInput);
+        }
+    }
 }

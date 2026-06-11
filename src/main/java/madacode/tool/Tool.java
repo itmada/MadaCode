@@ -46,6 +46,22 @@ public interface Tool<I> {
     boolean isReadOnly();
 
     /**
+     * Whether this tool may run while plan mode is active. Defaults to
+     * read-only tools; session-management and planning tools that mutate
+     * agent state can opt in explicitly.
+     */
+    default boolean isPlanModeSafe() {
+        return isReadOnly();
+    }
+
+    /**
+     * Whether this tool should bypass pre/post hook execution.
+     */
+    default boolean bypassesHooks() {
+        return false;
+    }
+
+    /**
      * Whether this tool's primary effect is modifying user files in the
      * working directory. The {@code AcceptEditsPermissionRule} reads this
      * to decide whether to auto-allow in {@link madacode.permission.PermissionMode#ACCEPT_EDITS}.

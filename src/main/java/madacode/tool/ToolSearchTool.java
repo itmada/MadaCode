@@ -59,6 +59,11 @@ public final class ToolSearchTool implements Tool<ToolSearchTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("query", ToolSchemas.stringProperty(mapper,

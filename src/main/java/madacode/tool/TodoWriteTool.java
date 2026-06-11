@@ -45,6 +45,11 @@ public class TodoWriteTool implements Tool<TodoWriteTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode todoItem = mapper.createObjectNode();
         todoItem.put("type", "object");
