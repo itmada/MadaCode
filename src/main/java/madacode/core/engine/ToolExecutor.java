@@ -63,6 +63,12 @@ public final class ToolExecutor {
     }
 
     public ToolResult execute(ToolCall toolCall, ToolUseContext context) {
+        return execute(ToolOrchestrator.ResolvedToolCall.unresolved(toolCall), context);
+    }
+
+    ToolResult execute(ToolOrchestrator.ResolvedToolCall resolvedCall, ToolUseContext context) {
+        Objects.requireNonNull(resolvedCall, "resolvedCall");
+        ToolCall toolCall = Objects.requireNonNull(resolvedCall.toolCall(), "toolCall");
         Objects.requireNonNull(toolCall, "toolCall");
         Objects.requireNonNull(context, "context");
         ConversationSession session = context.session();
@@ -78,7 +84,8 @@ public final class ToolExecutor {
                     false);
         }
 
-        Tool<?> tool = toolRegistry.find(toolCall.toolName()).orElse(null);
+        resolvedCall = resolvedCall.resolveIfNeeded(toolRegistry, mapper);
+        Tool<?> tool = resolvedCall.tool();
         if (tool == null) {
             // An unknown tool is a per-tool, recoverable failure (the model can
             // retry with a correct name), not a turn-terminal error. Handle it
@@ -170,18 +177,32 @@ public final class ToolExecutor {
         session.fireToolExecutionStarted(toolCall.id(), tool.name(), effectiveInput);
         long toolStart = System.nanoTime();
         Object typedInput;
-        try {
-            typedInput = ToolInputCoercion.coerceUnchecked(tool, effectiveInput, mapper);
-        } catch (ToolInputCoercion.ToolInputCoercionException e) {
+        if (resolvedCall.hasReusableTypedInput(effectiveInput)) {
+            typedInput = resolvedCall.typedInput();
+        } else if (resolvedCall.hasReusableCoercionFailure(effectiveInput)) {
             long durationMs = elapsedMs(toolStart);
             return failResult(
                     session,
                     toolCall,
                     tool.name(),
                     effectiveInput,
-                    "Invalid tool input for " + tool.name() + ": " + e.getMessage(),
+                    "Invalid tool input for " + tool.name() + ": " + resolvedCall.coercionFailure().getMessage(),
                     durationMs,
                     true);
+        } else {
+            try {
+                typedInput = ToolInputCoercion.coerceUnchecked(tool, effectiveInput, mapper);
+            } catch (ToolInputCoercion.ToolInputCoercionException e) {
+                long durationMs = elapsedMs(toolStart);
+                return failResult(
+                        session,
+                        toolCall,
+                        tool.name(),
+                        effectiveInput,
+                        "Invalid tool input for " + tool.name() + ": " + e.getMessage(),
+                        durationMs,
+                        true);
+            }
         }
         try {
             @SuppressWarnings({"unchecked", "rawtypes"})

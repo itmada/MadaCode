@@ -176,6 +176,24 @@ class ToolExecutorTest {
         assertEquals(List.of("reached", "started", "execute", "result", "completed"), listener.events);
     }
 
+    @Test
+    void preHookRewrittenInputIsRecoercedBeforeExecution() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.succeeding("capture", listener.events);
+        ObjectNode rewrittenInput = validInput("rewritten");
+        RecordingHookManager hookManager = new RecordingHookManager(tempDir.resolve("hooks.json"), rewrittenInput);
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), hookManager).execute(
+                call(tool.name(), validInput("original")),
+                context(listener, tool));
+
+        assertTrue(result.success());
+        assertEquals("received rewritten", result.output());
+        assertTrue(hookManager.preHookRan);
+        assertTrue(hookManager.postHookRan);
+        assertEquals(List.of("reached", "started", "execute", "result", "completed"), listener.events);
+    }
+
     private ToolExecutor executorFor(Tool<?> tool, PermissionGate permissionGate, HookManager hookManager) {
         ToolRegistry registry = new ToolRegistry();
         if (tool != null) {
@@ -262,15 +280,21 @@ class ToolExecutorTest {
     private static final class RecordingHookManager extends HookManager {
         private boolean preHookRan;
         private boolean postHookRan;
+        private final ObjectNode rewrittenInput;
 
         private RecordingHookManager(Path configPath) {
+            this(configPath, null);
+        }
+
+        private RecordingHookManager(Path configPath, ObjectNode rewrittenInput) {
             super(configPath);
+            this.rewrittenInput = rewrittenInput;
         }
 
         @Override
         public PreToolUseResult runPreToolUse(String toolName, ObjectNode toolInput, String sessionId) {
             preHookRan = true;
-            return new PreToolUseResult(true, null, toolInput);
+            return new PreToolUseResult(true, null, rewrittenInput == null ? toolInput : rewrittenInput);
         }
 
         @Override
