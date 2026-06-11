@@ -33,6 +33,11 @@ public class PlanListTool implements Tool<PlanListTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("status", ToolSchemas.stringEnumProperty(mapper,

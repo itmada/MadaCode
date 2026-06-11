@@ -58,6 +58,11 @@ public class PlanCreateTool implements Tool<PlanCreateTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode taskItem = mapper.createObjectNode();
         taskItem.put("type", "object");

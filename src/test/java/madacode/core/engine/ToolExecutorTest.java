@@ -2,6 +2,9 @@ package madacode.core.engine;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.agent.AgentRegistry;
+import madacode.agent.AgentRunner;
+import madacode.agent.BuiltInAgentLoader;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.ToolCall;
 import madacode.core.model.ToolResult;
@@ -11,6 +14,8 @@ import madacode.core.turn.CancellationException;
 import madacode.hook.HookManager;
 import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
+import madacode.services.api.ApiClient;
+import madacode.tool.AgentTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.tool.validation.ToolInputValidator;
@@ -139,9 +144,26 @@ class ToolExecutorTest {
     }
 
     @Test
-    void agentToolSkipsPreAndPostHooksByName() {
+    void onlyToolsDeclaringHookBypassSkipPreAndPostHooks() {
         RecordingListener listener = new RecordingListener();
         RecordingTool tool = RecordingTool.succeeding("agent", listener.events);
+        RecordingHookManager hookManager = new RecordingHookManager(tempDir.resolve("hooks.json"));
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), hookManager).execute(
+                call(tool.name(), validInput("hello")),
+                context(listener, tool));
+
+        assertTrue(result.success());
+        assertTrue(hookManager.preHookRan);
+        assertTrue(hookManager.postHookRan);
+        assertEquals(List.of("reached", "started", "execute", "result", "completed"), listener.events);
+        assertTrue(realAgentTool().bypassesHooks());
+    }
+
+    @Test
+    void hookBypassingToolSkipsPreAndPostHooks() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.hookBypassing("capture", listener.events);
         RecordingHookManager hookManager = new RecordingHookManager(tempDir.resolve("hooks.json"));
 
         ToolResult result = executorFor(tool, PermissionGate.permissive(), hookManager).execute(
@@ -181,6 +203,14 @@ class ToolExecutorTest {
 
     private ToolCall call(String toolName, ObjectNode input) {
         return new ToolCall("toolu_1", toolName, input);
+    }
+
+    private AgentTool realAgentTool() {
+        ApiClient fakeApiClient = (messages, systemPrompt, tools, sink, cancellationToken) ->
+                new ApiClient.ApiResponse("", List.of());
+        return new AgentTool(
+                new AgentRunner(new ToolRegistry(), fakeApiClient, PermissionGate.permissive()),
+                AgentRegistry.loaded(new BuiltInAgentLoader()));
     }
 
     private ObjectNode validInput(String value) {
@@ -254,12 +284,19 @@ class ToolExecutorTest {
         private final String name;
         private final List<String> events;
         private final boolean readOnly;
+        private final boolean bypassesHooks;
         private final RuntimeException thrown;
 
-        private RecordingTool(String name, List<String> events, boolean readOnly, RuntimeException thrown) {
+        private RecordingTool(
+                String name,
+                List<String> events,
+                boolean readOnly,
+                boolean bypassesHooks,
+                RuntimeException thrown) {
             this.name = name;
             this.events = events;
             this.readOnly = readOnly;
+            this.bypassesHooks = bypassesHooks;
             this.thrown = thrown;
         }
 
@@ -268,11 +305,15 @@ class ToolExecutorTest {
         }
 
         private static RecordingTool succeeding(String name, List<String> events, boolean readOnly) {
-            return new RecordingTool(name, events, readOnly, null);
+            return new RecordingTool(name, events, readOnly, false, null);
+        }
+
+        private static RecordingTool hookBypassing(String name, List<String> events) {
+            return new RecordingTool(name, events, true, true, null);
         }
 
         private static RecordingTool throwing(String name, List<String> events, RuntimeException thrown) {
-            return new RecordingTool(name, events, true, thrown);
+            return new RecordingTool(name, events, true, false, thrown);
         }
 
         @Override
@@ -293,6 +334,11 @@ class ToolExecutorTest {
         @Override
         public boolean isReadOnly() {
             return readOnly;
+        }
+
+        @Override
+        public boolean bypassesHooks() {
+            return bypassesHooks;
         }
 
         @Override

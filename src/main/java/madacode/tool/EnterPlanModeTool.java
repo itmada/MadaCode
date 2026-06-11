@@ -50,6 +50,11 @@ public class EnterPlanModeTool implements Tool<EnterPlanModeTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         return ToolSchemas.objectSchema(mapper, mapper.createObjectNode());
     }

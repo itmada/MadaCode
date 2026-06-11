@@ -51,6 +51,11 @@ public class AskUserQuestionTool implements Tool<AskUserQuestionTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode optionSchema = mapper.createObjectNode();
         optionSchema.put("type", "object");

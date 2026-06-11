@@ -70,6 +70,11 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("action", ToolSchemas.stringEnumProperty(mapper,

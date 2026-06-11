@@ -59,6 +59,16 @@ public class AgentTool implements Tool<AgentTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
+    public boolean bypassesHooks() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("description", ToolSchemas.stringProperty(

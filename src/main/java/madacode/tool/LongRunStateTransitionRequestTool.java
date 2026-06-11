@@ -53,6 +53,11 @@ public final class LongRunStateTransitionRequestTool
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("target_status", ToolSchemas.stringEnumProperty(

@@ -31,18 +31,11 @@ import madacode.tool.validation.ValidationResult;
 
 import java.time.Duration;
 import java.util.Objects;
-import java.util.Set;
 
 public final class ToolExecutor {
 
     /** Thread-local toolUseId for the currently-executing tool, used by permission rendering. */
     public static final ThreadLocal<String> CURRENT_TOOL_USE_ID = new ThreadLocal<>();
-
-    private static final Set<String> PLAN_MODE_ALLOWED = Set.of(
-            "enter_plan_mode", "exit_plan_mode", "plan_create", "plan_get", "plan_list",
-            "plan_update", "todo_write", "skill", "ask_user_question", "agent",
-            "tool_search", "longrun_plan_update", "longrun_state_transition_request",
-            "longrun_task_update");
 
     private final ToolRegistry toolRegistry;
     private final ToolInputValidator inputValidator;
@@ -115,7 +108,7 @@ public final class ToolExecutor {
 
         CURRENT_TOOL_USE_ID.set(toolCall.id());
         ObjectNode effectiveInput = toolCall.input();
-        if (hookManager != null && !tool.name().equals("agent")) {
+        if (hookManager != null && !tool.bypassesHooks()) {
             var preResult = hookManager.runPreToolUse(
                     tool.name(), effectiveInput, session.sessionId());
             if (!preResult.allowed()) {
@@ -147,7 +140,7 @@ public final class ToolExecutor {
                     false);
         }
 
-        if (session.isPlanMode() && !tool.isReadOnly() && !PLAN_MODE_ALLOWED.contains(tool.name())) {
+        if (session.isPlanMode() && !tool.isPlanModeSafe()) {
             return failResult(
                     session,
                     toolCall,
@@ -196,7 +189,7 @@ public final class ToolExecutor {
             long durationMs = elapsedMs(toolStart);
             DiagnosticEventLogger.toolExecutionCompleted(session, tool.name(), result.success(), durationMs);
             emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, durationMs);
-            if (hookManager != null && !tool.name().equals("agent")) {
+            if (hookManager != null && !tool.bypassesHooks()) {
                 hookManager.runPostToolUse(tool.name(), effectiveInput,
                         session.sessionId(), result.success(), result.output());
             }
