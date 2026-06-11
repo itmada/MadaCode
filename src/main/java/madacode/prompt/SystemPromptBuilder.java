@@ -26,6 +26,8 @@ public class SystemPromptBuilder {
     private final MemoryLoader memoryLoader;
     private final SkillRegistry skillRegistry;
     private final List<PromptSectionEntry> sections;
+    private final Object cacheLock = new Object();
+    private volatile PromptCacheEntry cachedPrompt;
 
     public SystemPromptBuilder(Builder builder) {
         Builder safeBuilder = Objects.requireNonNull(builder, "builder");
@@ -48,6 +50,11 @@ public class SystemPromptBuilder {
     }
 
     public String build(VisibleTools tools, Path cwd, ConversationSession session) {
+        PromptFingerprint fingerprint = fingerprint(tools, cwd, session);
+        PromptCacheEntry cached = cachedPrompt;
+        if (cached != null && cached.fingerprint().equals(fingerprint)) {
+            return cached.prompt();
+        }
         PromptContext ctx = new PromptContext(
                 tools == null ? ToolVisibility.empty() : tools,
                 cwd,
@@ -63,7 +70,11 @@ public class SystemPromptBuilder {
             }
             appendSection(sb, entry.title(), rendered.get());
         }
-        return sb.toString();
+        String prompt = sb.toString();
+        synchronized (cacheLock) {
+            cachedPrompt = new PromptCacheEntry(fingerprint, prompt);
+        }
+        return prompt;
     }
 
     public static VisibleTools visibleToolsForSession(Collection<Tool<?>> tools,
@@ -101,6 +112,71 @@ public class SystemPromptBuilder {
         private PromptSectionEntry {
             Objects.requireNonNull(section, "section");
         }
+    }
+
+    private record PromptCacheEntry(PromptFingerprint fingerprint, String prompt) {
+    }
+
+    private record PromptFingerprint(
+            List<String> toolNames,
+            String workingDirectory,
+            String sessionId,
+            int messageCount,
+            int planItemCount,
+            int todoCount,
+            boolean planMode,
+            String permissionMode,
+            String workflowMode,
+            String longRunningStage,
+            String longRunningTaskId,
+            String longRunningTaskDirectory,
+            String longRunningTaskTitle,
+            String longRunningReason,
+            String longRunningPlanSummary,
+            String loadedDeferredTools,
+            String agentContext) {
+    }
+
+    private PromptFingerprint fingerprint(VisibleTools tools, Path cwd, ConversationSession session) {
+        VisibleTools visibleTools = tools == null ? ToolVisibility.empty() : tools;
+        if (session == null) {
+            return new PromptFingerprint(
+                    visibleTools.stream().map(Tool::name).toList(),
+                    cwd == null ? null : cwd.toAbsolutePath().normalize().toString(),
+                    null,
+                    0,
+                    0,
+                    0,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "",
+                    agentContext);
+        }
+        return new PromptFingerprint(
+                visibleTools.stream().map(Tool::name).toList(),
+                cwd == null ? null : cwd.toAbsolutePath().normalize().toString(),
+                session.sessionId(),
+                session.messages().size(),
+                session.plan().items().size(),
+                session.plan().todos().size(),
+                session.isPlanMode(),
+                session.permissionMode().name(),
+                session.workflowMode().name(),
+                session.longRunningStage() == null ? null : session.longRunningStage().name(),
+                session.longRunningTaskId(),
+                session.longRunningTaskDirectory(),
+                session.longRunningTaskTitle(),
+                session.longRunningReason(),
+                session.longRunningPlanSummary(),
+                String.join(",", session.loadedDeferredTools().stream().sorted().toList()),
+                agentContext);
     }
 
     public static final class Builder {

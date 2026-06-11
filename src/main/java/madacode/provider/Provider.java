@@ -9,8 +9,13 @@ public record Provider(
         String authToken,
         URI baseUrl,
         String defaultModel,
-        List<Model> models
+        List<Model> models,
+        boolean supportsPromptCaching
 ) {
+    public Provider(String name, String authToken, URI baseUrl, String defaultModel, List<Model> models) {
+        this(name, authToken, baseUrl, defaultModel, models, false);
+    }
+
     public Provider {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(authToken, "authToken");

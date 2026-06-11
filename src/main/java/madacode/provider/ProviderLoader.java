@@ -23,6 +23,7 @@ public final class ProviderLoader {
                   "authToken": "YOUR-AUTH-TOKEN",
                   "baseUrl": "https://your-provider.example.com",
                   "defaultModel": "your-model",
+                  "supportsPromptCaching": false,
                   "models": [
                     { "name": "your-model" }
                   ]
@@ -128,6 +129,9 @@ public final class ProviderLoader {
             providerNode.put("authToken", provider.authToken());
             providerNode.put("baseUrl", provider.baseUrl().toString());
             providerNode.put("defaultModel", provider.defaultModel());
+            if (provider.supportsPromptCaching()) {
+                providerNode.put("supportsPromptCaching", true);
+            }
             var modelsNode = mapper.createArrayNode();
             for (Model model : provider.models()) {
                 var modelNode = mapper.createObjectNode();
@@ -169,8 +173,9 @@ public final class ProviderLoader {
             idx++;
         }
 
+        boolean supportsPromptCaching = n.path("supportsPromptCaching").asBoolean(false);
         try {
-            return new Provider(name, authToken, baseUrl, defaultModel, models);
+            return new Provider(name, authToken, baseUrl, defaultModel, models, supportsPromptCaching);
         } catch (IllegalArgumentException e) {
             throw new ProviderException(providerCtx + ": " + e.getMessage());
         }

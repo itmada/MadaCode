@@ -96,10 +96,11 @@ public class MadaApiClient implements ApiClient {
             // calls. Gate on the provider's declared capability instead of enabling it
             // unconditionally.
             boolean fineGrainedToolStreaming = provider.supportsFineGrainedToolStreaming();
+            boolean promptCaching = provider.supportsPromptCaching();
 
             String requestBody = serializer.buildRequestBody(
                     modelName, maxTokens, messages, systemPrompt, tools,
-                    fineGrainedToolStreaming);
+                    fineGrainedToolStreaming, promptCaching);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(provider.messagesUrl())

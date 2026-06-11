@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 class SystemPromptBuilderTest {
 
@@ -46,6 +48,22 @@ class SystemPromptBuilderTest {
         String prompt = builder.build(visibleTools, tempDir, session);
 
         assertEquals(expectedBaselinePrompt(tempDir), prompt);
+    }
+
+    @Test
+    void reusesPromptStringWhenSessionFingerprintIsUnchanged() {
+        ConversationSession session = new ConversationSession(tempDir);
+        SystemPromptBuilder builder = SystemPromptBuilder.builder().build();
+
+        String first = builder.build(ToolVisibility.empty(), session.workingDirectory(), session);
+        String second = builder.build(ToolVisibility.empty(), session.workingDirectory(), session);
+
+        assertSame(first, second);
+
+        session.addMessage(madacode.core.model.Message.user("hello"));
+        String afterChange = builder.build(ToolVisibility.empty(), session.workingDirectory(), session);
+
+        assertNotSame(first, afterChange);
     }
 
     @Test

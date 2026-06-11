@@ -28,7 +28,7 @@ final class AnthropicMessageSerializer {
             List<Message> messages,
             String systemPrompt,
             VisibleTools tools) throws Exception {
-        return buildRequestBody(model, maxTokens, messages, systemPrompt, tools, false);
+        return buildRequestBody(model, maxTokens, messages, systemPrompt, tools, false, false);
     }
 
     String buildRequestBody(
@@ -38,14 +38,29 @@ final class AnthropicMessageSerializer {
             String systemPrompt,
             VisibleTools tools,
             boolean eagerInputStreaming) throws Exception {
+        return buildRequestBody(model, maxTokens, messages, systemPrompt, tools, eagerInputStreaming, false);
+    }
+
+    String buildRequestBody(
+            String model,
+            int maxTokens,
+            List<Message> messages,
+            String systemPrompt,
+            VisibleTools tools,
+            boolean eagerInputStreaming,
+            boolean promptCaching) throws Exception {
         Objects.requireNonNull(model, "model");
 
         ObjectNode body = mapper.createObjectNode();
         body.put("model", model);
         body.put("max_tokens", maxTokens);
-        body.put("system", systemPrompt);
+        if (promptCaching) {
+            body.set("system", systemPromptBlock(systemPrompt));
+        } else {
+            body.put("system", systemPrompt);
+        }
         body.put("stream", true);
-        body.set("messages", serializeMessages(messages));
+        body.set("messages", serializeMessages(messages, promptCaching));
 
         VisibleTools requestTools = tools != null ? tools : ToolVisibility.empty();
         if (!requestTools.isEmpty()) {
@@ -58,11 +73,22 @@ final class AnthropicMessageSerializer {
         return mapper.writeValueAsString(body);
     }
 
-    private ArrayNode serializeMessages(List<Message> messages) {
+    private ObjectNode systemPromptBlock(String systemPrompt) {
+        ObjectNode block = mapper.createObjectNode();
+        block.put("type", "text");
+        block.put("text", systemPrompt);
+        addEphemeralCacheControl(block);
+        return block;
+    }
+
+    private ArrayNode serializeMessages(List<Message> messages, boolean promptCaching) {
+        List<Message> mergedMessages = mergeAdjacentNonSystemMessages(messages);
         ArrayNode msgsArr = mapper.createArrayNode();
-        for (Message msg : mergeAdjacentNonSystemMessages(messages)) {
+        int cacheBreakMessageIndex = promptCaching ? mergedMessages.size() - 2 : -1;
+        for (int i = 0; i < mergedMessages.size(); i++) {
+            Message msg = mergedMessages.get(i);
             String role = msg.role() == MessageRole.USER ? "user" : "assistant";
-            msgsArr.add(messageWithContentBlocks(role, msg));
+            msgsArr.add(messageWithContentBlocks(role, msg, i == cacheBreakMessageIndex));
         }
         return msgsArr;
     }
@@ -99,9 +125,9 @@ final class AnthropicMessageSerializer {
         return m;
     }
 
-    private ObjectNode messageWithContentBlocks(String role, Message message) {
+    private ObjectNode messageWithContentBlocks(String role, Message message, boolean cacheLastBlock) {
         List<ContentBlock> blocks = message.contentBlocks();
-        if (blocks.size() == 1) {
+        if (blocks.size() == 1 && !cacheLastBlock) {
             ContentBlock block = blocks.getFirst();
             if (block instanceof ContentBlock.TextBlock textBlock) {
                 return textMessage(role, textBlock.text());
@@ -113,8 +139,12 @@ final class AnthropicMessageSerializer {
         ObjectNode m = mapper.createObjectNode();
         m.put("role", role);
         ArrayNode contentArr = mapper.createArrayNode();
-        for (ContentBlock block : blocks) {
-            contentArr.add(contentBlock(block));
+        for (int i = 0; i < blocks.size(); i++) {
+            ObjectNode serializedBlock = contentBlock(blocks.get(i));
+            if (cacheLastBlock && i == blocks.size() - 1) {
+                addEphemeralCacheControl(serializedBlock);
+            }
+            contentArr.add(serializedBlock);
         }
         m.set("content", contentArr);
         return m;
@@ -156,6 +186,12 @@ final class AnthropicMessageSerializer {
                 yield n;
             }
         };
+    }
+
+    private void addEphemeralCacheControl(ObjectNode node) {
+        ObjectNode cacheControl = mapper.createObjectNode();
+        cacheControl.put("type", "ephemeral");
+        node.set("cache_control", cacheControl);
     }
 
     private ObjectNode toolDeclaration(Tool<?> tool, boolean eagerInputStreaming) {

@@ -132,6 +132,43 @@ class AnthropicMessageSerializerTest {
     }
 
     @Test
+    void promptCachingAddsSystemAndPenultimateMessageBreakpointsOnlyWhenEnabled() throws Exception {
+        AnthropicMessageSerializer serializer = new AnthropicMessageSerializer(mapper);
+
+        String cachedBody = serializer.buildRequestBody(
+                "test-model",
+                4096,
+                List.of(
+                        Message.user("first"),
+                        Message.assistant("second"),
+                        Message.user("third")),
+                "system prompt",
+                ToolVisibility.empty(),
+                false,
+                true);
+
+        JsonNode cached = mapper.readTree(cachedBody);
+        assertEquals("ephemeral", cached.path("system").path("cache_control").path("type").asText());
+        assertEquals("system prompt", cached.path("system").path("text").asText());
+        assertEquals("ephemeral", cached.path("messages").get(1)
+                .path("content").get(0).path("cache_control").path("type").asText());
+        assertTrue(cached.path("messages").get(0).path("content").isTextual());
+        assertTrue(cached.path("messages").get(2).path("content").isTextual());
+
+        String uncachedBody = serializer.buildRequestBody(
+                "test-model",
+                4096,
+                List.of(Message.user("first"), Message.assistant("second")),
+                "system prompt",
+                ToolVisibility.empty(),
+                false,
+                false);
+        JsonNode uncached = mapper.readTree(uncachedBody);
+        assertEquals("system prompt", uncached.path("system").asText());
+        assertTrue(!uncachedBody.contains("cache_control"));
+    }
+
+    @Test
     void projectionMergesAdjacentSameRoleMessagesAndDropsSystemMarkers() {
         ApiMessageProjection projection = new ApiMessageProjection();
 

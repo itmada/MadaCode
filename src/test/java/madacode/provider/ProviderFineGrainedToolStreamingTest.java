@@ -39,4 +39,19 @@ class ProviderFineGrainedToolStreamingTest {
         assertFalse(providerWithBaseUrl("https://api.anthropic.com.evil.example/v1")
                 .supportsFineGrainedToolStreaming());
     }
+
+    @Test
+    void promptCachingIsExplicitProviderCapability() {
+        assertFalse(providerWithBaseUrl("https://api.anthropic.com").supportsPromptCaching());
+
+        Provider provider = new Provider(
+                "test",
+                "token",
+                URI.create("https://api.anthropic.com"),
+                "model-x",
+                List.of(new Model("model-x", Model.DEFAULT_CONTEXT_WINDOW)),
+                true);
+
+        assertTrue(provider.supportsPromptCaching());
+    }
 }
