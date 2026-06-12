@@ -286,25 +286,15 @@ public final class InlineChoicePrompt<T> implements madacode.tui.widget.ChoicePr
         }
         return new ChoicePanel.ChoiceView(
                 model.title(),
-                filterSubtitle(model.subtitle(), filter, visible.isEmpty()),
+                Objects.requireNonNullElse(model.subtitle(), ""),
                 options,
                 selected,
                 model.footer().isBlank()
                         ? "type to filter · backspace delete · esc clear/cancel"
                         : model.footer(),
-                false);
-    }
-
-    private static String filterSubtitle(String subtitle, String filter, boolean noMatch) {
-        String result = Objects.requireNonNullElse(subtitle, "");
-        if (!filter.isBlank()) {
-            String filterPart = "filter: " + filter + "▏";
-            result = result.isBlank() ? filterPart : result + "   " + filterPart;
-        }
-        if (noMatch) {
-            result = result.isBlank() ? "(no match)" : result + "  (no match)";
-        }
-        return result;
+                false,
+                filter,
+                visible.isEmpty());
     }
 
     // ---- key handling -----------------------------------------------

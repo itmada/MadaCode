@@ -82,10 +82,11 @@ public final class CommandPalettePanel {
 
         lines.add(inputLine(view.input(), view.cursor(), w));
 
+        int primaryWidth = maxPrimaryWidth(view.candidates());
         for (int i = 0; i < view.candidates().size(); i++) {
             PaletteCandidate c = view.candidates().get(i);
             boolean sel = i == view.selected();
-            lines.add(candidateLine(c.primary(), c.secondary(), sel, view.showSecondary(), w));
+            lines.add(candidateLine(c.primary(), c.secondary(), sel, view.showSecondary(), primaryWidth, w));
         }
 
         if (!view.footer().isBlank()) {
@@ -133,7 +134,7 @@ public final class CommandPalettePanel {
             return AttributedString.EMPTY;
         }
         if (width == 1) {
-            style(b, Token.STATUS_MODE_PLAN);
+            style(b, Token.SELECTION);
             b.append(cursor == input.length() ? " " : fitEnd(input, 1));
             b.style(AttributedStyle.DEFAULT);
             return fitLine(b, width);
@@ -145,14 +146,14 @@ public final class CommandPalettePanel {
         int clampedCursor = viewport.cursorOffset();
         for (int i = 0; i < visible.length(); i++) {
             if (i == clampedCursor) {
-                style(b, Token.STATUS_MODE_PLAN);
+                style(b, Token.SELECTION);
             } else {
                 b.style(AttributedStyle.DEFAULT);
             }
             b.append(visible.charAt(i));
         }
         if (clampedCursor >= visible.length()) {
-            style(b, Token.STATUS_MODE_PLAN);
+            style(b, Token.SELECTION);
             b.append(' ');
         }
         b.style(AttributedStyle.DEFAULT);
@@ -160,18 +161,21 @@ public final class CommandPalettePanel {
     }
 
     private static AttributedString candidateLine(String primary, String secondary,
-                                                   boolean selected, boolean showSecondary, int width) {
+                                                   boolean selected,
+                                                   boolean showSecondary,
+                                                   int primaryWidth,
+                                                   int width) {
         AttributedStringBuilder b = new AttributedStringBuilder();
-        String prefix = selected ? "› " : "  ";
-        style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
+        String prefix = selected ? "❯ " : "  ";
+        style(b, selected ? Token.ACCENT : Token.MUTED);
         b.append(prefix);
         int budget = Math.max(0, width - TerminalText.displayWidth(prefix));
-        b.append(fitEnd(primary, budget));
+        appendPrimary(b, primary, selected, Math.min(budget, primaryWidth));
         if (showSecondary) {
-            appendSecondary(b, primary, secondary, budget);
+            appendSecondary(b, primary, secondary, primaryWidth, budget);
         }
         if (width == 1) {
-            return new AttributedString(selected ? "›" : " ");
+            return new AttributedString(selected ? "❯" : " ");
         }
         b.style(AttributedStyle.DEFAULT);
         return fitLine(b, width);
@@ -312,18 +316,43 @@ public final class CommandPalettePanel {
             AttributedStringBuilder b,
             String primary,
             String secondary,
+            int primaryWidth,
             int lineBudget) {
         if (secondary == null || secondary.isBlank()) {
             return;
         }
-        int remaining = lineBudget - TerminalText.displayWidth(primary)
+        int namePad = Math.max(0, primaryWidth - TerminalText.displayWidth(primary));
+        int remaining = lineBudget - primaryWidth
                 - TerminalText.displayWidth("   ");
         if (remaining <= 0) {
             return;
         }
+        b.append(" ".repeat(namePad));
         style(b, secondary.startsWith("current:") ? Token.SUCCESS : Token.MUTED);
-        b.append("   ");
+        b.append("  ");
         b.append(fitEnd(secondary, remaining));
+    }
+
+    private static int maxPrimaryWidth(List<PaletteCandidate> candidates) {
+        int max = 0;
+        for (PaletteCandidate candidate : candidates) {
+            max = Math.max(max, TerminalText.displayWidth(candidate.primary()));
+        }
+        return max;
+    }
+
+    private static void appendPrimary(
+            AttributedStringBuilder b,
+            String primary,
+            boolean selected,
+            int budget) {
+        String visible = fitEnd(primary, budget);
+        if (selected) {
+            b.style(Themes.active().styleOf(Token.ACCENT).bold());
+        } else {
+            b.style(AttributedStyle.DEFAULT);
+        }
+        b.append(visible);
     }
 
     private static void style(AttributedStringBuilder b, Token token) {
