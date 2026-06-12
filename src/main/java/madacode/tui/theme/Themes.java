@@ -115,9 +115,7 @@ public final class Themes {
         m.put(Token.MODE_INDICATOR_AUTO, d.foreground(p.gray()));
         m.put(Token.MODE_INDICATOR_PLAN, d.foreground(p.accent()));
 
-        m.put(Token.PROMPT_ACTIVE, lightBackground
-                ? d.bold()
-                : d.bold().foreground(AttributedStyle.WHITE + AttributedStyle.BRIGHT));
+        m.put(Token.PROMPT_ACTIVE, d.bold().foreground(p.accent()));
         m.put(Token.PROMPT_HISTORY, d.foreground(p.gray()));
         return m;
     }

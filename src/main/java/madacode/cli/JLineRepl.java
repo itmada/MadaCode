@@ -421,7 +421,7 @@ public final class JLineRepl extends Repl {
 
     private String buildPrompt() {
         String badge = promptBadge();
-        return (badge.isEmpty() ? "" : badge + " ") + Tk.promptActive("›") + " ";
+        return (badge.isEmpty() ? "" : badge + " ") + Tk.promptActive("❯") + " ";
     }
 
     private String promptBadge() {
