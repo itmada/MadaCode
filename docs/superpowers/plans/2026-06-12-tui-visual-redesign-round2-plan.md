@@ -143,3 +143,29 @@ faint 只允许出现在 `buildBasic`（8/16 色）和 `buildMono` 里。
 - 不重排第一轮已定型的卡片语法、面板结构、字标字形。
 - 不新增配置项或主题数量。
 - 终端自身的行高、字体、底色差异不属于本轮要解决的问题。
+
+---
+
+## 执行结果
+
+- V1 已完成并提交 `5595165 U6-1: replace faint with fixed gray ramp in 256-color themes`：
+  `Palette` 增加 `gray`，dark/light 分别使用 243/245；256 色 `build(...)` 中
+  MUTED、INFO、TAG_INFO、CODE_FENCE、QUOTE、STATUS_KEY、STATUS_MODE_AUTO、
+  TIP_AUTO、MODE_INDICATOR_AUTO、PROMPT_HISTORY 全部改为固定灰阶；`buildBasic`
+  与 `buildMono` 未改。`rg -n "faint"` 确认 faint 只保留在降级主题方法中。
+- V2 已完成并提交 `6242bdd U6-2: render file paths in steel blue within tool card titles`：
+  `StageWriter` 增加路径类 label 分流，`file_read`、`file_write`、`file_edit`
+  的 title detail 使用 `Tk.filePath`，其余工具参数仍使用 `Tk.toolArg`。
+  临时探针确认 `Read(src/Foo.java)` 路径段为 `38;5;110`，
+  `Bash(ls)` 参数段仍为 `38;5;180`。
+- V3 已完成并提交 `429f4ef U6-3: restore accent ❯ as the active prompt marker`：
+  `JLineRepl.buildPrompt()` 恢复 `❯`，256 色 `PROMPT_ACTIVE` 改为
+  `d.bold().foreground(p.accent())`；`buildBasic` 与 `buildMono` 未改。
+- V4 已完成端到端视觉核验，未发现需要代码微调的问题，因此按计划跳过
+  `U6-4` 提交。核验包括：`./mvnw package` 成功并生成 `target/MadaCode.jar`；
+  jar 入口 `--help`、`--list` 可运行；临时 jar 探针确认 dark gray=243、
+  light gray=245、prompt accent、file_edit 路径 110、diff 预览最多 6 行并带
+  `ctrl+o` 展开提示、审批 allow/deny 胶囊分别为橙/红反白、denied 卡片为
+  `⊘ ... denied by user`。
+- V5 最终验证已完成：`./mvnw test` 全绿（156 tests），`./mvnw package` 成功；
+  `git log --oneline` 已确认 U6-1、U6-2、U6-3 存在。没有未完成项。
