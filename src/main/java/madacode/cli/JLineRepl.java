@@ -249,6 +249,7 @@ public final class JLineRepl extends Repl {
 
                 // Echo user input into scrollback (matches HistoryPrinter USER format).
                 // JLine erases its own input line via ERASE_LINE_ON_FINISH; we own the scrollback record.
+                BlockSpacing.begin(screen);
                 screen.scrollback(UserInputRenderer.lines(line));
 
                 String stripped = line.stripLeading();
@@ -420,7 +421,7 @@ public final class JLineRepl extends Repl {
 
     private String buildPrompt() {
         String badge = promptBadge();
-        return (badge.isEmpty() ? "" : badge + " ") + Tk.promptActive("❯") + " ";
+        return (badge.isEmpty() ? "" : badge + " ") + Tk.promptActive("›") + " ";
     }
 
     private String promptBadge() {
@@ -457,14 +458,21 @@ public final class JLineRepl extends Repl {
     private String buildStatusText() {
         if (sessionContext == null) return "";
         StringBuilder sb = new StringBuilder();
+        String mode = sessionContext.planMode()
+                ? "plan"
+                : sessionContext.workflowMode() == null ? "common" : sessionContext.workflowMode().id();
+        sb.append(sessionContext.planMode()
+                ? Tk.apply(Token.STATUS_MODE_PLAN, mode)
+                : Tk.dim(mode));
         String model = sessionContext.model();
         if (model != null && !model.isBlank()) {
+            sb.append(Tk.dim(" · "));
             sb.append(Tk.dim(model));
         }
         int pct = sessionContext.contextPercent();
         if (pct >= 0) {
-            if (!sb.isEmpty()) sb.append(Tk.dim(" · "));
-            String ctx = "ctx " + pct + "%";
+            sb.append(Tk.dim(" · "));
+            String ctx = "ctx " + contextMeter(pct) + " " + pct + "%";
             if (pct >= 90) {
                 sb.append(Tk.failure(ctx));
             } else if (pct >= 70) {
@@ -474,6 +482,11 @@ public final class JLineRepl extends Repl {
             }
         }
         return sb.toString();
+    }
+
+    private static String contextMeter(int pct) {
+        int filled = Math.max(0, Math.min(8, (int) Math.round(pct / 12.5)));
+        return "▰".repeat(filled) + "▱".repeat(8 - filled);
     }
 
     @Override

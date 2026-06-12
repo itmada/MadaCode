@@ -1,7 +1,6 @@
 package madacode.render;
 
-import static madacode.tui.theme.Tk.dim;
-import static madacode.tui.theme.Tk.promptHistory;
+import static madacode.tui.theme.Tk.accent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,9 +20,9 @@ public final class UserInputRenderer {
         int index = 0;
         for (String line : (Iterable<String>) text.lines()::iterator) {
             if (index == 0) {
-                rendered.add(promptHistory("❯") + " " + dim(line));
+                rendered.add(accent("❯") + " " + line);
             } else {
-                rendered.add("  " + dim(line));
+                rendered.add("  " + line);
             }
             index++;
         }

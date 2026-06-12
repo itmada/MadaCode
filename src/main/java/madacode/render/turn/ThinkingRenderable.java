@@ -15,8 +15,8 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ThinkingRenderable implements Renderable {
 
-    private static final String[] FRAMES = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
-    private static final long FRAME_NS = 120_000_000L;
+    private static final String[] FRAMES = {"✦", "✧"};
+    private static final long FRAME_NS = 500_000_000L;
 
     private static final ScheduledExecutorService TICK =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -32,7 +32,7 @@ public final class ThinkingRenderable implements Renderable {
 
     public ThinkingRenderable(Runnable repaintCallback) {
         this.tickFuture = TICK.scheduleAtFixedRate(
-                repaintCallback, 120, 120, TimeUnit.MILLISECONDS);
+                repaintCallback, 500, 500, TimeUnit.MILLISECONDS);
     }
 
     public void finalizeThinking() {
@@ -44,7 +44,7 @@ public final class ThinkingRenderable implements Renderable {
     public List<String> render(int maxWidth) {
         if (finalized) return List.of();
         int idx = (int) (((System.nanoTime() - startNs) / FRAME_NS) % FRAMES.length);
-        return List.of(Tk.dim(FRAMES[idx] + " Thinking…"));
+        return List.of(Tk.thinking(FRAMES[idx]) + " " + Tk.dim("Thinking…"));
     }
 
     @Override

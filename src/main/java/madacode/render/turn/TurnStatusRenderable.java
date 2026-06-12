@@ -66,8 +66,20 @@ public final class TurnStatusRenderable implements Renderable {
         if (finalized) {
             return List.of();
         }
-        String text = spinner.tick() + " " + decorateMessage();
-        return List.of(Tk.dim(TerminalText.fitEnd(text, Math.max(0, maxWidth))));
+        String glyph = switch (mode) {
+            case THINKING -> "✦";
+            case TOOL_USE -> spinner.tick();
+            case REQUESTING -> "◌";
+            case IDLE -> "›";
+        };
+        String styledGlyph = switch (mode) {
+            case THINKING -> Tk.thinking(glyph);
+            case REQUESTING -> Tk.dim(glyph);
+            case TOOL_USE -> Tk.running(glyph);
+            case IDLE -> Tk.info(glyph);
+        };
+        String text = styledGlyph + " " + Tk.dim(decorateMessage());
+        return List.of(TerminalText.fitEnd(text, Math.max(0, maxWidth)));
     }
 
     private String decorateMessage() {
