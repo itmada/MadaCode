@@ -11,6 +11,9 @@ public final class StageWriter {
 
     private StageWriter() {}
 
+    private static final java.util.Set<String> PATH_DETAIL_LABELS =
+            java.util.Set.of("file_read", "file_write", "file_edit");
+
     public enum Status { RUNNING, SUCCESS, FAILED, DENIED, INFO, WARN }
 
     public record Stage(
@@ -96,7 +99,13 @@ public final class StageWriter {
         if (parts.detail().isBlank()) {
             return Tk.toolName(label);
         }
-        return Tk.toolName(label) + " " + Tk.toolArg(parts.detail());
+        return Tk.toolName(label) + " " + styledDetail(label, parts.detail());
+    }
+
+    private static String styledDetail(String label, String detail) {
+        return PATH_DETAIL_LABELS.contains(label)
+                ? Tk.filePath(detail)
+                : Tk.toolArg(detail);
     }
 
     private static String inlineSummary(Status status, List<String> summary) {
