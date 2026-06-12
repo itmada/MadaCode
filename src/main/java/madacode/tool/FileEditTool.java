@@ -19,6 +19,8 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
             Boolean replace_all) {}
 
     private static final long MAX_FILE_SIZE = 20L * 1024 * 1024; // 20 MiB
+    private static final int MAX_DIFF_LINES = 200;
+    private static final int MAX_DIFF_LINE_CHARS = 240;
 
     @Override
     public String name() {
@@ -193,6 +195,7 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
                 actualOldString,
                 normalizedNewString,
                 replaceAll,
+                matchCount,
                 filePath,
                 lineSeparator);
         if (editResult.success()) {
@@ -202,11 +205,15 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
     }
 
     private ToolResult createNewFile(Path target, String content) {
+        String normalized = TextFileSupport.normalizeLineSeparators(content);
         try {
             Files.createDirectories(target.getParent());
             Files.writeString(target, content);
+            LineChangeStats stats = LineChangeStats.between("", normalized);
             return new ToolResult(name(), true,
-                    "File created successfully at: " + target);
+                    "File created successfully at: " + target
+                            + "\nLine changes: " + stats.formatPlain()
+                            + "\nDiff:\n" + snippetDiff(target.toString(), "", normalized, 1));
         } catch (IOException e) {
             return new ToolResult(name(), false,
                     "Failed to create file: " + e.getMessage());
@@ -219,6 +226,7 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
             String oldString,
             String newString,
             boolean replaceAll,
+            int occurrenceCount,
             String filePath,
             String lineSeparator) {
         String updated;
@@ -245,7 +253,9 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
         if (replaceAll) {
             result.append(". All occurrences were replaced");
         }
-        result.append(".\nLine changes: ").append(stats.formatPlain());
+        result.append(".\nLine changes: ").append(stats.formatPlain())
+                .append("\nDiff:\n")
+                .append(snippetDiff(filePath, oldString, newString, occurrenceCount));
         return new ToolResult(name(), true, result.toString().trim());
     }
 
@@ -263,8 +273,62 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
         StringBuilder result = new StringBuilder();
         result.append("The file ").append(filePath)
                 .append(" has been updated successfully.\n")
-                .append("Line changes: ").append(stats.formatPlain());
+                .append("Line changes: ").append(stats.formatPlain())
+                .append("\nDiff:\n")
+                .append(snippetDiff(filePath, "", normalized, 1));
         return new ToolResult(name(), true, result.toString().trim());
+    }
+
+    private static String snippetDiff(String filePath, String before, String after, int occurrenceCount) {
+        List<String> beforeLines = diffContentLines(before);
+        List<String> afterLines = diffContentLines(after);
+        List<String> out = new java.util.ArrayList<>();
+        out.add("--- " + filePath);
+        out.add("+++ " + filePath);
+        out.add(occurrenceCount > 1 ? "@@ repeated " + occurrenceCount + " times @@" : "@@");
+        for (String line : beforeLines) {
+            out.add("-" + line);
+        }
+        for (String line : afterLines) {
+            out.add("+" + line);
+        }
+
+        boolean truncated = out.size() > MAX_DIFF_LINES;
+        int limit = Math.min(out.size(), MAX_DIFF_LINES);
+        StringBuilder rendered = new StringBuilder();
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) {
+                rendered.append('\n');
+            }
+            rendered.append(truncateDiffLine(out.get(i)));
+        }
+        if (truncated) {
+            rendered.append('\n').append("... diff truncated ...");
+        }
+        return rendered.toString();
+    }
+
+    private static List<String> diffContentLines(String value) {
+        if (value == null || value.isEmpty()) {
+            return List.of();
+        }
+        String[] raw = value.split("\\n", -1);
+        int length = raw.length;
+        if (length > 0 && raw[length - 1].isEmpty()) {
+            length--;
+        }
+        List<String> lines = new java.util.ArrayList<>(length);
+        for (int i = 0; i < length; i++) {
+            lines.add(raw[i]);
+        }
+        return lines;
+    }
+
+    private static String truncateDiffLine(String line) {
+        if (line.length() <= MAX_DIFF_LINE_CHARS) {
+            return line;
+        }
+        return line.substring(0, MAX_DIFF_LINE_CHARS - 3) + "...";
     }
 
     private String truncateForError(String s) {

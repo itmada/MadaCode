@@ -222,6 +222,21 @@ final class ToolDisplaySupport {
         return madacode.render.DiffHighlighter.highlightAndRender(output, maxLines);
     }
 
+    static String diffBlock(String output) {
+        if (output == null || output.isBlank()) {
+            return "";
+        }
+        int marker = output.indexOf("\nDiff:\n");
+        if (marker < 0) {
+            marker = output.indexOf("Diff:\n");
+            if (marker != 0) {
+                return "";
+            }
+            return output.substring("Diff:\n".length()).strip();
+        }
+        return output.substring(marker + "\nDiff:\n".length()).strip();
+    }
+
     static String lineChangeSummary(String output) {
         Matcher matcher = LINE_CHANGES.matcher(output == null ? "" : output);
         if (!matcher.find()) {
