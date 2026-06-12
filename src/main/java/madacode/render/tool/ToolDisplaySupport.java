@@ -5,8 +5,11 @@ import madacode.tui.TerminalText;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,6 +19,8 @@ final class ToolDisplaySupport {
             Pattern.compile("Tests run: (\\d+), Failures: (\\d+), Errors: (\\d+)");
     private static final Pattern LINE_CHANGES =
             Pattern.compile("Line changes:\\s*\\+(\\d+)\\s+-(\\d+)");
+    private static final Pattern EXIT_CODE =
+            Pattern.compile("(?m)^Exit code:\\s*(\\d+)\\s*$");
 
     private ToolDisplaySupport() {}
 
@@ -47,6 +52,24 @@ final class ToolDisplaySupport {
         }
         double seconds = durationMs / 1000.0;
         return String.format(java.util.Locale.ROOT, "%.1fs", seconds);
+    }
+
+    static String durationText(long durationMs) {
+        return duration(durationMs);
+    }
+
+    static String withDuration(String summary, long durationMs) {
+        String timing = durationText(durationMs);
+        return timing.isBlank() ? summary : summary + " · " + timing;
+    }
+
+    static String byteSize(String value) {
+        int bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8).length;
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) {
+            return String.format(java.util.Locale.ROOT, "%.1f KB", bytes / 1024.0);
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024));
     }
 
     static String completedSummary(boolean success, long durationMs) {
@@ -137,18 +160,21 @@ final class ToolDisplaySupport {
     }
 
     static String bashSummary(String output, boolean success, long durationMs) {
-        String timing = duration(durationMs);
-        if (output != null && output.contains("BUILD SUCCESS")) {
-            String tests = mavenTests(output);
-            if (!tests.isBlank()) {
-                return "BUILD SUCCESS · " + tests + (timing.isBlank() ? "" : " · " + timing);
-            }
-            return "BUILD SUCCESS" + (timing.isBlank() ? "" : " · " + timing);
+        if (success) {
+            return withDuration("ok", durationMs);
         }
-        if (output != null && output.contains("BUILD FAILURE")) {
-            return "BUILD FAILURE" + (timing.isBlank() ? "" : " · " + timing);
+        String exit = exitCode(output);
+        String status = exit.isBlank() ? "failed" : Tk.failure("exit " + exit);
+        return withDuration(status, durationMs);
+    }
+
+    static String exitCode(String output) {
+        Matcher matcher = EXIT_CODE.matcher(output == null ? "" : output);
+        String last = "";
+        while (matcher.find()) {
+            last = matcher.group(1);
         }
-        return completedSummary(success, durationMs);
+        return last;
     }
 
     static String mavenTests(String output) {
@@ -202,5 +228,63 @@ final class ToolDisplaySupport {
             return "";
         }
         return Tk.diffAdd("+" + matcher.group(1)) + " " + Tk.diffDel("-" + matcher.group(2));
+    }
+
+    static String grepSummary(ObjectNode input, String output, long durationMs) {
+        String mode = text(input, "outputMode");
+        int context = input == null || !input.path("context").canConvertToInt()
+                ? 0
+                : input.path("context").asInt(0);
+        List<String> lines = resultLines(output);
+        if (lines.isEmpty()) {
+            return withDuration("0 matches in 0 files", durationMs);
+        }
+        if ("count".equals(mode)) {
+            int matches = 0;
+            int files = 0;
+            for (String line : lines) {
+                int idx = line.lastIndexOf(':');
+                if (idx <= 0 || idx == line.length() - 1) {
+                    return "";
+                }
+                try {
+                    matches += Integer.parseInt(line.substring(idx + 1).strip());
+                    files++;
+                } catch (NumberFormatException exception) {
+                    return "";
+                }
+            }
+            return withDuration(matches + " matches in " + files + " files", durationMs);
+        }
+        if ("content".equals(mode)) {
+            if (context > 0) {
+                return "";
+            }
+            Set<String> files = new LinkedHashSet<>();
+            for (String line : lines) {
+                int first = line.indexOf(':');
+                int second = first < 0 ? -1 : line.indexOf(':', first + 1);
+                if (first <= 0 || second <= first + 1) {
+                    return "";
+                }
+                files.add(line.substring(0, first));
+            }
+            return withDuration(lines.size() + " matches in " + files.size() + " files", durationMs);
+        }
+        return withDuration(lines.size() + " matches in " + lines.size() + " files", durationMs);
+    }
+
+    private static List<String> resultLines(String output) {
+        if (output == null || output.isBlank()) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>();
+        for (String raw : output.split("\\R")) {
+            String line = raw.strip();
+            if (!line.isBlank() && !line.startsWith("[Results truncated at ")) {
+                lines.add(line);
+            }
+        }
+        return lines;
     }
 }

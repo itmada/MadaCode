@@ -32,8 +32,11 @@ public final class FileWriteDisplayAdapter implements ToolDisplayAdapter {
 
     private ToolDisplay render(ObjectNode input, boolean success, String output, long durationMs, int maxLines) {
         String content = ToolDisplaySupport.text(input, "content");
+        boolean created = output != null && output.startsWith("File created successfully");
         String summary = success
-                ? "Wrote " + ToolDisplaySupport.plural(ToolDisplaySupport.countNonBlankLines(content), "line", "lines")
+                ? ToolDisplaySupport.withDuration(
+                        ToolDisplaySupport.byteSize(content) + (created ? " · new file" : ""),
+                        durationMs)
                 : ToolDisplaySupport.completedSummary(false, durationMs);
         return success
                 ? ToolDisplay.success(title(input), summary, java.util.List.of())

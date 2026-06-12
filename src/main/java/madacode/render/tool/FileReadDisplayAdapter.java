@@ -25,7 +25,10 @@ public final class FileReadDisplayAdapter implements ToolDisplayAdapter {
     @Override
     public ToolDisplay renderResult(ObjectNode input, boolean success, String output, long durationMs) {
         String summary = success
-                ? "Read " + ToolDisplaySupport.plural(ToolDisplaySupport.countNonBlankLines(output), "line", "lines")
+                ? ToolDisplaySupport.withDuration(
+                        ToolDisplaySupport.plural(
+                                ToolDisplaySupport.countNonBlankLines(output), "line", "lines"),
+                        durationMs)
                 : ToolDisplaySupport.completedSummary(false, durationMs);
         List<String> details = success ? List.of() : ToolDisplaySupport.firstUsefulLines(output, 3);
         return success

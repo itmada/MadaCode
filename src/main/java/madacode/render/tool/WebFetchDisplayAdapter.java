@@ -2,6 +2,7 @@ package madacode.render.tool;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -9,7 +10,6 @@ import java.util.regex.Pattern;
 
 public final class WebFetchDisplayAdapter implements ToolDisplayAdapter {
 
-    private static final Pattern STATUS = Pattern.compile("Status:\\s*(\\d+)");
     private static final Pattern SIZE = Pattern.compile("Size:\\s*([^\\n]+)");
 
     @Override
@@ -39,7 +39,9 @@ public final class WebFetchDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public ToolDisplay renderResult(ObjectNode input, boolean success, String output, long durationMs) {
-        String summary = success ? webSummary(output, durationMs) : ToolDisplaySupport.completedSummary(false, durationMs);
+        String summary = success
+                ? webSummary(input, output, durationMs)
+                : ToolDisplaySupport.completedSummary(false, durationMs);
         List<String> details = success ? List.of() : ToolDisplaySupport.firstUsefulLines(output, 3);
         return success
                 ? ToolDisplay.success(title(input), summary, details)
@@ -50,19 +52,24 @@ public final class WebFetchDisplayAdapter implements ToolDisplayAdapter {
         return "Fetch" + ToolDisplaySupport.parens(ToolDisplaySupport.text(input, "url"));
     }
 
-    private static String webSummary(String output, long durationMs) {
-        String status = match(STATUS, output);
+    private static String webSummary(ObjectNode input, String output, long durationMs) {
+        String host = host(ToolDisplaySupport.text(input, "url"));
         String size = match(SIZE, output);
-        String timing = ToolDisplaySupport.duration(durationMs);
         StringBuilder summary = new StringBuilder();
-        summary.append(status.isBlank() ? "Fetched" : "HTTP " + status);
+        summary.append(host.isBlank() ? "fetched" : host);
         if (!size.isBlank()) {
             summary.append(" · ").append(size.strip());
         }
-        if (!timing.isBlank()) {
-            summary.append(" · ").append(timing);
+        return ToolDisplaySupport.withDuration(summary.toString(), durationMs);
+    }
+
+    private static String host(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            return host == null ? "" : host;
+        } catch (IllegalArgumentException exception) {
+            return "";
         }
-        return summary.toString();
     }
 
     private static String match(Pattern pattern, String output) {

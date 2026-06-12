@@ -25,7 +25,8 @@ public final class GlobDisplayAdapter implements ToolDisplayAdapter {
     public ToolDisplay renderResult(ObjectNode input, boolean success, String output, long durationMs) {
         int files = ToolDisplaySupport.countNonBlankLines(output);
         String summary = success
-                ? "Found " + ToolDisplaySupport.plural(files, "file", "files")
+                ? ToolDisplaySupport.withDuration(
+                        ToolDisplaySupport.plural(files, "file", "files"), durationMs)
                 : ToolDisplaySupport.completedSummary(false, durationMs);
         List<String> details = success ? List.of() : ToolDisplaySupport.firstUsefulLines(output, 3);
         return success

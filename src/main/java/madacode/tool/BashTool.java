@@ -140,7 +140,8 @@ public class BashTool implements Tool<BashTool.Input> {
                 return new ToolResult(name(), false,
                         truncate(output + "\nCancelled: " + context.cancellationToken().reason()));
             }
-            return new ToolResult(name(), exitCode == 0, truncate(output));
+            return new ToolResult(name(), exitCode == 0,
+                    truncate(exitCode == 0 ? output : appendExitCode(output, exitCode)));
         } catch (Exception e) {
             if (process != null && process.isAlive()) destroyProcessTree(process);
             if (readerFuture != null) awaitReaderQuietly(readerFuture);
@@ -323,6 +324,11 @@ public class BashTool implements Tool<BashTool.Input> {
 
     private static String prefixIfNonEmpty(String s) {
         return s.isEmpty() ? "" : s + "\n";
+    }
+
+    private static String appendExitCode(String output, int exitCode) {
+        return prefixIfNonEmpty(output == null ? "" : output.stripTrailing())
+                + "Exit code: " + exitCode;
     }
 
     private String truncate(String output) {

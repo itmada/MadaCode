@@ -33,7 +33,7 @@ public final class FileEditDisplayAdapter implements ToolDisplayAdapter {
     private ToolDisplay render(ObjectNode input, boolean success, String output, long durationMs, int maxLines) {
         String changes = ToolDisplaySupport.lineChangeSummary(output);
         String summary = success
-                ? "Updated 1 file" + (changes.isBlank() ? "" : "  " + changes)
+                ? ToolDisplaySupport.withDuration(changes.isBlank() ? "updated" : changes, durationMs)
                 : ToolDisplaySupport.completedSummary(false, durationMs);
         return success
                 ? ToolDisplay.success(title(input), summary, java.util.List.of())
