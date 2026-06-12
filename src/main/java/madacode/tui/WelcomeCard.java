@@ -3,33 +3,30 @@ package madacode.tui;
 import madacode.tui.theme.Tk;
 import madacode.tui.theme.Token;
 
+import org.jline.utils.AttributedString;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Renders a styled welcome card shown once at startup, before the session
- * picker.  The card contains an ASCII engine logo on the left and four
- * lines of metadata (welcome / provider / model / cwd) on the right.
+ * picker.
  *
- * <p>Box width is content-driven: just wide enough to fit the logo and meta
- * lines, capped by the terminal width.  Each returned line is a complete
- * scrollback line and may contain ANSI escapes applied via {@link Tk}.
+ * <p>Each returned line is a complete scrollback line and may contain ANSI
+ * escapes applied via {@link Tk}.
  */
 public final class WelcomeCard {
 
     private static final String VERSION = "v0.1.0";
     private static final String TIPS =
-            "/help commands · @path attach files · ctrl+o expand output";
+            "/help commands · @file add context · shift+tab cycle mode";
+    private static final String WORDMARK_1 =
+            "█▀▄▀█ ▄▀█ █▀▄ ▄▀█ █▀▀ █▀█ █▀▄ █▀▀";
+    private static final String WORDMARK_2 =
+            "█ ▀ █ █▀█ █▄▀ █▀█ █▄▄ █▄█ █▄▀ ██▄";
+    private static final int WORDMARK_SPLIT = 17;
     private static final Path HOME = Path.of(System.getProperty("user.home"));
-
-    private static final String[] LOGO = {
-            "     ▄▄▄▄▄     ",
-            "  ╭──┤███├──╮  ",
-            "  │◈◈│MADA│◈◈│ ",
-            "  ╰──┤███├──╯  ",
-            "     ▀▀▀▀▀     "
-    };
 
     private WelcomeCard() {}
 
@@ -43,6 +40,8 @@ public final class WelcomeCard {
      * @return scrollback lines (9 for normal terminals, 3 for very narrow ones)
      */
     public static List<String> render(String provider, String model, Path cwd, int terminalWidth) {
+        provider = provider == null ? "" : provider;
+        model = model == null ? "" : model;
         if (terminalWidth < 40) {
             return List.of(
                     "MadaCode " + VERSION,
@@ -51,81 +50,11 @@ public final class WelcomeCard {
                     "cwd:    " + shortCwd(cwd));
         }
 
-        int logoDisplayWidth = 15;
-        int sidePad = 4;  // horizontal padding between border and content
-        int gap = 4;      // gap between logo and meta
-        int metaStart = sidePad + logoDisplayWidth + gap; // 23
-
-        String user = System.getProperty("user.name", "user");
         String rawCwd = shortCwd(cwd);
-
-        // Measure natural content width from meta strings (displayWidth strips ANSI)
-        String[] metaRaw = {
-                Tk.dim("Welcome, ") + user,
-                Tk.dim("provider: ") + provider,
-                Tk.dim("model: ") + model,
-                rawCwd
-        };
-        int naturalMetaWidth = 0;
-        for (String s : metaRaw) {
-            naturalMetaWidth = Math.max(naturalMetaWidth, Tk.displayWidth(s));
+        if (terminalWidth < 80) {
+            return renderCompact(provider, model, rawCwd, terminalWidth);
         }
-
-        String title = " MadaCode " + VERSION + " ";
-        int innerWidth = Math.max(
-                metaStart + naturalMetaWidth + sidePad,  // content + right padding
-                Tk.displayWidth(title) + 3);             // title bar minimum
-        innerWidth = Math.max(innerWidth,
-                sidePad + Tk.displayWidth(TIPS) + sidePad); // full shortcut hint
-        innerWidth = Math.min(innerWidth, terminalWidth - 4); // don't overflow terminal
-
-        // Build meta with cwd truncated to the actual available space
-        int metaMaxWidth = Math.max(0, innerWidth - metaStart - sidePad);
-        String[] meta = {
-                Tk.dim("Welcome, ") + user,
-                Tk.dim("provider: ") + provider,
-                Tk.dim("model: ") + model,
-                fitCwd(rawCwd, metaMaxWidth)
-        };
-
-        List<String> lines = new ArrayList<>(11);
-
-        // ---- top border ----
-        int dashPad = Math.max(0, innerWidth - Tk.displayWidth(title));
-        lines.add(Tk.bold("╭" + title + "─".repeat(dashPad) + "╮"));
-
-        // ---- 2 blank rows (top vertical padding) ----
-        lines.add(Tk.bold("│") + " ".repeat(innerWidth) + Tk.bold("│"));
-        lines.add(Tk.bold("│") + " ".repeat(innerWidth) + Tk.bold("│"));
-
-        // ---- logo + meta rows (5 logo lines, meta at rows 1–4) ----
-        for (int i = 0; i < LOGO.length; i++) {
-            String metaText = (i >= 1 && i <= 4) ? meta[i - 1] : "";
-            String line = Tk.bold("│")
-                    + " ".repeat(sidePad)
-                    + Tk.apply(Token.TOOL_NAME, LOGO[i])
-                    + " ".repeat(gap)
-                    + metaText;
-            int visibleLen = Tk.displayWidth(line) - 1; // subtract leading │
-            int pad = Math.max(0, innerWidth - visibleLen);
-            line = line + " ".repeat(pad) + Tk.bold("│");
-            lines.add(line);
-        }
-
-        // ---- blank row + shortcut tips row (bottom padding) ----
-        lines.add(Tk.bold("│") + " ".repeat(innerWidth) + Tk.bold("│"));
-        String tipsRaw = TIPS;
-        if (Tk.displayWidth(tipsRaw) > innerWidth - sidePad) {
-            tipsRaw = "/help commands";
-        }
-        String tipsLine = Tk.bold("│") + " ".repeat(sidePad) + Tk.dim(tipsRaw);
-        int tipsPad = Math.max(0, innerWidth - (Tk.displayWidth(tipsLine) - 1));
-        lines.add(tipsLine + " ".repeat(tipsPad) + Tk.bold("│"));
-
-        // ---- bottom border ----
-        lines.add(Tk.bold("╰" + "─".repeat(innerWidth) + "╯"));
-
-        return lines;
+        return renderWordmark(provider, model, rawCwd, terminalWidth);
     }
 
     public static List<String> render(String model, Path cwd, int terminalWidth) {
@@ -133,6 +62,58 @@ public final class WelcomeCard {
     }
 
     // ---- internal helpers -----------------------------------------------
+
+    private static List<String> renderCompact(String provider, String model, String rawCwd, int terminalWidth) {
+        int valueWidth = Math.max(1, terminalWidth - 11);
+        List<String> lines = new ArrayList<>(6);
+        lines.add(accentBold("▌ MadaCode") + Tk.dim(" " + VERSION));
+        lines.add(metaRow("model", fitPlain(model, valueWidth), false));
+        lines.add(metaRow("provider", fitPlain(provider, valueWidth), false));
+        lines.add(metaRow("cwd", fitCwd(rawCwd, valueWidth), true));
+        lines.add("");
+        lines.add(Tk.dim(TerminalText.fitEnd(TIPS, terminalWidth)));
+        return lines;
+    }
+
+    private static List<String> renderWordmark(String provider, String model, String rawCwd, int terminalWidth) {
+        int cwdWidth = Math.max(12, terminalWidth - 4
+                - Tk.displayWidth(VERSION)
+                - Tk.displayWidth(model)
+                - Tk.displayWidth(provider)
+                - 9);
+        List<String> lines = new ArrayList<>(6);
+        lines.add(wordmarkLine(WORDMARK_1));
+        lines.add(wordmarkLine(WORDMARK_2));
+        lines.add("");
+        lines.add(Tk.dim(VERSION + " · ")
+                + model
+                + Tk.dim(" · " + provider + " · ")
+                + Tk.filePath(fitCwd(rawCwd, cwdWidth)));
+        lines.add("");
+        lines.add(Tk.dim(TerminalText.fitEnd(TIPS, terminalWidth)));
+        return lines;
+    }
+
+    private static String wordmarkLine(String line) {
+        return Tk.accent(line.substring(0, WORDMARK_SPLIT))
+                + " "
+                + Tk.toolArg(line.substring(WORDMARK_SPLIT + 1));
+    }
+
+    private static String metaRow(String key, String value, boolean path) {
+        String label = String.format(java.util.Locale.ROOT, "  %-9s", key);
+        return Tk.dim(label) + (path ? Tk.filePath(value) : value);
+    }
+
+    private static String accentBold(String value) {
+        return new AttributedString(
+                value,
+                madacode.tui.theme.Themes.active().styleOf(Token.ACCENT).bold()).toAnsi();
+    }
+
+    private static String fitPlain(String value, int maxWidth) {
+        return TerminalText.fitEnd(value == null ? "" : value, Math.max(1, maxWidth));
+    }
 
     private static String shortCwd(Path cwd) {
         String path = cwd.toAbsolutePath().normalize().toString();
