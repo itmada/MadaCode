@@ -17,10 +17,10 @@ public final class Themes {
 
     /** Palette: one indexed color per semantic slot, per theme variant. */
     private record Palette(int success, int failure, int amber, int accent,
-                           int path, int link, int code, int thinking) {}
+                           int path, int link, int code, int thinking, int gray) {}
 
-    private static final Palette DARK = new Palette(71, 167, 179, 173, 110, 75, 180, 139);
-    private static final Palette LIGHT = new Palette(28, 124, 136, 130, 25, 26, 94, 96);
+    private static final Palette DARK = new Palette(71, 167, 179, 173, 110, 75, 180, 139, 243);
+    private static final Palette LIGHT = new Palette(28, 124, 136, 130, 25, 26, 94, 96, 245);
 
     private static final AtomicReference<Theme> ACTIVE = new AtomicReference<>(dark());
     private static volatile boolean basicColorsOnly;
@@ -77,7 +77,7 @@ public final class Themes {
         EnumMap<Token, AttributedStyle> m = new EnumMap<>(Token.class);
         AttributedStyle d = AttributedStyle.DEFAULT;
 
-        m.put(Token.MUTED, d.faint());
+        m.put(Token.MUTED, d.foreground(p.gray()));
         m.put(Token.EMPHASIS, d.bold());
         m.put(Token.ACCENT, d.foreground(p.accent()));
         m.put(Token.SELECTION, d.inverse().foreground(p.accent()));
@@ -85,10 +85,10 @@ public final class Themes {
         m.put(Token.SUCCESS, d.foreground(p.success()));
         m.put(Token.FAILURE, d.foreground(p.failure()));
         m.put(Token.RUNNING, d.foreground(p.accent()));
-        m.put(Token.INFO,    d.faint());
+        m.put(Token.INFO,    d.foreground(p.gray()));
         m.put(Token.THINKING_PULSE, d.foreground(p.thinking()));
 
-        m.put(Token.TAG_INFO,  d.faint());
+        m.put(Token.TAG_INFO,  d.foreground(p.gray()));
         m.put(Token.TAG_WARN,  d.foreground(p.amber()));
         m.put(Token.TAG_ERROR, d.foreground(p.failure()));
 
@@ -102,23 +102,23 @@ public final class Themes {
 
         m.put(Token.HEADING,     d.bold());
         m.put(Token.INLINE_CODE, d.foreground(p.code()));
-        m.put(Token.CODE_FENCE,  d.faint());
-        m.put(Token.QUOTE,       d.faint().italic());
+        m.put(Token.CODE_FENCE,  d.foreground(p.gray()));
+        m.put(Token.QUOTE,       d.foreground(p.gray()).italic());
         m.put(Token.LINK,        d.foreground(p.link()).underline());
 
-        m.put(Token.STATUS_KEY,       d.faint());
+        m.put(Token.STATUS_KEY,       d.foreground(p.gray()));
         m.put(Token.STATUS_VAL,       d);
-        m.put(Token.STATUS_MODE_AUTO, d.faint());
+        m.put(Token.STATUS_MODE_AUTO, d.foreground(p.gray()));
         m.put(Token.STATUS_MODE_PLAN, d.foreground(p.accent()));
-        m.put(Token.TIP_AUTO, d.faint());
+        m.put(Token.TIP_AUTO, d.foreground(p.gray()));
         m.put(Token.TIP_PLAN, d.foreground(p.accent()));
-        m.put(Token.MODE_INDICATOR_AUTO, d.faint());
+        m.put(Token.MODE_INDICATOR_AUTO, d.foreground(p.gray()));
         m.put(Token.MODE_INDICATOR_PLAN, d.foreground(p.accent()));
 
         m.put(Token.PROMPT_ACTIVE, lightBackground
                 ? d.bold()
                 : d.bold().foreground(AttributedStyle.WHITE + AttributedStyle.BRIGHT));
-        m.put(Token.PROMPT_HISTORY, d.faint());
+        m.put(Token.PROMPT_HISTORY, d.foreground(p.gray()));
         return m;
     }
 
