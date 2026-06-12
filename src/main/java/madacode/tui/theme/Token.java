@@ -9,6 +9,8 @@ public enum Token {
     // Generic text
     MUTED,
     EMPHASIS,
+    ACCENT,
+    SELECTION,
 
     // Status bullets / row state
     SUCCESS,

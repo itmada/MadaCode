@@ -34,6 +34,8 @@ public final class Tk {
     public static String success(String s)    { return apply(Token.SUCCESS, s); }
     public static String failure(String s)    { return apply(Token.FAILURE, s); }
     public static String running(String s)    { return apply(Token.RUNNING, s); }
+    public static String accent(String s)     { return apply(Token.ACCENT, s); }
+    public static String selection(String s)  { return apply(Token.SELECTION, s); }
     public static String thinking(String s)   { return apply(Token.THINKING_PULSE, s); }
     public static String info(String s)       { return apply(Token.INFO, s); }
     public static String toolName(String s)   { return apply(Token.TOOL_NAME, s); }

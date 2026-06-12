@@ -19,8 +19,8 @@ public final class Themes {
     private record Palette(int success, int failure, int amber, int accent,
                            int path, int link, int code, int thinking) {}
 
-    private static final Palette DARK = new Palette(71, 167, 179, 80, 110, 75, 180, 177);
-    private static final Palette LIGHT = new Palette(28, 124, 130, 30, 25, 26, 94, 97);
+    private static final Palette DARK = new Palette(71, 167, 179, 173, 110, 75, 180, 139);
+    private static final Palette LIGHT = new Palette(28, 124, 136, 130, 25, 26, 94, 96);
 
     private static final AtomicReference<Theme> ACTIVE = new AtomicReference<>(dark());
     private static volatile boolean basicColorsOnly;
@@ -79,10 +79,12 @@ public final class Themes {
 
         m.put(Token.MUTED, d.faint());
         m.put(Token.EMPHASIS, d.bold());
+        m.put(Token.ACCENT, d.foreground(p.accent()));
+        m.put(Token.SELECTION, d.inverse().foreground(p.accent()));
 
         m.put(Token.SUCCESS, d.foreground(p.success()));
         m.put(Token.FAILURE, d.foreground(p.failure()));
-        m.put(Token.RUNNING, d.foreground(p.amber()));
+        m.put(Token.RUNNING, d.foreground(p.accent()));
         m.put(Token.INFO,    d.faint());
         m.put(Token.THINKING_PULSE, d.foreground(p.thinking()));
 
@@ -126,10 +128,12 @@ public final class Themes {
 
         m.put(Token.MUTED, d.faint());
         m.put(Token.EMPHASIS, d.bold());
+        m.put(Token.ACCENT, d.foreground(AttributedStyle.YELLOW));
+        m.put(Token.SELECTION, d.inverse());
 
         m.put(Token.SUCCESS, d.foreground(AttributedStyle.GREEN));
         m.put(Token.FAILURE, d.foreground(AttributedStyle.RED));
-        m.put(Token.RUNNING, d.foreground(AttributedStyle.YELLOW));
+        m.put(Token.RUNNING, d.foreground(AttributedStyle.CYAN));
         m.put(Token.INFO,    d.faint());
         m.put(Token.THINKING_PULSE, d.foreground(AttributedStyle.MAGENTA + AttributedStyle.BRIGHT));
 
@@ -186,6 +190,8 @@ public final class Themes {
         m.put(Token.PROMPT_HISTORY, d.faint());
 
         m.put(Token.EMPHASIS, d.bold());
+        m.put(Token.ACCENT, d.bold());
+        m.put(Token.SELECTION, d.inverse());
         m.put(Token.HEADING, d.bold());
         m.put(Token.TOOL_NAME, d.bold());
         m.put(Token.PROMPT_ACTIVE, d.bold());
