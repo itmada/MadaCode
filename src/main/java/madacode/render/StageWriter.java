@@ -11,8 +11,6 @@ public final class StageWriter {
 
     private StageWriter() {}
 
-    private static final int TITLE_LABEL_WIDTH = 8;
-
     public enum Status { RUNNING, SUCCESS, FAILED, DENIED, INFO, WARN }
 
     public record Stage(
@@ -36,10 +34,11 @@ public final class StageWriter {
      */
     public static String glyph(Status status) {
         return switch (status) {
-            case RUNNING, SUCCESS -> "●";
+            case RUNNING -> "⠧";
+            case SUCCESS -> "●";
             case FAILED -> "✗";
             case DENIED -> "⊘";
-            case INFO -> "○";
+            case INFO -> "›";
             case WARN -> "▲";
         };
     }
@@ -60,16 +59,20 @@ public final class StageWriter {
                 ? runningGlyphOverride
                 : glyph(stage.status());
         List<String> lines = new ArrayList<>();
-        lines.add(colored(stage.status(), glyph) + " " + styledTitle(stage.title()));
+        lines.add(colored(stage.status(), glyph) + " " + styledTitle(stage.title())
+                + inlineSummary(stage.status(), stage.summary()));
         for (int i = 0; i < stage.summary().size(); i++) {
+            if (i == 0) {
+                continue;
+            }
             boolean last = i == stage.summary().size() - 1
                     && !(stage.hasMore() && !stage.verbose().isEmpty());
-            String prefix = "  " + colored(stage.status(), last ? "╰─" : "├─") + " ";
+            String prefix = "  " + Tk.dim(last ? "└" : "├") + " ";
             lines.add(prefix + colorSummary(stage.status(), stage.summary().get(i)));
         }
         int hidden = stage.verbose().size();
         if (stage.hasMore() && hidden > 0) {
-            lines.add("  " + colored(stage.status(), "╰─") + " "
+            lines.add("  " + Tk.dim("└") + " "
                     + Tk.dim("ctrl+o to expand · " + hidden + " lines hidden"));
         }
         return lines;
@@ -81,8 +84,7 @@ public final class StageWriter {
         }
         List<String> lines = new ArrayList<>();
         for (int i = 0; i < stage.verbose().size(); i++) {
-            String prefix = "  " + colored(stage.status(),
-                    i == stage.verbose().size() - 1 ? "╰─" : "├─") + " ";
+            String prefix = "  " + Tk.dim(i == stage.verbose().size() - 1 ? "└" : "├") + " ";
             lines.add(prefix + Tk.dim(stage.verbose().get(i)));
         }
         return lines;
@@ -90,10 +92,18 @@ public final class StageWriter {
 
     private static String styledTitle(String title) {
         TitleParts parts = splitTitle(title);
+        String label = normalizeLabel(parts.label());
         if (parts.detail().isBlank()) {
-            return Tk.toolName(parts.label());
+            return Tk.toolName(label);
         }
-        return Tk.toolName(padEnd(parts.label(), TITLE_LABEL_WIDTH)) + parts.detail();
+        return Tk.toolName(label) + " " + Tk.toolArg(parts.detail());
+    }
+
+    private static String inlineSummary(Status status, List<String> summary) {
+        if (summary.isEmpty() || summary.getFirst().isBlank()) {
+            return "";
+        }
+        return Tk.dim(" · ") + colorSummary(status, summary.getFirst());
     }
 
     private static TitleParts splitTitle(String title) {
@@ -109,18 +119,45 @@ public final class StageWriter {
         return new TitleParts(clean, "");
     }
 
-    private static String padEnd(String value, int width) {
-        int displayWidth = Tk.displayWidth(value);
-        if (displayWidth >= width) {
-            return value + " ";
+    private static String normalizeLabel(String value) {
+        String clean = Objects.requireNonNullElse(value, "").strip();
+        return switch (clean) {
+            case "Read" -> "file_read";
+            case "Write" -> "file_write";
+            case "Edit" -> "file_edit";
+            case "Bash" -> "bash";
+            case "Grep" -> "grep";
+            case "Glob" -> "glob";
+            case "WebFetch" -> "web_fetch";
+            case "Skill" -> "skill";
+            case "Agent" -> "agent";
+            default -> clean.isBlank() ? "tool" : snakeCase(clean);
+        };
+    }
+
+    private static String snakeCase(String value) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (Character.isUpperCase(ch) && i > 0 && out.charAt(out.length() - 1) != '_') {
+                out.append('_');
+            }
+            if (Character.isLetterOrDigit(ch)) {
+                out.append(Character.toLowerCase(ch));
+            } else if (out.length() > 0 && out.charAt(out.length() - 1) != '_') {
+                out.append('_');
+            }
         }
-        return value + " ".repeat(width - displayWidth);
+        while (!out.isEmpty() && out.charAt(out.length() - 1) == '_') {
+            out.deleteCharAt(out.length() - 1);
+        }
+        return out.isEmpty() ? "tool" : out.toString();
     }
 
     private static String colorSummary(Status status, String text) {
         return switch (status) {
             case FAILED, DENIED -> Tk.failure(text);
-            case RUNNING -> Tk.running(text);
+            case RUNNING -> Tk.dim(text);
             case WARN -> Tk.apply(Token.TAG_WARN, text);
             case INFO -> Tk.info(text);
             case SUCCESS -> text;
