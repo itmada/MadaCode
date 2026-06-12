@@ -122,6 +122,7 @@ public final class ToolCardRenderable implements Renderable {
     }
 
     public synchronized void enterPermissionPhase() {
+        this.started = true;
         this.permissionPhase = PermissionPhase.WAITING;
         this.permissionSelectedIdx = 0;
     }
@@ -131,7 +132,7 @@ public final class ToolCardRenderable implements Renderable {
     }
 
     public synchronized void setPermissionSelected(int idx) {
-        this.permissionSelectedIdx = idx;
+        this.permissionSelectedIdx = Math.max(0, idx);
     }
 
     public synchronized PermissionPhase permissionPhase() {
@@ -153,7 +154,7 @@ public final class ToolCardRenderable implements Renderable {
             return List.of();
         }
         List<String> lines = new ArrayList<>();
-        ToolDisplay display;
+        ToolDisplay display = null;
 
         switch (status) {
             case RUNNING -> {
@@ -177,9 +178,11 @@ public final class ToolCardRenderable implements Renderable {
             }
             case SUCCESS, FAILED, DENIED -> {
                 display = switch (status) {
-                    case SUCCESS -> displayRegistry.renderSuccess(toolName, input, resultOutput, durationMs);
+                    case SUCCESS -> displayRegistry.renderSuccess(
+                            toolName, input, resultOutput, durationMs);
                     case FAILED -> {
-                        ToolDisplay failed = displayRegistry.renderError(toolName, input, resultOutput, durationMs);
+                        ToolDisplay failed = displayRegistry.renderError(
+                                toolName, input, resultOutput, durationMs);
                         ToolDisplay compact = ToolActivitySkip.compactDisplay(failed, resultOutput);
                         yield compact != null ? compact : failed;
                     }
@@ -197,7 +200,11 @@ public final class ToolCardRenderable implements Renderable {
         // Permission inline prompt
         if (permissionPhase == PermissionPhase.WAITING) {
             lines.add("");
-            lines.addAll(ApprovalPanel.renderInlineApproval(maxWidth, permissionSelectedIdx));
+            lines.addAll(ApprovalPanel.renderInlineApproval(
+                    maxWidth,
+                    permissionSelectedIdx,
+                    display == null ? toolName : display.title(),
+                    display == null ? "" : display.summary()));
         }
 
         return lines;

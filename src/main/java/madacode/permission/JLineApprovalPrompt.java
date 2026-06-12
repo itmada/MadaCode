@@ -201,6 +201,12 @@ public final class JLineApprovalPrompt implements UserApprovalPrompt {
             return null;
         }
         int ch = Character.toLowerCase(key.ch());
+        if (ch == 'a') {
+            return ApprovalResponse.ALLOW_ONCE;
+        }
+        if (ch == 'd') {
+            return ApprovalResponse.DENY;
+        }
         for (ApprovalPanel.Action action : ACTIONS) {
             if (!action.hotkey().isBlank()
                     && action.hotkey().equalsIgnoreCase(Character.toString((char) ch))) {

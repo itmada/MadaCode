@@ -5,7 +5,6 @@ import madacode.tui.theme.Themes;
 import madacode.tui.theme.Token;
 
 import org.jline.utils.AttributedString;
-import org.jline.utils.AttributedStringBuilder;
 import org.jline.utils.AttributedStyle;
 
 import java.util.ArrayList;
@@ -26,15 +25,12 @@ import static madacode.tui.theme.Tk.*;
 public final class ApprovalPanel {
 
     private static final int MAX_DETAIL_COLUMNS = 84;
-    private static final String SELECTION_PREFIX = "› ";
-    private static final String UNSELECTED_PREFIX = "  ";
-    private static final String MODAL_TITLE = "Permission";
     private static final String INLINE_TITLE = "Permission required";
-    private static final String MODAL_FOOTER = "←/→ select   Enter confirm   Esc deny";
+    private static final String FOOTER = "←/→ select · enter confirm · esc deny";
     private static final List<Action> DEFAULT_ACTIONS = List.of(
-            new Action(Decision.ALLOW_ONCE, "allow once", false, "a"),
+            new Action(Decision.ALLOW_ONCE, "allow once", false, "y"),
             new Action(Decision.ALLOW_SESSION, "allow session", false, "s"),
-            new Action(Decision.DENY, "deny", true, "d"));
+            new Action(Decision.DENY, "deny", true, "n"));
 
     private ApprovalPanel() {}
 
@@ -44,118 +40,29 @@ public final class ApprovalPanel {
 
     public static ApprovalRequestView modalView(String subject, String detail, int selectedIndex) {
         return new ApprovalRequestView(
-                MODAL_TITLE,
+                INLINE_TITLE,
                 subject,
                 detail,
                 DEFAULT_ACTIONS,
                 selectedIndex,
-                MODAL_FOOTER);
+                FOOTER);
     }
 
     public static List<AttributedString> render(ApprovalRequestView view, int width) {
         Objects.requireNonNull(view, "view");
-        int safeWidth = safeWidth(width);
-        List<AttributedString> lines = new ArrayList<>();
-
-        lines.add(headerLine(view.title(), safeWidth));
-        if (!view.subject().isBlank()) {
-            lines.add(bodyLine(view.subject(), Token.TOOL_NAME, safeWidth));
+        List<String> ansi = renderPanel(
+                width,
+                view.selectedIndex(),
+                view.subject(),
+                view.detail(),
+                view.previewLines(),
+                view.actions(),
+                view.footer());
+        List<AttributedString> lines = new ArrayList<>(ansi.size());
+        for (String line : ansi) {
+            lines.add(AttributedString.fromAnsi(line));
         }
-        if (!view.detail().isBlank()) {
-            lines.add(bodyLine(view.detail(), Token.FILE_PATH, safeWidth));
-        }
-        for (String previewLine : view.previewLines()) {
-            lines.add(bodyLine(previewLine, Token.MUTED, safeWidth));
-        }
-        lines.add(emptyLine(safeWidth));
-        if (!view.actions().isEmpty()) {
-            lines.add(horizontalActionsLine(view.actions(), view.selectedIndex(), safeWidth));
-        }
-        if (!view.footer().isBlank()) {
-            lines.add(bodyLine(view.footer(), Token.MUTED, safeWidth));
-        }
-
         return lines;
-    }
-
-    // ---- per-line builders ---------------------------------------------
-
-    private static AttributedString headerLine(String title, int width) {
-        AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("╭");
-        } else {
-            b.append("╭─ ");
-            style(b, Token.STATUS_KEY);
-            b.append(fit(title, Math.max(0, width - 5)));
-            style(b, Token.MUTED);
-            int used = 4 + TerminalText.displayWidth(fit(title, Math.max(0, width - 5)));
-            int remaining = width - used;
-            if (remaining > 0) {
-                b.append(" ");
-                b.append("─".repeat(Math.max(0, remaining - 1)));
-            }
-        }
-        b.style(AttributedStyle.DEFAULT);
-        return fitLine(b, width);
-    }
-
-    private static AttributedString bodyLine(String text, Token textToken, int width) {
-        AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("│");
-        } else {
-            b.append("│ ");
-            if (width >= 4) {
-                style(b, textToken);
-                String truncated = sanitize(text);
-                int contentWidth = Math.max(0, width - 2);
-                b.append(fit(truncated, contentWidth));
-            }
-        }
-        b.style(AttributedStyle.DEFAULT);
-        return fitLine(b, width);
-    }
-
-    private static AttributedString emptyLine(int width) {
-        AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        b.append("│");
-        b.style(AttributedStyle.DEFAULT);
-        return fitLine(b, width);
-    }
-
-    private static AttributedString horizontalActionsLine(
-            List<Action> actions, int selectedIndex, int width) {
-        AttributedStringBuilder b = new AttributedStringBuilder();
-        style(b, Token.MUTED);
-        if (width <= 2) {
-            b.append("│");
-        } else {
-            b.append("│ ");
-            if (width >= 4) {
-                for (int i = 0; i < actions.size(); i++) {
-                    Action action = actions.get(i);
-                    boolean selected = i == selectedIndex;
-                    style(b, selected ? Token.STATUS_MODE_PLAN : Token.MUTED);
-                    b.append(selected ? SELECTION_PREFIX : UNSELECTED_PREFIX);
-                    style(b, action.destructive() ? Token.TAG_WARN : selected ? Token.STATUS_MODE_PLAN : Token.STATUS_VAL);
-                    b.append(action.label());
-                    if (!action.hotkey().isBlank()) {
-                        style(b, Token.MUTED);
-                        b.append(" (").append(action.hotkey()).append(")");
-                    }
-                    if (i < actions.size() - 1) {
-                        style(b, Token.MUTED);
-                        b.append("    ");
-                    }
-                }
-            }
-        }
-        b.style(AttributedStyle.DEFAULT);
-        return fitLine(b, width);
     }
 
     // ---- helpers -------------------------------------------------------
@@ -164,33 +71,9 @@ public final class ApprovalPanel {
         return Math.max(1, width);
     }
 
-    private static String fit(String value, int columns) {
-        return TerminalText.fitEnd(value, Math.max(0, columns));
-    }
-
     private static String sanitize(String value) {
         return TerminalText.truncateMiddle(
                 value.replace('\n', ' ').replace('\r', ' ').strip(), MAX_DETAIL_COLUMNS);
-    }
-
-    /**
-     * Ensures the display width of the rendered line does not exceed {@code width}.
-     * Truncates with fitEnd when needed; the style at the cut point is lost but
-     * this only happens on extremely narrow terminals (1–3 cols) where the
-     * visual degradation is acceptable.
-     */
-    private static AttributedString fitLine(AttributedStringBuilder b, int width) {
-        String plain = b.toAttributedString().toString();
-        int displayWidth = TerminalText.displayWidth(plain);
-        if (displayWidth <= width) {
-            return b.toAttributedString();
-        }
-        // Truncate the plain-text representation to fit.
-        return new AttributedString(TerminalText.fitEnd(plain, width));
-    }
-
-    private static void style(AttributedStringBuilder b, Token token) {
-        b.style(Themes.active().styleOf(token));
     }
 
     // ---- Inline rendering for ToolCardRenderable --------------------------
@@ -200,45 +83,167 @@ public final class ApprovalPanel {
      * embedding inside a {@link ToolCardRenderable} render output.
      */
     public static List<String> renderInlineApproval(int width, int selectedIdx) {
-        int safeWidth = Math.max(1, width);
-        int idx = Math.max(0, Math.min(selectedIdx, DEFAULT_ACTIONS.size() - 1));
+        return renderInlineApproval(width, selectedIdx, "", "");
+    }
+
+    public static List<String> renderInlineApproval(
+            int width, int selectedIdx, String subject, String detail) {
+        return renderPanel(width, selectedIdx, subject, detail, List.of(), DEFAULT_ACTIONS, FOOTER);
+    }
+
+    private static List<String> renderPanel(
+            int width,
+            int selectedIdx,
+            String subject,
+            String detail,
+            List<String> previewLines,
+            List<Action> actions,
+            String footer) {
+        int safeWidth = safeWidth(width);
+        int idx = actions.isEmpty() ? 0 : Math.max(0, Math.min(selectedIdx, actions.size() - 1));
+        SubjectParts parts = subjectParts(subject, detail);
         List<String> lines = new ArrayList<>();
-
-        lines.add(dim(TerminalText.fitEnd(headerPlain(INLINE_TITLE, safeWidth), safeWidth)));
-        lines.add(dim(TerminalText.fitEnd("│", safeWidth)));
-        lines.add(TerminalText.fitEnd(horizontalInlineActions(idx), safeWidth));
-
+        lines.add(topLine(safeWidth));
+        lines.add(contentLine(toolSubject(parts), safeWidth));
+        if (!parts.contextLine().isBlank()) {
+            lines.add(contentLine(dim("in ") + filePath(parts.contextLine()), safeWidth));
+        }
+        for (String previewLine : previewLines) {
+            lines.add(contentLine(dim(sanitize(previewLine)), safeWidth));
+        }
+        lines.add(contentLine("", safeWidth));
+        if (!actions.isEmpty()) {
+            lines.add(contentLine(actionsLine(actions, idx), safeWidth));
+        }
+        lines.add(bottomLine(footer, safeWidth));
         return lines;
     }
 
-    private static String headerPlain(String title, int width) {
-        if (width <= 2) {
-            return "╭";
+    private static String topLine(int width) {
+        if (width <= 1) {
+            return dim(TerminalText.fitEnd("╭", width));
         }
-        StringBuilder hdr = new StringBuilder("╭─ ").append(title);
-        int remaining = width - TerminalText.displayWidth(hdr.toString());
-        if (remaining > 0) {
-            hdr.append(" ");
-            hdr.append("─".repeat(Math.max(0, remaining - 1)));
-        }
-        return hdr.toString();
+        String prefix = dim("╭─ ") + apply(Token.TAG_WARN, "▲") + " " + bold(INLINE_TITLE) + dim(" ");
+        return fillWithRule(prefix, width);
     }
 
-    private static String horizontalInlineActions(int selectedIdx) {
-        StringBuilder line = new StringBuilder("│ ");
-        for (int i = 0; i < DEFAULT_ACTIONS.size(); i++) {
-            Action action = DEFAULT_ACTIONS.get(i);
+    private static String bottomLine(String footer, int width) {
+        if (width <= 1) {
+            return dim(TerminalText.fitEnd("╰", width));
+        }
+        String prefix = dim("╰─ " + (footer == null || footer.isBlank() ? FOOTER : footer) + " ");
+        return fillWithRule(prefix, width);
+    }
+
+    private static String fillWithRule(String prefix, int width) {
+        int remaining = width - TerminalText.displayWidth(prefix);
+        if (remaining <= 0) {
+            return TerminalText.fitEnd(prefix, width);
+        }
+        return prefix + dim("─".repeat(remaining));
+    }
+
+    private static String contentLine(String body, int width) {
+        String line = dim("│");
+        if (width > 1) {
+            line += " " + body;
+        }
+        return padOrFit(line, width);
+    }
+
+    private static String actionsLine(List<Action> actions, int selectedIdx) {
+        StringBuilder line = new StringBuilder();
+        for (int i = 0; i < actions.size(); i++) {
+            Action action = actions.get(i);
             boolean selected = i == selectedIdx;
-            line.append(selected ? SELECTION_PREFIX : UNSELECTED_PREFIX);
-            line.append(action.label());
-            if (!action.hotkey().isBlank()) {
-                line.append(" (").append(action.hotkey()).append(")");
+            String label = action.label();
+            if (selected) {
+                String pill = " ❯ " + label + " ";
+                line.append(action.destructive() ? selectionDanger(pill) : selection(pill));
+            } else {
+                line.append(dim(label));
             }
-            if (i < DEFAULT_ACTIONS.size() - 1) {
+            if (i < actions.size() - 1) {
                 line.append("    ");
             }
         }
-        return line.toString();
+        return " " + line;
+    }
+
+    private static String toolSubject(SubjectParts parts) {
+        String arg = parts.arg();
+        return toolName(parts.label()) + (arg.isBlank() ? "" : " " + toolArg(arg));
+    }
+
+    private static SubjectParts subjectParts(String subject, String detail) {
+        String cleanSubject = sanitize(Objects.requireNonNullElse(subject, ""));
+        String cleanDetail = sanitize(Objects.requireNonNullElse(detail, ""));
+        String label = cleanSubject.isBlank() ? "tool" : cleanSubject;
+        String arg = "";
+        int open = cleanSubject.indexOf('(');
+        if (open > 0 && cleanSubject.endsWith(")")) {
+            label = cleanSubject.substring(0, open).strip();
+            arg = cleanSubject.substring(open + 1, cleanSubject.length() - 1).strip();
+        } else if (!cleanDetail.isBlank() && !looksPath(cleanDetail)) {
+            arg = cleanDetail;
+        }
+        String context = looksPath(cleanDetail) ? cleanDetail : "";
+        return new SubjectParts(normalizeLabel(label), arg, context);
+    }
+
+    private static boolean looksPath(String value) {
+        String clean = value == null ? "" : value.strip();
+        return clean.startsWith("/")
+                || clean.startsWith("~/")
+                || clean.startsWith("../")
+                || clean.startsWith("./");
+    }
+
+    private static String normalizeLabel(String value) {
+        String clean = Objects.requireNonNullElse(value, "").strip();
+        return switch (clean) {
+            case "Read" -> "file_read";
+            case "Write" -> "file_write";
+            case "Edit" -> "file_edit";
+            case "Bash" -> "bash";
+            case "Grep", "Search" -> "grep";
+            case "Glob", "List" -> "glob";
+            case "Fetch", "WebFetch" -> "web_fetch";
+            case "Skill" -> "skill";
+            case "Agent" -> "agent";
+            default -> clean.isBlank() ? "tool" : snakeCase(clean);
+        };
+    }
+
+    private static String snakeCase(String value) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (Character.isUpperCase(ch) && !out.isEmpty() && out.charAt(out.length() - 1) != '_') {
+                out.append('_');
+            }
+            if (Character.isLetterOrDigit(ch)) {
+                out.append(Character.toLowerCase(ch));
+            } else if (!out.isEmpty() && out.charAt(out.length() - 1) != '_') {
+                out.append('_');
+            }
+        }
+        while (!out.isEmpty() && out.charAt(out.length() - 1) == '_') {
+            out.deleteCharAt(out.length() - 1);
+        }
+        return out.isEmpty() ? "tool" : out.toString();
+    }
+
+    private static String selectionDanger(String value) {
+        AttributedStyle style = Themes.active().styleOf(Token.FAILURE).inverse();
+        return new AttributedString(value, style).toAnsi();
+    }
+
+    private static String padOrFit(String line, int width) {
+        if (TerminalText.displayWidth(line) > width) {
+            return TerminalText.fitEnd(line, width);
+        }
+        return line + " ".repeat(Math.max(0, width - TerminalText.displayWidth(line)));
     }
 
     // ---- model types ---------------------------------------------------
@@ -260,6 +265,8 @@ public final class ApprovalPanel {
             hotkey = Objects.requireNonNullElse(hotkey, "");
         }
     }
+
+    private record SubjectParts(String label, String arg, String contextLine) {}
 
     public record ApprovalRequestView(
             String title,
