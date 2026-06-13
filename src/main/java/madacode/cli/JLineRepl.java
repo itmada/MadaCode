@@ -422,24 +422,10 @@ public final class JLineRepl extends Repl {
     }
 
     private String buildPrompt() {
-        String badge = promptBadge();
-        return (badge.isEmpty() ? "" : badge + " ") + Tk.promptActive("❯") + " ";
-    }
-
-    private String promptBadge() {
-        if (sessionContext == null) return "";
-        if (sessionContext.planMode()) {
-            return Tk.apply(Token.MODE_INDICATOR_PLAN, "[plan]");
-        }
-        PermissionMode pm = sessionContext.permissionMode();
-        if (pm != null && pm != PermissionMode.DEFAULT) {
-            return Tk.apply(Token.TAG_WARN, "[" + permissionLabel(pm) + "]");
-        }
-        return "";
-    }
-
-    private static String permissionLabel(PermissionMode mode) {
-        return mode.id();
+        // Mode and permission are shown in the pinned bottom-status footer
+        // (see statusLine()); the input prompt stays a clean accent marker so
+        // nothing is duplicated on its left.
+        return Tk.promptActive("❯") + " ";
     }
 
     /**

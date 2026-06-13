@@ -33,7 +33,7 @@ public class MarkdownRenderer {
 
     private final StringBuilder source = new StringBuilder();
     private final ArrayDeque<String> outputQueue = new ArrayDeque<>();
-    private boolean pendingBlockSeparator;
+    private boolean emittedAnyBlock;
     private boolean inCodeBlock;
     private String codeBlockLang = "";
     private char codeFenceChar;
@@ -72,38 +72,67 @@ public class MarkdownRenderer {
         }
         if (source.isEmpty()) return null;
         if (!hasCompleteLine()) return null;
-        boolean flushAll;
-        if (!holdOpenTable) {
-            flushAll = true;
-        } else if (source.charAt(source.length() - 1) != '\n') {
-            flushAll = false;
-        } else if (source.toString().endsWith("\n\n")) {
-            // Blank line after content - flush everything
-            flushAll = true;
-        } else {
-            flushAll = !looksLikeTable();
-        }
+        // Streaming (holdOpenTable): a top-level block is only safe to commit
+        // once it is terminated by a blank line — until then we cannot tell
+        // whether the next line continues it (another list item, a wrapped
+        // paragraph line, the next table row, ...). Holding the trailing block
+        // back keeps multi-line blocks intact and preserves the blank-line
+        // structure between blocks, so committed output matches the finalized
+        // render exactly. The in-progress block is still shown live via the
+        // preview path.
+        //
+        // Fenced code blocks are the exception: their dedicated streaming state
+        // machine renders the opening fence and then each code line as it
+        // arrives, so we must keep flushing eagerly while a fence is open.
+        // When not streaming, flush everything.
+        boolean flushAll = !holdOpenTable
+                || sourceEndsWithBlankLine(source.toString())
+                || inCodeBlock
+                || opensUnclosedFence(source.toString());
         commit(width, flushAll);
         return outputQueue.isEmpty() ? null : outputQueue.pollFirst();
     }
 
-    private boolean looksLikeTable() {
-        String src = source.toString();
-        // Check if the last non-empty line looks like a table row
-        String[] lines = src.split("\\R", -1);
-        for (int i = lines.length - 1; i >= 0; i--) {
-            String line = lines[i].strip();
-            if (!line.isEmpty()) {
-                int pipeCount = 0;
-                for (int j = 0; j < line.length(); j++) {
-                    char c = line.charAt(j);
-                    if (c == '|' || c == '│') pipeCount++;
+    /** Whether {@code src}, scanned from a clean state, ends inside an unclosed code fence. */
+    private static boolean opensUnclosedFence(String src) {
+        boolean in = false;
+        char fenceChar = 0;
+        int fenceLen = 0;
+        int i = 0;
+        while (i < src.length()) {
+            int end = src.indexOf('\n', i);
+            if (end < 0) end = src.length();
+            String trimmed = src.substring(i, end).stripLeading();
+            if (!in) {
+                if (trimmed.length() >= 3 && (trimmed.charAt(0) == '`' || trimmed.charAt(0) == '~')) {
+                    char c = trimmed.charAt(0);
+                    int n = 0;
+                    while (n < trimmed.length() && trimmed.charAt(n) == c) n++;
+                    if (n >= 3) {
+                        in = true;
+                        fenceChar = c;
+                        fenceLen = n;
+                    }
                 }
-                return pipeCount >= 2;
+            } else {
+                String tc = trimmed.stripTrailing();
+                if (!tc.isEmpty() && tc.charAt(0) == fenceChar) {
+                    boolean allFence = true;
+                    for (int j = 0; j < tc.length(); j++) {
+                        if (tc.charAt(j) != fenceChar) { allFence = false; break; }
+                    }
+                    if (allFence && tc.length() >= fenceLen) {
+                        in = false;
+                        fenceChar = 0;
+                        fenceLen = 0;
+                    }
+                }
             }
+            i = end < src.length() ? end + 1 : src.length();
         }
-        return false;
+        return in;
     }
+
 
     public String flushRemaining() {
         return flushRemaining(DEFAULT_RENDER_WIDTH);
@@ -157,21 +186,18 @@ public class MarkdownRenderer {
             return;
         }
 
-        boolean firstCommitted = true;
+        // Exactly one blank line separates consecutive blocks. The "have we
+        // emitted anything yet" flag is document-level (not per-commit) so the
+        // separator survives across commit() calls — otherwise blocks committed
+        // one-at-a-time during fine-grained streaming render glued together.
         for (int i = 0; i < commitEnd; i++) {
             Node block = blocks.get(i);
             List<String> rendered = writer.render(block, width);
             if (!rendered.isEmpty()) {
-                if (!firstCommitted || pendingBlockSeparator) outputQueue.addLast("");
+                if (emittedAnyBlock) outputQueue.addLast("");
                 outputQueue.addAll(rendered);
-                pendingBlockSeparator = false;
-                firstCommitted = false;
+                emittedAnyBlock = true;
             }
-        }
-
-        boolean committedThroughEnd = !(keep > 0 && commitEnd < blocks.size());
-        if (committedThroughEnd && sourceEndsWithBlankLine(srcText)) {
-            pendingBlockSeparator = true;
         }
 
         if (keep > 0 && commitEnd < blocks.size()) {
@@ -409,7 +435,7 @@ public class MarkdownRenderer {
     }
 
     boolean hasPendingBlockSeparatorForPreview() {
-        return pendingBlockSeparator;
+        return emittedAnyBlock;
     }
 
     // ---- code block tracking ------------------------------------------------
@@ -479,7 +505,7 @@ public class MarkdownRenderer {
     public void reset() {
         source.setLength(0);
         outputQueue.clear();
-        pendingBlockSeparator = false;
+        emittedAnyBlock = false;
         inCodeBlock = false;
         codeBlockLang = "";
         codeFenceChar = 0;
