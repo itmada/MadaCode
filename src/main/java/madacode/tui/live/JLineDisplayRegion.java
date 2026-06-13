@@ -135,8 +135,12 @@ public final class JLineDisplayRegion {
     public synchronized void resume() {
         suspended = false;
         // Re-sync size (terminal may have resized while suspended) and force
-        // a full repaint from a clean slate.
+        // a full repaint from a clean slate. syncSize() handles both Status
+        // and Display, so the footer's scroll region is also re-established.
         syncSize();
+        if (bottomStatus != null) {
+            bottomStatus.redraw();
+        }
         repaint();
     }
 
@@ -261,25 +265,32 @@ public final class JLineDisplayRegion {
 
     // ---- internals -------------------------------------------------------
 
-    /** Sync Display dimensions with the physical terminal. Returns true if size changed. */
+    /**
+     * Sync the entire terminal rendering pipeline with the physical terminal size.
+     *
+     * <p>Order matters: Status first (re-establish DECSTBM scroll region at the
+     * new dimensions), then Display (resize into the remaining rows above the
+     * footer). This mirrors the ordering inside {@code LineReaderImpl}'s own
+     * WINCH handler.
+     */
     private boolean syncSize() {
         int curH = terminal.getHeight();
         int curW = terminal.getWidth();
         if (curH == 0) curH = 24;
         if (curW == 0) curW = 80;
-        // Reserve the pinned bottom-status rows: the live region renders ABOVE
-        // the footer, so the Display only owns (rows - footer) rows. Mirrors
-        // LineReaderImpl.displayRows(Status). lastKnownRows tracks these
-        // effective rows, so a footer appearing/disappearing also triggers a
-        // re-resize even when the physical height is unchanged.
+
+        // 1. Sync the pinned footer first — most terminals reset the DECSTBM
+        //    scroll region to full-screen on resize, so Status must re-read
+        //    the terminal size and re-establish its scroll region before
+        //    Display paints above it.
+        if (bottomStatus != null) {
+            bottomStatus.resize();
+        }
+
+        // 2. Sync the live-region Display into the rows above the footer.
         int effRows = Math.max(1, curH - bottomStatusSize());
         if (effRows == lastKnownRows && curW == lastKnownCols) return false;
 
-        // Discard Display's prior frame model: under fullScreen=false, both
-        // shrink and grow can cause the cached oldLines to no longer match
-        // the physical terminal (rows reflow, wrap boundaries shift). reset()
-        // forces the next update() to be a full repaint with no diff
-        // optimization, which is exactly what we want after any size change.
         display.resize(effRows, curW);
         display.reset();
         lastKnownRows = effRows;
@@ -310,8 +321,17 @@ public final class JLineDisplayRegion {
     private void handleResizeDebounced() {
         synchronized (this) {
             boolean changed = syncSize();
-            if (!suspended && changed) {
-                repaint();
+            if (!suspended) {
+                // Always redraw the footer: even when Display dimensions didn't
+                // change, the terminal may have reset DECSTBM on the resize
+                // signal. syncSize() already called Status.resize(); redraw()
+                // re-establishes the scroll region and repaints footer content.
+                if (bottomStatus != null) {
+                    bottomStatus.redraw();
+                }
+                if (changed) {
+                    repaint();
+                }
             }
         }
         // Resize listener (e.g., TurnView::markDirty) runs OUTSIDE the lock to
