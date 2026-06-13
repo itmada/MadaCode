@@ -251,7 +251,8 @@ public final class JLineRepl extends Repl {
 
                 // Echo user input into scrollback (matches HistoryPrinter USER format).
                 // JLine erases its own input line via ERASE_LINE_ON_FINISH; we own the scrollback record.
-                BlockSpacing.begin(screen);
+                // No top margin here: the idle separator printed before readLine (see
+                // enterIdlePhase above) already provides the single blank line above this echo.
                 screen.scrollback(UserInputRenderer.lines(line));
 
                 String stripped = line.stripLeading();
