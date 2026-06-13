@@ -126,7 +126,6 @@ public abstract class Repl {
                 .modelChooser(config.modelChooser())
                 .modeChooser(config.modeChooser())
                 .permissionChooser(config.permissionChooser())
-                .themeChooser(config.themeChooser())
                 .providerChooser(config.providerChooser())
                 .notifications(notifications)
                 .build();
@@ -417,7 +416,6 @@ public abstract class Repl {
             SlashContext.ModelChooser modelChooser,
             SlashContext.ModeChooser modeChooser,
             SlashContext.PermissionChooser permissionChooser,
-            SlashContext.ThemeChooser themeChooser,
             SlashContext.ProviderChooser providerChooser,
             NotificationCenter notifications,
             List<AutoCloseable> shutdownTargets,
@@ -461,7 +459,6 @@ public abstract class Repl {
             private SlashContext.ModelChooser modelChooser;
             private SlashContext.ModeChooser modeChooser;
             private SlashContext.PermissionChooser permissionChooser;
-            private SlashContext.ThemeChooser themeChooser;
             private SlashContext.ProviderChooser providerChooser;
             private NotificationCenter notifications;
             private List<AutoCloseable> shutdownTargets;
@@ -490,7 +487,6 @@ public abstract class Repl {
             Builder modelChooser(SlashContext.ModelChooser modelChooser) { this.modelChooser = modelChooser; return this; }
             Builder modeChooser(SlashContext.ModeChooser modeChooser) { this.modeChooser = modeChooser; return this; }
             Builder permissionChooser(SlashContext.PermissionChooser permissionChooser) { this.permissionChooser = permissionChooser; return this; }
-            Builder themeChooser(SlashContext.ThemeChooser themeChooser) { this.themeChooser = themeChooser; return this; }
             Builder providerChooser(SlashContext.ProviderChooser providerChooser) { this.providerChooser = providerChooser; return this; }
             Builder notifications(NotificationCenter notifications) { this.notifications = notifications; return this; }
             Builder shutdownTargets(List<AutoCloseable> shutdownTargets) { this.shutdownTargets = shutdownTargets; return this; }
@@ -521,7 +517,6 @@ public abstract class Repl {
                         modelChooser,
                         modeChooser,
                         permissionChooser,
-                        themeChooser,
                         providerChooser,
                         notifications,
                         shutdownTargets,

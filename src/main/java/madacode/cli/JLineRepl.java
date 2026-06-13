@@ -129,7 +129,6 @@ public final class JLineRepl extends Repl {
         SlashContext.ModelChooser modelChooser = inlineModelChooser(screen, terminal);
         SlashContext.ModeChooser modeChooser = inlineModeChooser(screen, terminal);
         SlashContext.PermissionChooser permissionChooser = inlinePermissionChooser(screen, terminal);
-        SlashContext.ThemeChooser themeChooser = inlineThemeChooser(screen, terminal);
         SlashContext.ProviderChooser providerChooser = inlineProviderChooser(screen, terminal);
         SessionChooser sessionChooser = inlineSessionChooser(sessionStorage, screen, terminal);
 
@@ -140,7 +139,7 @@ public final class JLineRepl extends Repl {
                         currentSessionRef.get(), screen, sessionStorage, slashRegistry, queryEngine, providerRegistry,
                         compactPlanner, ctx, sessionPointer, Optional.ofNullable(sessionChooser),
                         Optional.of(modelChooser), Optional.of(modeChooser), Optional.of(permissionChooser),
-                        Optional.of(themeChooser), Optional.of(providerChooser)),
+                        Optional.of(providerChooser)),
                 screen, screen, terminal);
 
         // Widget: at empty buffer, insert '/' and accept the line so the REPL
@@ -180,7 +179,6 @@ public final class JLineRepl extends Repl {
                 .modelChooser(modelChooser)
                 .modeChooser(modeChooser)
                 .permissionChooser(permissionChooser)
-                .themeChooser(themeChooser)
                 .providerChooser(providerChooser)
                 .notifications(notifications)
                 .expandableHistory(expandableHistory)
@@ -214,9 +212,10 @@ public final class JLineRepl extends Repl {
                     continue;
                 }
                 jlineScreen.enterIdlePhase();
-                screen.scrollback(idleStatusLine());
+                screen.scrollback(""); // blank separator above the idle prompt
                 String line;
                 jlineScreen.setActiveLineReader(lineReader);
+                jlineScreen.setIdleStatus(idleStatusLines());
                 try {
                     line = lineReader.readLine(buildPrompt());
                 } catch (UserInterruptException e) {
@@ -227,6 +226,7 @@ public final class JLineRepl extends Repl {
                     screen.scrollback("");
                     break;
                 } finally {
+                    jlineScreen.clearIdleStatus();
                     jlineScreen.clearActiveLineReader();
                 }
 
@@ -440,19 +440,22 @@ public final class JLineRepl extends Repl {
         return mode.id();
     }
 
+    /** Status footer lines for the idle prompt; empty list when there is nothing to show. */
+    private List<String> idleStatusLines() {
+        String status = idleStatusLine();
+        return status.isEmpty() ? List.of() : List.of(status);
+    }
+
     /**
-     * Right-aligned dim status line printed into scrollback just above the
-     * idle prompt. Deliberately NOT a JLine right-prompt: rprompt text goes
+     * Left-aligned dim status line pinned to the bottom-left of the terminal as
+     * a JLine {@link madacode.tui.JLineScreen#setIdleStatus Status footer} while
+     * the idle prompt is active. Not a JLine right-prompt: rprompt text goes
      * through prompt-pattern expansion ('%' is an escape, mangling "ctx N%")
-     * and leaves residue on the accepted line under ERASE_LINE_ON_FINISH.
+     * and leaves residue on the accepted line under ERASE_LINE_ON_FINISH. Not
+     * scrollback either — that left one stale copy per turn in history.
      */
     private String idleStatusLine() {
-        String status = buildStatusText();
-        if (status.isEmpty()) {
-            return "";
-        }
-        int pad = screen.width() - Tk.displayWidth(status) - 1;
-        return pad > 0 ? " ".repeat(pad) + status : status;
+        return buildStatusText();
     }
 
     private String buildStatusText() {
@@ -550,11 +553,6 @@ public final class JLineRepl extends Repl {
     }
 
     private static SlashContext.PermissionChooser inlinePermissionChooser(
-            JLineScreen screen, Terminal terminal) {
-        return model -> chooseFromModel(screen, terminal, model);
-    }
-
-    private static SlashContext.ThemeChooser inlineThemeChooser(
             JLineScreen screen, Terminal terminal) {
         return model -> chooseFromModel(screen, terminal, model);
     }

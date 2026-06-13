@@ -1,6 +1,5 @@
 package madacode.render;
 
-import madacode.tui.theme.Themes;
 import madacode.tui.theme.Tk;
 
 import org.junit.jupiter.api.Test;
@@ -14,7 +13,6 @@ class InlineMarkdownRenderTest {
 
     @Test
     void rendererPreservesInlineAnsiOutputForCommonSyntax() {
-        Themes.setActive(Themes.dark());
         MarkdownRenderer renderer = new MarkdownRenderer();
 
         List<String> lines = renderAll(renderer,
@@ -36,7 +34,6 @@ class InlineMarkdownRenderTest {
 
     @Test
     void rendererWrapsStyledParagraphsWithoutLosingStyles() {
-        Themes.setActive(Themes.dark());
         MarkdownRenderer renderer = new MarkdownRenderer();
 
         List<String> lines = renderAll(renderer,
@@ -50,7 +47,6 @@ class InlineMarkdownRenderTest {
 
     @Test
     void rendererPreservesTableCellInlineBreaksAndStyles() {
-        Themes.setActive(Themes.dark());
         MarkdownRenderer renderer = new MarkdownRenderer();
 
         List<String> lines = renderAll(renderer, """

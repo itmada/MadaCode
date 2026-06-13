@@ -33,7 +33,6 @@ public class SlashCommandHandler {
     private final Optional<SlashContext.ModelChooser> modelChooser;
     private final Optional<SlashContext.ModeChooser> modeChooser;
     private final Optional<SlashContext.PermissionChooser> permissionChooser;
-    private final Optional<SlashContext.ThemeChooser> themeChooser;
     private final Optional<SlashContext.ProviderChooser> providerChooser;
     private final NotificationCenter notifications;
 
@@ -50,7 +49,6 @@ public class SlashCommandHandler {
         this.modelChooser = Optional.ofNullable(builder.modelChooser);
         this.modeChooser = Optional.ofNullable(builder.modeChooser);
         this.permissionChooser = Optional.ofNullable(builder.permissionChooser);
-        this.themeChooser = Optional.ofNullable(builder.themeChooser);
         this.providerChooser = Optional.ofNullable(builder.providerChooser);
         this.notifications = builder.notifications;
     }
@@ -72,7 +70,6 @@ public class SlashCommandHandler {
         private SlashContext.ModelChooser modelChooser;
         private SlashContext.ModeChooser modeChooser;
         private SlashContext.PermissionChooser permissionChooser;
-        private SlashContext.ThemeChooser themeChooser;
         private SlashContext.ProviderChooser providerChooser;
         private NotificationCenter notifications;
 
@@ -131,11 +128,6 @@ public class SlashCommandHandler {
             return this;
         }
 
-        public Builder themeChooser(SlashContext.ThemeChooser themeChooser) {
-            this.themeChooser = themeChooser;
-            return this;
-        }
-
         public Builder providerChooser(SlashContext.ProviderChooser providerChooser) {
             this.providerChooser = providerChooser;
             return this;
@@ -180,7 +172,6 @@ public class SlashCommandHandler {
                 modelChooser,
                 modeChooser,
                 permissionChooser,
-                themeChooser,
                 providerChooser);
         return command.get().execute(ctx, arg);
     }

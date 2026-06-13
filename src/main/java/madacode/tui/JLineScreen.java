@@ -4,8 +4,12 @@ import madacode.tui.live.JLineDisplayRegion;
 
 import org.jline.reader.LineReader;
 import org.jline.terminal.Terminal;
+import org.jline.utils.AttributedString;
+import org.jline.utils.Status;
 
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -154,6 +158,48 @@ public final class JLineScreen implements Screen {
         liveRegion.clearModal();
     }
 
+    // ---- idle bottom status (JLine Status footer) -------------------------
+
+    /**
+     * Pin a status footer to the very bottom of the terminal for the duration
+     * of the idle prompt, backed by JLine's {@link Status} (a DECSTBM
+     * scroll-region region the {@link LineReader} renders above).
+     *
+     * <p>Unlike {@link #scrollback}, this region is redrawn in place and fully
+     * erased by {@link #clearIdleStatus()} — it never accumulates in history.
+     * That is the whole point: the old approach printed the status as a
+     * scrollback line each idle cycle, leaving one stale copy per turn.
+     *
+     * <p>No-op on terminals lacking the required capabilities
+     * (change_scroll_region / save_cursor / cursor_address); {@code Status.update}
+     * silently degrades there.
+     *
+     * <p>Must be called while the live region is suspended (IDLE phase): the
+     * footer and the TURN-phase live region both own the bottom rows and must
+     * never be active at the same time.
+     */
+    public synchronized void setIdleStatus(List<String> lines) {
+        Status status = Status.getStatus(terminal, true);
+        if (status == null) return; // not an AbstractTerminal
+        if (lines == null || lines.isEmpty()) {
+            status.update(Collections.emptyList());
+            return;
+        }
+        List<AttributedString> rows = new ArrayList<>(lines.size());
+        for (String line : lines) {
+            rows.add(AttributedString.fromAnsi(line));
+        }
+        status.update(rows);
+    }
+
+    /** Remove the bottom status footer and restore the full scroll region. */
+    public synchronized void clearIdleStatus() {
+        Status status = Status.getStatus(terminal, false);
+        if (status != null) {
+            status.update(Collections.emptyList());
+        }
+    }
+
     // ---- modal locking (used during permission prompts) -------------------
 
     /** Lock modal channel during inline permission prompts. */
@@ -231,6 +277,10 @@ public final class JLineScreen implements Screen {
     @Override
     public synchronized void shutdown() {
         try {
+            Status status = Status.getStatus(terminal, false);
+            if (status != null) {
+                status.update(Collections.emptyList()); // restore full scroll region
+            }
             liveRegion.shutdown();
             cursorHideDepth = 0;
             writer.print("\033[0m");

@@ -30,7 +30,6 @@ public final class SlashCommandRegistry {
         commands.add(new CompactCommand());
         commands.add(new CostCommand());
         commands.add(new StatusCommand());
-        commands.add(new ThemeCommand());
         commands.add(new ProviderCommand());
         commands.add(new ReplayAllCommand());
         if (skillRegistry != null) {

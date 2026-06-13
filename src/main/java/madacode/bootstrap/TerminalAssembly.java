@@ -4,7 +4,6 @@ import madacode.cli.InterruptController;
 import madacode.cli.JLineRepl;
 import madacode.permission.JLineApprovalPrompt;
 import madacode.tui.JLineScreen;
-import madacode.tui.theme.ThemeBootstrap;
 
 import org.jline.terminal.Terminal;
 
@@ -15,7 +14,6 @@ final class TerminalAssembly {
 
     static TerminalRuntime create(BootstrapResources resources) {
         Terminal terminal = JLineRepl.createTerminal();
-        ThemeBootstrap.initialize(terminal);
         JLineScreen screen = new JLineScreen(terminal);
         resources.closeOnBootstrapFailure(() -> {
             screen.shutdown();
