@@ -3,6 +3,7 @@ package madacode.tui.live;
 import org.jline.terminal.Terminal;
 import org.jline.utils.AttributedString;
 import org.jline.utils.Display;
+import org.jline.utils.Status;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -33,6 +34,7 @@ public final class JLineDisplayRegion {
     private List<String> statusLines = List.of();
     private int currentHeight;
     private boolean modalLocked;
+    private Status bottomStatus;
 
     private int lastKnownRows;
     private int lastKnownCols;
@@ -149,6 +151,9 @@ public final class JLineDisplayRegion {
         }
 
         resizeScheduler.shutdownNow();
+        if (bottomStatus != null) {
+            bottomStatus.update(List.of()); // restore the full-height scroll region
+        }
         modalLines = List.of();
         statusLines = List.of();
         display.update(List.of(), 0);
@@ -208,6 +213,52 @@ public final class JLineDisplayRegion {
         repaint();
     }
 
+    // ---- pinned bottom status footer --------------------------------------
+
+    private Status bottomStatus() {
+        if (bottomStatus == null) {
+            bottomStatus = Status.getStatus(terminal, true); // null if not an AbstractTerminal
+        }
+        return bottomStatus;
+    }
+
+    /** Rows currently reserved by the pinned footer (0 if none / unsupported terminal). */
+    private int bottomStatusSize() {
+        return bottomStatus == null ? 0 : bottomStatus.size();
+    }
+
+    /**
+     * Set the persistent bottom-status footer (mode · model · ctx), pinned to
+     * the terminal bottom via JLine {@link Status} (a DECSTBM scroll region).
+     *
+     * <p>Unlike the {@link #setStatus status} layer, this footer survives BOTH
+     * phases: the TURN-phase live region and the IDLE-phase {@link
+     * org.jline.reader.LineReader} both render ABOVE it. When the footer's row
+     * count changes, the Display is re-sized so it never paints over the footer.
+     *
+     * <p>Runs under the region lock, so footer writes (which move the cursor via
+     * save/restore) never interleave with Display writes. Empty list clears it.
+     */
+    public synchronized void setBottomStatus(List<AttributedString> lines) {
+        Status status = bottomStatus();
+        if (status == null) return; // unsupported terminal — degrade silently
+        int before = status.size();
+        status.update(lines == null ? List.of() : lines);
+        if (status.size() != before && syncSize() && !suspended) {
+            repaint();
+        }
+    }
+
+    /** Remove the footer and restore the full-height scroll region. */
+    public synchronized void clearBottomStatus() {
+        if (bottomStatus == null) return;
+        int before = bottomStatus.size();
+        bottomStatus.update(List.of());
+        if (bottomStatus.size() != before && syncSize() && !suspended) {
+            repaint();
+        }
+    }
+
     // ---- internals -------------------------------------------------------
 
     /** Sync Display dimensions with the physical terminal. Returns true if size changed. */
@@ -216,16 +267,22 @@ public final class JLineDisplayRegion {
         int curW = terminal.getWidth();
         if (curH == 0) curH = 24;
         if (curW == 0) curW = 80;
-        if (curH == lastKnownRows && curW == lastKnownCols) return false;
+        // Reserve the pinned bottom-status rows: the live region renders ABOVE
+        // the footer, so the Display only owns (rows - footer) rows. Mirrors
+        // LineReaderImpl.displayRows(Status). lastKnownRows tracks these
+        // effective rows, so a footer appearing/disappearing also triggers a
+        // re-resize even when the physical height is unchanged.
+        int effRows = Math.max(1, curH - bottomStatusSize());
+        if (effRows == lastKnownRows && curW == lastKnownCols) return false;
 
         // Discard Display's prior frame model: under fullScreen=false, both
         // shrink and grow can cause the cached oldLines to no longer match
         // the physical terminal (rows reflow, wrap boundaries shift). reset()
         // forces the next update() to be a full repaint with no diff
         // optimization, which is exactly what we want after any size change.
-        display.resize(curH, curW);
+        display.resize(effRows, curW);
         display.reset();
-        lastKnownRows = curH;
+        lastKnownRows = effRows;
         lastKnownCols = curW;
         return true;
     }

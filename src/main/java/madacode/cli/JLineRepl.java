@@ -215,7 +215,10 @@ public final class JLineRepl extends Repl {
                 screen.scrollback(""); // blank separator above the idle prompt
                 String line;
                 jlineScreen.setActiveLineReader(lineReader);
-                jlineScreen.setIdleStatus(idleStatusLines());
+                // Refresh the pinned footer with the latest workspace/model/ctx. It is
+                // NOT cleared on turn entry: the footer stays pinned through the
+                // whole turn (the live region renders above it).
+                jlineScreen.setBottomStatus(idleStatusLines());
                 try {
                     line = lineReader.readLine(buildPrompt());
                 } catch (UserInterruptException e) {
@@ -226,7 +229,6 @@ public final class JLineRepl extends Repl {
                     screen.scrollback("");
                     break;
                 } finally {
-                    jlineScreen.clearIdleStatus();
                     jlineScreen.clearActiveLineReader();
                 }
 
@@ -440,41 +442,50 @@ public final class JLineRepl extends Repl {
         return mode.id();
     }
 
-    /** Status footer lines for the idle prompt; empty list when there is nothing to show. */
-    private List<String> idleStatusLines() {
-        String status = idleStatusLine();
-        return status.isEmpty() ? List.of() : List.of(status);
-    }
-
     /**
-     * Left-aligned dim status line pinned to the bottom-left of the terminal as
-     * a JLine {@link madacode.tui.JLineScreen#setIdleStatus Status footer} while
-     * the idle prompt is active. Not a JLine right-prompt: rprompt text goes
-     * through prompt-pattern expansion ('%' is an escape, mangling "ctx N%")
-     * and leaves residue on the accepted line under ERASE_LINE_ON_FINISH. Not
-     * scrollback either — that left one stale copy per turn in history.
+     * Bottom-status footer pinned to the terminal bottom. It uses a three-row
+     * band (padding, content, padding) so the single metadata row does not feel
+     * like a thin stray line.
      */
-    private String idleStatusLine() {
-        return buildStatusText();
+    private List<String> idleStatusLines() {
+        if (sessionContext == null) return List.of();
+        return List.of("", statusLine(), "");
     }
 
-    private String buildStatusText() {
-        if (sessionContext == null) return "";
+    /** workspace · branch · model · permission · mode · context meter. */
+    private String statusLine() {
         StringBuilder sb = new StringBuilder();
+        sb.append(Tk.toolName("▌"));
+        sb.append(" ");
+        String cwd = sessionContext.shortCwd();
+        sb.append(cwd == null || cwd.isBlank() ? Tk.dim("-") : Tk.filePath(cwd));
+
+        sb.append(statusSeparator());
+        String branch = currentGitBranch();
+        sb.append("-".equals(branch) ? Tk.dim(branch) : Tk.success(branch));
+
+        sb.append(statusSeparator());
+        String model = sessionContext.model();
+        sb.append(model == null || model.isBlank() ? Tk.dim("-") : Tk.apply(Token.STATUS_VAL, model));
+
+        sb.append(statusSeparator());
+        PermissionMode pm = sessionContext.permissionMode();
+        String perm = pm == null ? "default" : pm.id();
+        sb.append(pm != null && pm != PermissionMode.DEFAULT
+                ? Tk.apply(Token.TAG_WARN, perm)
+                : Tk.dim(perm));
+
+        sb.append(statusSeparator());
         String mode = sessionContext.planMode()
                 ? "plan"
                 : sessionContext.workflowMode() == null ? "common" : sessionContext.workflowMode().id();
         sb.append(sessionContext.planMode()
                 ? Tk.apply(Token.STATUS_MODE_PLAN, mode)
                 : Tk.dim(mode));
-        String model = sessionContext.model();
-        if (model != null && !model.isBlank()) {
-            sb.append(Tk.dim(" · "));
-            sb.append(Tk.dim(model));
-        }
+
         int pct = sessionContext.contextPercent();
         if (pct >= 0) {
-            sb.append(Tk.dim(" · "));
+            sb.append(statusSeparator());
             String ctx = "ctx " + contextMeter(pct) + " " + pct + "%";
             if (pct >= 90) {
                 sb.append(Tk.failure(ctx));
@@ -487,9 +498,59 @@ public final class JLineRepl extends Repl {
         return sb.toString();
     }
 
+    private static String statusSeparator() {
+        return Tk.dim("  ·  ");
+    }
+
     private static String contextMeter(int pct) {
         int filled = Math.max(0, Math.min(8, (int) Math.round(pct / 12.5)));
         return "▰".repeat(filled) + "▱".repeat(8 - filled);
+    }
+
+    private String currentGitBranch() {
+        Path cwd = sessionContext == null ? null : sessionContext.cwd();
+        if (cwd == null) return "-";
+        return resolveGitBranch(cwd).orElse("-");
+    }
+
+    private static Optional<String> resolveGitBranch(Path cwd) {
+        Path current = cwd.toAbsolutePath().normalize();
+        while (current != null) {
+            Path dotGit = current.resolve(".git");
+            if (Files.exists(dotGit)) {
+                return readGitHead(dotGit);
+            }
+            current = current.getParent();
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> readGitHead(Path dotGit) {
+        Path gitDir = dotGit;
+        try {
+            if (!Files.isDirectory(dotGit)) {
+                String gitFile = Files.readString(dotGit).strip();
+                String prefix = "gitdir:";
+                if (!gitFile.regionMatches(true, 0, prefix, 0, prefix.length())) {
+                    return Optional.empty();
+                }
+                Path linked = Path.of(gitFile.substring(prefix.length()).strip());
+                gitDir = linked.isAbsolute() ? linked : dotGit.getParent().resolve(linked).normalize();
+            }
+            Path head = gitDir.resolve("HEAD");
+            if (!Files.isRegularFile(head)) return Optional.empty();
+            String value = Files.readString(head).strip();
+            String refPrefix = "ref: refs/heads/";
+            if (value.startsWith(refPrefix)) {
+                return Optional.of(value.substring(refPrefix.length()));
+            }
+            if (value.matches("[0-9a-fA-F]{7,40}")) {
+                return Optional.of(value.substring(0, Math.min(7, value.length())));
+            }
+        } catch (IOException ignored) {
+            return Optional.empty();
+        }
+        return Optional.empty();
     }
 
     @Override

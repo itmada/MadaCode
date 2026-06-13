@@ -25,6 +25,7 @@ public final class SessionContext {
     public SessionContext() {}
 
     public synchronized void setCwd(Path cwd) { this.cwd = cwd; }
+    public synchronized Path cwd() { return cwd; }
     public synchronized void setSessionId(String sessionId) { this.sessionId = sessionId; }
     public synchronized void setModel(String model) { this.model = model; }
     public synchronized String model() { return model; }
