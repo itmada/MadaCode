@@ -115,33 +115,21 @@ public class AskUserQuestionTool implements Tool<AskUserQuestionTool.Input> {
                 return new ToolResult(name(), false, "Question " + (qi + 1) + " has empty question text");
             }
 
-            Optional<String> answer;
-            if (hasOptions) {
-                String title = buildChoiceTitle(header, question, qi + 1, questions.size());
-                List<UserPromptChannel.ChannelOption> channelOptions = buildChannelOptions(options);
-                if (multi) {
-                    var selected = channel.chooseMany(title, channelOptions);
-                    if (selected.isEmpty()) {
-                        cancelled = cancelled || context.cancellationToken().isCancelled();
-                        answersMap.put(question, emptyAnswerMarker(context));
-                    } else {
-                        answersMap.put(question, String.join(", ", selected.get()));
-                    }
-                } else {
-                    answer = channel.chooseOne(title, channelOptions);
-                    if (answer.isEmpty()) {
-                        cancelled = cancelled || context.cancellationToken().isCancelled();
-                    }
-                    answersMap.put(question, answer.orElse(emptyAnswerMarker(context)));
-                }
-            } else {
-                String prompt = buildFreeTextPrompt(header, question, qi + 1, questions.size());
-                answer = channel.freeText(prompt);
-                if (answer.isEmpty()) {
-                    cancelled = cancelled || context.cancellationToken().isCancelled();
-                }
-                answersMap.put(question, answer.orElse(emptyAnswerMarker(context)));
+            String progress = questions.size() > 1 ? (qi + 1) + "/" + questions.size() : "";
+            UserPromptChannel.QuestionForm form = new UserPromptChannel.QuestionForm(
+                    header, question, progress,
+                    hasOptions ? buildChannelOptions(options) : List.of(),
+                    multi);
+
+            Optional<List<String>> answer = channel.askQuestion(form);
+            if (answer.isEmpty()) {
+                cancelled = cancelled || context.cancellationToken().isCancelled();
+                answersMap.put(question, emptyAnswerMarker(context));
+                break;
             }
+            List<String> selected = answer.get();
+            answersMap.put(question, selected.isEmpty() ? "(no answer)" : String.join(", ", selected));
+
             if (context.cancellationToken().isCancelled()) {
                 cancelled = true;
                 break;
@@ -167,18 +155,6 @@ public class AskUserQuestionTool implements Tool<AskUserQuestionTool.Input> {
             channelOptions.add(new UserPromptChannel.ChannelOption(label, description));
         }
         return channelOptions;
-    }
-
-    private String buildChoiceTitle(String header, String question, int number, int total) {
-        return "Question " + number + "/" + total + " — [" + header + "] " + question;
-    }
-
-    private String buildFreeTextPrompt(String header, String question, int number, int total) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("\n  ── Question ").append(number).append("/").append(total).append(" ──\n");
-        sb.append("  [").append(header).append("] ").append(question).append("\n\n");
-        sb.append("  Your answer: ");
-        return sb.toString();
     }
 
     private static String emptyAnswerMarker(ToolUseContext context) {

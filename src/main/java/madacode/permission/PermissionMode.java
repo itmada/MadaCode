@@ -52,6 +52,20 @@ public enum PermissionMode {
     }
 
     /**
+     * Whether a user may pick this mode interactively (e.g. via {@code /permission}).
+     *
+     * <p>{@link #LONG_RUNNING_WORKSPACE} is an internal sandbox applied
+     * automatically to unattended long-running worker sessions; its
+     * {@code LongRunningWorkspacePermissionRule} only takes effect on a worker
+     * session, so selecting it in an interactive session would silently behave
+     * like {@link #DEFAULT}. It is therefore hidden from user-facing selection
+     * while remaining valid for {@link #parse(String)} (session persistence).
+     */
+    public boolean isUserSelectable() {
+        return this != LONG_RUNNING_WORKSPACE;
+    }
+
+    /**
      * Returns true if this mode is at least as permissive as {@code other}.
      * Ordering: DEFAULT &lt; ACCEPT_EDITS &lt; BYPASS.
      *

@@ -3,6 +3,7 @@ package madacode.cli;
 import madacode.tui.Suspendable;
 import madacode.tui.Screen;
 import madacode.tui.inline.InlineChoicePrompt;
+import madacode.tui.inline.InlineQuestionPrompt;
 import madacode.tui.inline.InlineTextPrompt;
 import madacode.tui.widget.ChoicePrompt;
 
@@ -44,6 +45,23 @@ public final class JLinePromptChannel implements UserPromptChannel {
     @Override
     public boolean isAvailable() {
         return true;
+    }
+
+    @Override
+    public Optional<List<String>> askQuestion(QuestionForm form) {
+        List<InlineQuestionPrompt.Option> options = form.options().stream()
+                .map(o -> new InlineQuestionPrompt.Option(o.label(), o.description()))
+                .toList();
+        InlineQuestionPrompt.Spec spec = new InlineQuestionPrompt.Spec(
+                form.header(), form.question(), form.progress(), options, form.multiSelect());
+        return withPausedInterrupts(() -> {
+            try {
+                return new InlineQuestionPrompt(screen, terminal, interrupts, onInterrupt).ask(spec);
+            } catch (IOException e) {
+                fireInterrupt("eof");
+                return Optional.<List<String>>empty();
+            }
+        });
     }
 
     @Override
