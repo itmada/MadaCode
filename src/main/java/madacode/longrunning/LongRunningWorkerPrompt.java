@@ -30,10 +30,14 @@ public final class LongRunningWorkerPrompt {
                 - recent git history when useful
                 - existing files relevant to the next safe change
 
-                Decide the next bounded work item yourself from the task state, progress history, known issues, and workspace condition.
-                Prefer the highest-priority unfinished feature whose dependencies are complete, unless the workspace is already broken or an active known issue must be resolved first.
+                Choose this cycle's single bounded item with a strict issue-first rule:
+                1. First read known_issues.json. If ANY issue is open or blocked (ignore resolved and deferred), you MUST take the highest-severity such issue and spend this whole cycle fixing it. Do not start feature work while an active (open/blocked) issue exists.
+                2. Only when no open or blocked issue remains, take the highest-priority unfinished feature whose dependencies have all passed.
+                When you fix an issue, resolve it via longrun_task_update (resolve_issue or update_issue_status) and set issue_id in worker_report.
+                When you finish a feature, mark it passed and set feature_id. A feature's pass is gated only by its own verification and dependencies — a new problem you discover during feature work should be recorded as a known issue (it will be taken issue-first next cycle) and does NOT block marking the current feature passed.
+                If you attempt to fix an issue but cannot complete it, report status=blocked with that issue_id set, so the run tracks the attempt; after repeated failures the issue is auto-deferred (or escalated to the user for blocker severity) and the run continues without you.
                 If the feature list is empty, call worker_report with status=blocked; the control session must draft the feature list before execution.
-                If every feature has passed and there are no open or blocked issues, call worker_report with status=task_completed.
+                If every feature has passed and every known issue is resolved (none open, blocked, or deferred), call worker_report with status=task_completed.
                 If there is no safe bounded work item, report blocked or needs_user instead of wandering.
 
                 Do at most one bounded feature, issue, or recovery step this worker session.

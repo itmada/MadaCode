@@ -67,10 +67,7 @@ public final class LongRunStateTransitionRequestTool
         properties.set("reason", ToolSchemas.stringEnumProperty(
                 mapper,
                 "Why this transition is being requested",
-                "user_confirmed_start",
-                "user_requested_cancel",
-                "resume_after_interrupt",
-                "failure"));
+                madacode.longrunning.LongRunningTransitions.requestableReasonWires()));
         properties.set("summary", ToolSchemas.stringProperty(
                 mapper, "Brief user-facing summary for the requested transition."));
         properties.set("plan_delta", ToolSchemas.stringProperty(

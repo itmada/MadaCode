@@ -17,6 +17,13 @@ import java.util.Objects;
  */
 public final class LongRunningLauncher {
 
+    /**
+     * Consecutive failed fix attempts before an issue is auto-deferred (ordinary
+     * severity) or escalated to the user (blocker severity), so one hard issue
+     * cannot stall the whole run.
+     */
+    private static final int ISSUE_FIX_ATTEMPT_THRESHOLD = 3;
+
     private final LongRunningWorkerRunner workerRunner;
     private final LongRunningController.TaskStoreFactory taskStoreFactory;
 
@@ -218,6 +225,29 @@ public final class LongRunningLauncher {
                     }
                 }
                 case BLOCKED -> {
+                    // Escape valve: a worker blocked while fixing an issue does not
+                    // halt the whole run. Count the attempt; below threshold retry
+                    // next cycle, at threshold auto-defer (ordinary) and keep going.
+                    // Only blocker-severity escalation falls through to a real stop.
+                    String issueId = report.issueId();
+                    if (issueId != null && !issueId.isBlank()) {
+                        LongRunningTaskStore.IssueFixOutcome outcome = null;
+                        try {
+                            outcome = store.recordIssueFixAttempt(taskId, issueId, ISSUE_FIX_ATTEMPT_THRESHOLD);
+                        } catch (RuntimeException ignored) {
+                            // Unknown/resolved issue — fall through to the normal stop.
+                        }
+                        if (outcome == LongRunningTaskStore.IssueFixOutcome.RETRY
+                                || outcome == LongRunningTaskStore.IssueFixOutcome.DEFERRED) {
+                            appendLauncherEvent(store, taskId, controlContext, "worker_blocked_continued",
+                                    true, "Issue " + issueId + " " + outcome.name().toLowerCase(Locale.ROOT)
+                                            + "; continuing: " + report.summary(),
+                                    Map.of("cycle", String.valueOf(i + 1),
+                                            "issueId", issueId,
+                                            "outcome", outcome.name().toLowerCase(Locale.ROOT)));
+                            continue;
+                        }
+                    }
                     var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, "worker_blocked");
                     if (stopFailure != null) return stopFailure;
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",

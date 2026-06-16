@@ -117,7 +117,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     session,
                     completion -> {
                         completions.add(completion);
-                        screen.notifyAsync(Tk.dim(asyncCompletionNotification(completion)));
+                        screen.notifyAsync(java.util.List.of("", Tk.dim(completionSummary(completion))));
                     });
         } catch (RuntimeException exception) {
             recordControllerEvent("worker_runtime_start_failed",
@@ -241,8 +241,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     .filter(stage -> stage == LongRunningStage.DONE || stage == LongRunningStage.INTERRUPT)
                     .orElse(fallbackStage);
         }
-        screen.scrollback("");
-        screen.scrollback(Tk.dim(summary));
         session.setLongRunningStage(targetStage);
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
         fields.put("summary", summary);
@@ -354,11 +352,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         };
         return statusTag + " " + result.message()
                 + " (" + result.workersLaunched() + " worker cycle(s) launched)";
-    }
-
-    private static String asyncCompletionNotification(LongRunningRuntime.Completion completion) {
-        String summary = completionSummary(completion);
-        return "[long-running] Worker runtime completed: " + summary;
     }
 
     private static String completionSummary(LongRunningRuntime.Completion completion) {

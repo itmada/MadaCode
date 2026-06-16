@@ -41,7 +41,7 @@ final class LongRunningTaskRepository {
     static final String TASK_STATE_LOCK_FILE = ".state.lock";
 
     private static final Pattern SAFE_TASK_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
-    private static final Set<String> ALLOWED_ISSUE_STATUSES = Set.of("open", "resolved", "blocked");
+    private static final Set<String> ALLOWED_ISSUE_STATUSES = Set.of("open", "resolved", "blocked", "deferred");
     private static final Set<String> ALLOWED_TASK_STATUSES = Set.of("DRAFT", "RUNNING", "INTERRUPT", "DONE");
     private static final String ROOT_DIR = ".mada/long-running";
     private static final String DEFAULT_INIT_SCRIPT = """
@@ -231,14 +231,11 @@ final class LongRunningTaskRepository {
             }
         }
 
-        List<KnownIssue> issues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
-        boolean hasActiveIssue = issues.stream()
-                .anyMatch(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()));
-        if (hasActiveIssue) {
-            throw new LongRunningTaskStoreException(
-                    "Cannot mark feature " + featureId + " as passed: resolve open or blocked known issues first");
-        }
-
+        // A feature's pass is gated only by its own facts (verification evidence
+        // and feature dependencies, checked above). Issue-first scheduling keeps
+        // the active-issue backlog drained before feature work begins, so a fully
+        // verified feature is never blocked here by an unrelated open issue; the
+        // global "all issues resolved" check lives only at task_completed.
         List<FeatureItem> updated = new ArrayList<>(features.size());
         for (FeatureItem feature : features) {
             if (feature.id().equals(featureId)) {
@@ -329,6 +326,7 @@ final class LongRunningTaskRepository {
                                 "resolved",
                                 issue.discoveredIn(),
                                 issue.verificationSteps(),
+                                issue.attempts(),
                                 issue.createdAt(),
                                 now);
                 updated.add(changed);
@@ -363,19 +361,11 @@ final class LongRunningTaskRepository {
                 } else if ("resolved".equals(currentStatus)) {
                     throw new LongRunningTaskStoreException(
                             "Cannot change status of resolved issue " + issueId);
-                } else if ("open".equals(currentStatus) && "blocked".equals(newStatus)) {
+                } else if (isValidIssueTransition(currentStatus, newStatus)) {
+                    Instant resolvedAt = "resolved".equals(newStatus) ? now : null;
                     changed = new KnownIssue(issue.id(), issue.description(), issue.severity(),
-                            "blocked", issue.discoveredIn(), issue.verificationSteps(),
-                            issue.createdAt(), null);
-                } else if ("blocked".equals(currentStatus) && "open".equals(newStatus)) {
-                    changed = new KnownIssue(issue.id(), issue.description(), issue.severity(),
-                            "open", issue.discoveredIn(), issue.verificationSteps(),
-                            issue.createdAt(), null);
-                } else if (("open".equals(currentStatus) || "blocked".equals(currentStatus))
-                        && "resolved".equals(newStatus)) {
-                    changed = new KnownIssue(issue.id(), issue.description(), issue.severity(),
-                            "resolved", issue.discoveredIn(), issue.verificationSteps(),
-                            issue.createdAt(), now);
+                            newStatus, issue.discoveredIn(), issue.verificationSteps(),
+                            issue.attempts(), issue.createdAt(), resolvedAt);
                 } else {
                     throw new LongRunningTaskStoreException(
                             "Invalid issue status transition: " + currentStatus + " -> " + newStatus);
@@ -391,6 +381,63 @@ final class LongRunningTaskRepository {
         writeKnownIssues(directory.resolve(KNOWN_ISSUES_FILE), updated, taskId);
         updateTaskTimestamp(taskId, now);
         return changed;
+    }
+
+    private static boolean isValidIssueTransition(String from, String to) {
+        return switch (from) {
+            case "open" -> "blocked".equals(to) || "deferred".equals(to) || "resolved".equals(to);
+            case "blocked" -> "open".equals(to) || "deferred".equals(to) || "resolved".equals(to);
+            case "deferred" -> "open".equals(to) || "resolved".equals(to);
+            default -> false;
+        };
+    }
+
+    /**
+     * Records one more failed fix attempt against an issue and applies the
+     * escape valve once attempts reach {@code threshold}: ordinary issues are
+     * auto-deferred so they stop blocking subsequent work, blocker-severity
+     * issues are flagged for user escalation instead of being silently parked.
+     */
+    LongRunningTaskStore.IssueFixOutcome recordIssueFixAttempt(String taskId, String issueId, int threshold) {
+        requireNonBlank(issueId, "issueId");
+        Path directory = validateTaskDirectory(taskId);
+        List<KnownIssue> issues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE));
+        List<KnownIssue> updated = new ArrayList<>(issues.size());
+        LongRunningTaskStore.IssueFixOutcome outcome = null;
+        Instant now = Instant.now();
+        for (KnownIssue issue : issues) {
+            if (issue.id().equals(issueId) && !"resolved".equals(issue.status())) {
+                int attempts = issue.attempts() + 1;
+                String status = issue.status();
+                if (attempts >= threshold) {
+                    if (isBlockerSeverity(issue.severity())) {
+                        outcome = LongRunningTaskStore.IssueFixOutcome.ESCALATED;
+                    } else {
+                        status = "deferred";
+                        outcome = LongRunningTaskStore.IssueFixOutcome.DEFERRED;
+                    }
+                } else {
+                    outcome = LongRunningTaskStore.IssueFixOutcome.RETRY;
+                }
+                updated.add(new KnownIssue(issue.id(), issue.description(), issue.severity(),
+                        status, issue.discoveredIn(), issue.verificationSteps(),
+                        attempts, issue.createdAt(), null));
+            } else {
+                updated.add(issue);
+            }
+        }
+        if (outcome == null) {
+            throw new LongRunningTaskStoreException(
+                    "Cannot record fix attempt for unknown or resolved issue " + issueId + " in task " + taskId);
+        }
+        writeKnownIssues(directory.resolve(KNOWN_ISSUES_FILE), updated, taskId);
+        updateTaskTimestamp(taskId, now);
+        return outcome;
+    }
+
+    private static boolean isBlockerSeverity(String severity) {
+        String lower = severity == null ? "" : severity.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("block") || lower.contains("critical");
     }
 
     void appendProgress(String taskId, String text) {
@@ -589,19 +636,34 @@ final class LongRunningTaskRepository {
     }
 
     private void validateTaskCompletionPreconditions(String taskId, Path directory) {
+        String block = completionBlockReason(taskId, directory);
+        if (block != null) {
+            throw new LongRunningTaskStoreException(block);
+        }
+    }
+
+    String completionBlockReason(String taskId) {
+        return completionBlockReason(taskId, validateTaskDirectory(taskId));
+    }
+
+    /**
+     * Single source of truth for "may this task be marked DONE=completed?".
+     * Returns a human-readable blocking reason, or {@code null} if completion is
+     * allowed. Both the throwing precondition and the pre-flight tool check call
+     * this so the gate cannot drift between them.
+     */
+    private String completionBlockReason(String taskId, Path directory) {
         List<FeatureItem> features = readFeatures(directory.resolve(FEATURE_LIST_FILE));
         if (features.isEmpty()) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be completed: feature list is empty");
+            return "Task " + taskId + " cannot be completed: feature list is empty";
         }
         List<String> incompleteFeatures = features.stream()
                 .filter(feature -> !feature.passes())
                 .map(FeatureItem::id)
                 .toList();
         if (!incompleteFeatures.isEmpty()) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be completed: incomplete features "
-                            + String.join(", ", incompleteFeatures));
+            return "Task " + taskId + " cannot be completed: incomplete features "
+                    + String.join(", ", incompleteFeatures);
         }
         List<String> unverifiedFeatures = features.stream()
                 .filter(feature -> !feature.verificationSteps().isEmpty()
@@ -609,19 +671,20 @@ final class LongRunningTaskRepository {
                 .map(FeatureItem::id)
                 .toList();
         if (!unverifiedFeatures.isEmpty()) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be completed: missing verification evidence for "
-                            + String.join(", ", unverifiedFeatures));
+            return "Task " + taskId + " cannot be completed: missing verification evidence for "
+                    + String.join(", ", unverifiedFeatures);
         }
-        List<String> activeIssues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE)).stream()
-                .filter(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()))
+        // Completion is the global gate: every issue must be resolved, including
+        // any that were deferred by the escape valve (those still need a decision).
+        List<String> unresolvedIssues = readKnownIssuesFile(directory.resolve(KNOWN_ISSUES_FILE)).stream()
+                .filter(issue -> !"resolved".equals(issue.status()))
                 .map(KnownIssue::id)
                 .toList();
-        if (!activeIssues.isEmpty()) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be completed: active known issues "
-                            + String.join(", ", activeIssues));
+        if (!unresolvedIssues.isEmpty()) {
+            return "Task " + taskId + " cannot be completed: unresolved known issues "
+                    + String.join(", ", unresolvedIssues);
         }
+        return null;
     }
 
     private void requireReadyForExecution(String taskId, Path directory) {
@@ -961,6 +1024,7 @@ final class LongRunningTaskRepository {
         ArrayNode verificationSteps = mapper.createArrayNode();
         issue.verificationSteps().forEach(verificationSteps::add);
         root.set("verification_steps", verificationSteps);
+        root.put("attempts", issue.attempts());
         root.put("created_at", issue.createdAt().toString());
         if (issue.resolvedAt() != null) {
             root.put("resolved_at", issue.resolvedAt().toString());
@@ -976,6 +1040,7 @@ final class LongRunningTaskRepository {
                 requiredText(root, "status"),
                 requiredText(root, "discovered_in"),
                 arrayText(root.path("verification_steps")),
+                root.path("attempts").asInt(0),
                 Instant.parse(requiredText(root, "created_at")),
                 optionalText(root, "resolved_at").map(Instant::parse).orElse(null));
     }

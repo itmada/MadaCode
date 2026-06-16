@@ -54,6 +54,9 @@ public final class Tk {
     public static String warnTag(String tag)  { return apply(Token.TAG_WARN,  "[" + tag + "]"); }
     public static String errorTag(String tag) { return apply(Token.TAG_ERROR, "[" + tag + "]"); }
 
+    /** Amber warning text without the bracket framing of {@link #warnTag(String)}. */
+    public static String warn(String s)        { return apply(Token.TAG_WARN, s); }
+
     public static String promptActive(String s) { return apply(Token.PROMPT_ACTIVE, s); }
     public static String promptHistory(String s) { return apply(Token.PROMPT_HISTORY, s); }
 

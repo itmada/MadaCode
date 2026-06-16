@@ -84,8 +84,9 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
                 "Known issue status for record_issue. Defaults to open.",
                 "open", "blocked"));
         properties.set("new_status", ToolSchemas.stringEnumProperty(mapper,
-                "New status for update_issue_status. Allowed transitions: open<->blocked, open/blocked->resolved.",
-                "open", "blocked", "resolved"));
+                "New status for update_issue_status. Allowed transitions: open<->blocked, "
+                        + "open/blocked->deferred, deferred->open, open/blocked/deferred->resolved.",
+                "open", "blocked", "deferred", "resolved"));
         properties.set("discovered_in", ToolSchemas.stringProperty(
                 mapper, "Where the issue was discovered. Defaults to the current long-running stage."));
         properties.set("verification_steps", ToolSchemas.arrayProperty(

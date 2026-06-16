@@ -13,7 +13,6 @@ import madacode.permission.PermissionGate;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
 import madacode.render.BlockSpacing;
-import madacode.render.Spinner;
 import madacode.render.UserInputRenderer;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
@@ -60,7 +59,6 @@ public final class JLineRepl extends Repl {
 
     private final LongRunningMonitorReader longRunningMonitorReader = new LongRunningMonitorReader();
     private final LongRunningMonitorRenderer longRunningMonitorRenderer = new LongRunningMonitorRenderer();
-    private final Spinner longRunningStatusSpinner = Spinner.thinking();
     private final AtomicBoolean longRunningMonitorInterruptRequested = new AtomicBoolean();
 
     private final Terminal terminal;
@@ -332,7 +330,7 @@ public final class JLineRepl extends Repl {
                 }
                 screen.setLiveStatus(longRunningMonitorLines(false));
                 try {
-                    Optional<TerminalKeys.KeyPress> key = TerminalKeys.pollKey(terminal.reader(), 150);
+                    Optional<TerminalKeys.KeyPress> key = TerminalKeys.pollKey(terminal.reader(), 90);
                     if (key.isPresent()) {
                         TerminalKeys.Key pressed = key.get().key();
                         if (pressed == TerminalKeys.Key.ESCAPE || pressed == TerminalKeys.Key.CTRL_C) {
@@ -353,7 +351,7 @@ public final class JLineRepl extends Repl {
                 drainLongRunningRuntimeCompletions();
                 screen.setLiveStatus(longRunningMonitorLines(true));
                 try {
-                    Thread.sleep(100);
+                    Thread.sleep(90);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                     break;
@@ -377,13 +375,11 @@ public final class JLineRepl extends Repl {
     }
 
     private List<String> longRunningMonitorLines(boolean interrupting) {
-        List<String> lines = new ArrayList<>(longRunningMonitorRenderer.render(longRunningMonitorReader.read(
+        return longRunningMonitorRenderer.render(longRunningMonitorReader.read(
                 session.workingDirectory(),
                 session.longRunningTaskId(),
-                interrupting)));
-        lines.add("");
-        lines.add(Tk.dim(longRunningStatusSpinner.tick() + " long task running..."));
-        return lines;
+                sessionContext.model(),
+                interrupting));
     }
 
     private void requestLongRunningMonitorInterrupt() {

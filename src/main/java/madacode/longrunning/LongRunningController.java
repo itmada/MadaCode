@@ -124,6 +124,9 @@ public final class LongRunningController {
         LongRunningTaskStore store = taskStore(session);
         String taskId = requireTaskId(session);
         LongRunningStage target = request.targetStage().normalized();
+        LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(request.reason())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Unknown long-running transition reason: " + request.reason()));
 
         switch (target) {
             case RUNNING -> {
@@ -138,16 +141,17 @@ public final class LongRunningController {
                 session.setLongRunningReason(request.reason());
             }
             case DONE -> {
-                if ("task_completed".equals(request.reason())) {
-                    store.markTaskCompleted(taskId);
-                } else if ("user_requested_cancel".equals(request.reason())) {
-                    store.cancelTask(taskId);
-                } else if ("failure".equals(request.reason())) {
-                    store.markTaskFailed(taskId);
-                } else {
+                LongRunningTransitions.TerminalAction action =
+                        LongRunningTransitions.terminalActionFor(trigger);
+                if (action == null) {
                     throw new IllegalStateException(
                             "DONE transition reason is not mechanically applicable by the control session: "
                                     + request.reason());
+                }
+                switch (action) {
+                    case COMPLETE -> store.markTaskCompleted(taskId);
+                    case CANCEL -> store.cancelTask(taskId);
+                    case FAIL -> store.markTaskFailed(taskId);
                 }
                 session.setLongRunningStage(LongRunningStage.DONE);
                 session.setLongRunningReason(request.reason());
@@ -158,8 +162,13 @@ public final class LongRunningController {
 
         appendProgress(store, taskId, request, true);
         session.flushPendingControllerEvents();
-        appendControllerEvent(session, "transition_applied", request,
-                Map.of("approved_by", safe(approvedBy)));
+        Map<String, String> appliedDetails = new LinkedHashMap<>();
+        appliedDetails.put("approved_by", safe(approvedBy));
+        if (target == LongRunningStage.INTERRUPT) {
+            appliedDetails.put("interrupt_cause",
+                    LongRunningTransitions.causeFor(trigger).name().toLowerCase(java.util.Locale.ROOT));
+        }
+        appendControllerEvent(session, "transition_applied", request, Map.copyOf(appliedDetails));
         appendEvent(session, "transition_applied", request, true,
                 "Applied transition: " + previous + " -> " + target + " (" + request.reason() + ").",
                 Map.of("approvedBy", safe(approvedBy)));
@@ -174,25 +183,15 @@ public final class LongRunningController {
         }
         LongRunningStage source = effectiveStage(session);
         LongRunningStage target = request.targetStage().normalized();
-        if (source == LongRunningStage.DONE) {
-            throw new IllegalStateException("Long-running task is already DONE.");
+        LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(request.reason())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Unknown long-running transition reason: " + request.reason()));
+        if (!LongRunningTransitions.isAllowed(source, trigger, target)) {
+            throw new IllegalStateException(
+                    "Transition not allowed: " + LongRunningTransitions.describe(source, trigger, target)
+                            + ". Legal from " + source + ": "
+                            + LongRunningTransitions.legalTargetsFrom(source));
         }
-        if (source == LongRunningStage.DRAFT
-                && target != LongRunningStage.RUNNING
-                && target != LongRunningStage.DONE) {
-            throw new IllegalStateException("DRAFT sessions may only request RUNNING or DONE.");
-        }
-        if (source == LongRunningStage.RUNNING
-                && target != LongRunningStage.INTERRUPT
-                && target != LongRunningStage.DONE) {
-            throw new IllegalStateException("RUNNING sessions may only transition mechanically to INTERRUPT or DONE.");
-        }
-        if (source == LongRunningStage.INTERRUPT
-                && target != LongRunningStage.RUNNING
-                && target != LongRunningStage.DONE) {
-            throw new IllegalStateException("INTERRUPT sessions may only request RUNNING or DONE.");
-        }
-        validateReasonMatrix(source, target, request.reason());
         if ((source == LongRunningStage.DRAFT || source == LongRunningStage.INTERRUPT)
                 && target == LongRunningStage.RUNNING) {
             LongRunningTaskStore store = taskStore(session);
@@ -201,47 +200,6 @@ public final class LongRunningController {
                 throw new IllegalStateException(
                         "Cannot start long-running workers until feature_list.json is non-empty.");
             }
-        }
-    }
-
-    private static void validateReasonMatrix(
-            LongRunningStage source,
-            LongRunningStage target,
-            String reason) {
-        boolean allowed = switch (source) {
-            case DRAFT -> switch (target) {
-                case DRAFT -> false;
-                case RUNNING -> "user_confirmed_start".equals(reason);
-                case INTERRUPT -> false;
-                case DONE -> "user_requested_cancel".equals(reason);
-            };
-            case RUNNING -> switch (target) {
-                case DRAFT, RUNNING -> false;
-                case INTERRUPT -> "user_interrupted".equals(reason)
-                        || "needs_user".equals(reason)
-                        || "worker_blocked".equals(reason)
-                        || "worker_failed".equals(reason)
-                        || "worker_cycle_budget_exhausted".equals(reason)
-                        || "no_report".equals(reason)
-                        || "worker_crash".equals(reason)
-                        || "completion_failed".equals(reason)
-                        || "failure".equals(reason);
-                case DONE -> "user_requested_cancel".equals(reason)
-                        || "task_completed".equals(reason)
-                        || "failure".equals(reason);
-            };
-            case INTERRUPT -> switch (target) {
-                case DRAFT, INTERRUPT -> false;
-                case RUNNING -> "resume_after_interrupt".equals(reason);
-                case DONE -> "user_requested_cancel".equals(reason)
-                        || "failure".equals(reason);
-            };
-            case DONE -> false;
-        };
-        if (!allowed) {
-            throw new IllegalStateException(
-                    "Invalid long-running transition reason: "
-                            + source + " -> " + target + " cannot use reason=" + reason);
         }
     }
 

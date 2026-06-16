@@ -179,15 +179,11 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
             WorkerReport.Status status,
             Input input) {
         if (status == WorkerReport.Status.TASK_COMPLETED) {
-            boolean hasIncompleteFeature = store.readFeatureList(taskId).stream()
-                    .anyMatch(feature -> !feature.passes());
-            if (hasIncompleteFeature) {
-                return "task_completed requires all features to be marked passed.";
-            }
-            boolean hasActiveIssue = store.readKnownIssues(taskId).stream()
-                    .anyMatch(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()));
-            if (hasActiveIssue) {
-                return "task_completed requires all known issues to be resolved.";
+            // Delegate to the single completion gate in the store so this
+            // pre-flight check can never drift from the real precondition.
+            String block = store.completionBlockReason(taskId);
+            if (block != null) {
+                return block;
             }
         }
         if (status == WorkerReport.Status.PROGRESS_MADE) {

@@ -35,11 +35,6 @@ public record LongRunningTransitionRequest(
                 Instant.now(), requestedBy, true);
     }
 
-    public boolean isCancellation() {
-        return targetStage == LongRunningStage.DONE
-                && ("user_requested_cancel".equals(reason) || "failure".equals(reason));
-    }
-
     private static String normalizeRequired(String value, String field) {
         String normalized = normalize(value);
         if (normalized == null) {

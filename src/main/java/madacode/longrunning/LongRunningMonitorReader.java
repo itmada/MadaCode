@@ -28,6 +28,10 @@ public final class LongRunningMonitorReader {
     }
 
     public LongRunningMonitorSnapshot read(Path projectDir, String taskId, boolean interrupting) {
+        return read(projectDir, taskId, null, interrupting);
+    }
+
+    public LongRunningMonitorSnapshot read(Path projectDir, String taskId, String model, boolean interrupting) {
         if (taskId == null || taskId.isBlank()) {
             return unavailable("<none>", "No active task.", interrupting);
         }
@@ -35,7 +39,10 @@ public final class LongRunningMonitorReader {
             LongRunningTaskStore store = taskStoreFactory.create(projectDir);
             LongRunningTaskMetadata metadata = store.loadTask(taskId);
             List<LongRunningTaskEvent> events = store.readRecentEvents(taskId, 500);
-            return snapshot(taskId, metadata.status(), events, defaultTarget(store, taskId), interrupting);
+            List<FeatureItem> features = store.readFeatureList(taskId);
+            List<KnownIssue> issues = store.readKnownIssues(taskId);
+            return snapshot(taskId, metadata, model, events, features, issues,
+                    defaultTarget(features, issues), interrupting);
         } catch (RuntimeException exception) {
             return unavailable(taskId, "Monitor unavailable: " + safeMessage(exception), interrupting);
         }
@@ -43,10 +50,14 @@ public final class LongRunningMonitorReader {
 
     private LongRunningMonitorSnapshot snapshot(
             String taskId,
-            String stage,
+            LongRunningTaskMetadata metadata,
+            String model,
             List<LongRunningTaskEvent> events,
+            List<FeatureItem> features,
+            List<KnownIssue> issues,
             String defaultTarget,
             boolean interrupting) {
+        String stage = metadata.status();
         String workerSessionId = null;
         Integer cycle = null;
         Integer limit = null;
@@ -102,21 +113,80 @@ public final class LongRunningMonitorReader {
             }
         }
 
+        recent = foldConsecutive(recent);
         if (recent.size() > MAX_RECENT_EVENTS) {
             recent = recent.subList(recent.size() - MAX_RECENT_EVENTS, recent.size());
         }
 
+        int featuresTotal = features.size();
+        int featuresPassing = (int) features.stream().filter(FeatureItem::passes).count();
+        int issuesBlocked = (int) issues.stream()
+                .filter(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()))
+                .count();
+
         return new LongRunningMonitorSnapshot(
                 taskId,
+                metadata.title(),
+                model,
                 stage,
                 workerSessionId,
                 cycle,
                 limit,
+                elapsedSeconds(metadata),
+                featuresPassing,
+                featuresTotal,
+                issuesBlocked,
                 currentTarget,
                 currentAction,
                 recent,
                 secondsSince(lastEventTime),
                 interrupting);
+    }
+
+    private static long elapsedSeconds(LongRunningTaskMetadata metadata) {
+        Instant started = metadata.executionStarted();
+        if (started == null) {
+            return 0;
+        }
+        return Math.max(0, Duration.between(started, Instant.now()).toSeconds());
+    }
+
+    /**
+     * Collapse consecutive events whose body (text after the {@code HH:mm }
+     * prefix) is identical into a single line, keeping the latest timestamp and
+     * appending a {@code ×N} repeat count. Prevents a retrying worker from
+     * flooding the monitor with the same line.
+     */
+    private static List<String> foldConsecutive(List<String> lines) {
+        List<String> folded = new ArrayList<>();
+        String lastBody = null;
+        int count = 0;
+        for (String line : lines) {
+            String body = eventBody(line);
+            if (body.equals(lastBody)) {
+                count++;
+                folded.set(folded.size() - 1, withCount(line, count));
+            } else {
+                folded.add(line);
+                lastBody = body;
+                count = 1;
+            }
+        }
+        return folded;
+    }
+
+    private static String eventBody(String line) {
+        if (line.length() > 6 && line.charAt(5) == ' '
+                && Character.isDigit(line.charAt(0)) && Character.isDigit(line.charAt(1))
+                && line.charAt(2) == ':'
+                && Character.isDigit(line.charAt(3)) && Character.isDigit(line.charAt(4))) {
+            return line.substring(6);
+        }
+        return line;
+    }
+
+    private static String withCount(String line, int count) {
+        return count > 1 ? line + " ×" + count : line;
     }
 
     private static java.util.Optional<String> eventLine(LongRunningTaskEvent event) {
@@ -188,10 +258,16 @@ public final class LongRunningMonitorReader {
     private static LongRunningMonitorSnapshot unavailable(String taskId, String message, boolean interrupting) {
         return new LongRunningMonitorSnapshot(
                 taskId,
+                null,
+                null,
                 "RUNNING",
                 null,
                 null,
                 null,
+                0,
+                0,
+                0,
+                0,
                 null,
                 message,
                 List.of(message),
@@ -207,8 +283,8 @@ public final class LongRunningMonitorReader {
         return Math.max(0, seconds);
     }
 
-    private static String defaultTarget(LongRunningTaskStore store, String taskId) {
-        String activeIssue = store.readKnownIssues(taskId).stream()
+    private static String defaultTarget(List<FeatureItem> features, List<KnownIssue> issues) {
+        String activeIssue = issues.stream()
                 .filter(issue -> "open".equals(issue.status()) || "blocked".equals(issue.status()))
                 .findFirst()
                 .map(issue -> "Issue " + issue.id() + " " + issue.description())
@@ -216,7 +292,7 @@ public final class LongRunningMonitorReader {
         if (activeIssue != null) {
             return fit(activeIssue, 80);
         }
-        return store.readFeatureList(taskId).stream()
+        return features.stream()
                 .filter(feature -> !feature.passes())
                 .findFirst()
                 .map(feature -> fit(feature.id() + " " + feature.description(), 80))

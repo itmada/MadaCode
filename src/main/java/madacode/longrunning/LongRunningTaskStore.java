@@ -137,6 +137,27 @@ public final class LongRunningTaskStore {
                 () -> repository.updateIssueStatus(taskId, issueId, newStatus));
     }
 
+    /** Outcome of recording a failed fix attempt against an issue. */
+    public enum IssueFixOutcome {
+        /** Below threshold — the issue stays active for another attempt. */
+        RETRY,
+        /** Threshold reached on an ordinary issue — auto-deferred, no longer blocking. */
+        DEFERRED,
+        /** Threshold reached on a blocker-severity issue — needs user escalation. */
+        ESCALATED
+    }
+
+    public synchronized IssueFixOutcome recordIssueFixAttempt(String taskId, String issueId, int threshold) {
+        return lockManager.withTaskMetadataLock(
+                taskId,
+                () -> repository.recordIssueFixAttempt(taskId, issueId, threshold));
+    }
+
+    /** Blocking reason if the task may not be marked completed yet, else null. */
+    public synchronized String completionBlockReason(String taskId) {
+        return repository.completionBlockReason(taskId);
+    }
+
     public synchronized void appendProgress(String taskId, String text) {
         lockManager.withTaskMetadataLock(taskId, () -> {
             repository.appendProgress(taskId, text);
