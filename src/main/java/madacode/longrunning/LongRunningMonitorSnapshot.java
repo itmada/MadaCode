@@ -11,6 +11,7 @@ public record LongRunningMonitorSnapshot(
         String currentTarget,
         String currentAction,
         List<String> recentEvents,
+        long secondsSinceLastEvent,
         boolean interrupting) {
 
     public LongRunningMonitorSnapshot {
@@ -20,6 +21,7 @@ public record LongRunningMonitorSnapshot(
         currentTarget = blankToNull(currentTarget);
         currentAction = blankToNull(currentAction);
         recentEvents = List.copyOf(recentEvents == null ? List.of() : recentEvents);
+        secondsSinceLastEvent = Math.max(0, secondsSinceLastEvent);
     }
 
     private static String blankToDefault(String value, String fallback) {

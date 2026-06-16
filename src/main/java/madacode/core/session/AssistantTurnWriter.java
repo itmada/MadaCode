@@ -48,6 +48,7 @@ public final class AssistantTurnWriter implements AutoCloseable {
             @Override public void onMessageStop(StopReason sr, TokenUsage u, long ttft, long total) {
                 session.fireMetaEvent(new MetaEvent.TokenReport(u, ttft, total));
             }
+            @Override public void onStreamReset() { stream.reset(); }
         };
     }
 

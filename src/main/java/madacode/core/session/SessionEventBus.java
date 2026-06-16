@@ -44,6 +44,10 @@ public final class SessionEventBus {
         forEach("onAssistantStreamFinalized", listener -> listener.onAssistantStreamFinalized(index));
     }
 
+    public void fireAssistantStreamReset(int index) {
+        forEach("onAssistantStreamReset", listener -> listener.onAssistantStreamReset(index));
+    }
+
     public void fireToolExecutionReached(String toolUseId, String toolName, ObjectNode input) {
         forEach("onToolExecutionReached",
                 listener -> listener.onToolExecutionReached(toolUseId, toolName, input));

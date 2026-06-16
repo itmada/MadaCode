@@ -57,6 +57,13 @@ public interface SessionListener {
     default void onAssistantStreamFinalized(int index) {}
 
     /**
+     * The in-progress assistant stream was discarded before finalizing (e.g. a
+     * retry after a mid-stream failure). Renderers should drop any draft shown
+     * for this index; a fresh stream for the same index follows.
+     */
+    default void onAssistantStreamReset(int index) {}
+
+    /**
      * Ordered tool execution has reached this tool, before permission approval or execution.
      *
      * <p>Defines the {@code reached → (permission prompt) → started} timing contract

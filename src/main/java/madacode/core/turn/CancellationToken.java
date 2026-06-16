@@ -67,6 +67,10 @@ public class CancellationToken {
             // accumulating callbacks here would be a slow leak.
             return NOOP_SUBSCRIPTION;
         }
+        @Override
+        public boolean isCancellable() {
+            return false;
+        }
     };
 
     private final Object lock = new Object();
@@ -92,6 +96,21 @@ public class CancellationToken {
 
     public boolean isCancelled() {
         return cancelled;
+    }
+
+    /**
+     * Whether this token can ever transition to cancelled. Real per-turn tokens
+     * created via {@link #create()} return {@code true}; the {@link #never()}
+     * singleton returns {@code false}.
+     *
+     * <p>Lets a caller detect that a teardown action registered through
+     * {@link #onCancel(Runnable)} will never fire (the callback is dropped on
+     * {@code NEVER}), so a no-op token isn't mistaken for a live cancellation
+     * source. Useful before wiring a kill-hook whose firing the caller would
+     * otherwise assume is guaranteed.
+     */
+    public boolean isCancellable() {
+        return true;
     }
 
     /** The reason supplied at cancellation, or {@code null} if not cancelled. */

@@ -111,6 +111,27 @@ public final class TurnRenderer implements SessionListener {
         turnView.markDirty();
     }
 
+    @Override
+    public synchronized void onAssistantStreamReset(int index) {
+        if (currentText != null) {
+            turnView.remove(currentText);
+            currentText = null;
+        }
+        // Drop tool cards queued by the aborted attempt. During streaming no
+        // tool has executed yet (execution starts only after the stream
+        // commits), so any un-finalized card belongs to this attempt and is
+        // safe to discard; finalized cards from earlier iterations are kept.
+        toolCards.values().removeIf(card -> {
+            if (!card.isFinalized()) {
+                turnView.remove(card);
+                return true;
+            }
+            return false;
+        });
+        activeStreamIndex = -1;
+        turnView.markDirty();
+    }
+
     private synchronized boolean hasPendingToolCard() {
         for (ToolCardRenderable card : toolCards.values()) {
             if (!card.isFinalized()) {

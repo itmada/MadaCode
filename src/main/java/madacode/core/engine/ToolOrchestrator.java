@@ -94,10 +94,16 @@ public final class ToolOrchestrator {
                                       int start, int endExclusive,
                                       ToolUseContext context) {
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        CancellationToken cancellationToken = context.cancellationToken();
         // Register a kill-hook AND withdraw it when the segment completes —
         // otherwise the callback (now pointing at a closed executor) would
-        // linger on the cancellation token until the turn ends.
-        try (Subscription killSub = context.cancellationToken().onCancel(executor::shutdownNow)) {
+        // linger on the cancellation token until the turn ends. Skip
+        // registration for a non-cancellable token (e.g. NEVER): the hook
+        // could never fire, so it would be dead weight, not a safety net.
+        Subscription killSub = cancellationToken.isCancellable()
+                ? cancellationToken.onCancel(executor::shutdownNow)
+                : () -> {};
+        try (killSub) {
             CompletionService<IndexedToolResult> completion = new ExecutorCompletionService<>(executor);
             int submitted = 0;
             for (int k = start; k < endExclusive; k++) {

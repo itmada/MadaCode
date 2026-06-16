@@ -55,15 +55,20 @@ public final class LongRunningRuntime implements AutoCloseable {
         interruptRequested.set(false);
         interruptReason.set(null);
         CompletableFuture<LongRunningLauncher.LaunchResult> completion = new CompletableFuture<>();
+        LongRunningLauncher.ControlContext controlContext =
+                LongRunningLauncher.ControlContext.from(controlSession);
         currentCompletion = completion;
         currentTaskId = taskId;
         currentProjectDir = projectDir;
         current = completion.whenComplete((result, error) -> {
             running.set(false);
-            onComplete.accept(new Completion(taskId, result, error));
-            currentCompletion = null;
-            currentTaskId = null;
-            currentProjectDir = null;
+            try {
+                onComplete.accept(new Completion(taskId, result, error));
+            } finally {
+                currentCompletion = null;
+                currentTaskId = null;
+                currentProjectDir = null;
+            }
         });
         try {
             executor.execute(() -> {
@@ -78,7 +83,7 @@ public final class LongRunningRuntime implements AutoCloseable {
                 launcherThread.set(Thread.currentThread());
                 try {
                     LongRunningLauncher.LaunchResult result = launcher.run(
-                            taskId, projectDir, controlSession, DEFAULT_MAX_WORKER_CYCLES);
+                            taskId, projectDir, controlContext, DEFAULT_MAX_WORKER_CYCLES);
                     if (result.status() == LongRunningLauncher.LaunchStatus.INTERRUPTED) {
                         persistInterruptReason(projectDir, taskId);
                     }

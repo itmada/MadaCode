@@ -94,6 +94,11 @@ public final class RetryingApiClient implements ApiClient {
                 if (cancellationToken.isCancelled()) {
                     throw new madacode.core.turn.CancellationException(cancellationToken.reason());
                 }
+                // Discard whatever the failed attempt streamed to the sink (and
+                // to the user's screen) so the retry starts from a clean slate
+                // rather than appending onto half-streamed output. No-op for
+                // non-accumulating sinks (e.g. compaction).
+                sink.onStreamReset();
                 attempt++;
             }
         }

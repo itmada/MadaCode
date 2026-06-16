@@ -206,6 +206,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
     public void close() {
         if (runtime != null) {
             runtime.close();
+            drainCompletions();
         }
     }
 
@@ -219,7 +220,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         }
         String summary;
         LongRunningStage targetStage;
-        boolean handoffToController = false;
         if (completion.error() != null) {
             Throwable error = completion.error();
             summary = "[failed] Long-running launcher failed: "
@@ -229,7 +229,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         } else {
             LongRunningLauncher.LaunchResult result = completion.result();
             summary = longRunningResultSummary(result);
-            handoffToController = result.status() == LongRunningLauncher.LaunchStatus.COMPLETED;
             LongRunningStage fallbackStage = switch (result.status()) {
                 case COMPLETED -> LongRunningStage.DONE;
                 case ALREADY_RUNNING, BLOCKED, FAILED, NEEDS_USER, INTERRUPTED, MAX_WORKERS_EXHAUSTED ->
@@ -242,12 +241,8 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     .filter(stage -> stage == LongRunningStage.DONE || stage == LongRunningStage.INTERRUPT)
                     .orElse(fallbackStage);
         }
-        if (handoffToController) {
-            pendingControllerTurns.add(longRunningCompletionPrompt(summary));
-        } else {
-            screen.scrollback("");
-            screen.scrollback(Tk.dim(summary));
-        }
+        screen.scrollback("");
+        screen.scrollback(Tk.dim(summary));
         session.setLongRunningStage(targetStage);
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
         fields.put("summary", summary);
@@ -262,9 +257,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     : completion.error().getMessage());
         }
         recordControllerEvent("worker_runtime_finished", fields);
-        if (!handoffToController) {
-            session.addMessage(Message.system("[long-running] " + summary));
-        }
+        session.addMessage(Message.system("[long-running] " + summary));
         persistSession.run();
     }
 
@@ -377,16 +370,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     : error.getMessage());
         }
         return longRunningResultSummary(completion.result());
-    }
-
-    private static String longRunningCompletionPrompt(String summary) {
-        return """
-                [controller-event][long-running]
-                当前 long-running 任务的 worker agent 已经完成。
-
-                这是 worker/launcher 返回的结果：
-                %s
-                """.formatted(summary);
     }
 
     private static String longRunningTransitionPrompt(LongRunningTransitionRequest request) {

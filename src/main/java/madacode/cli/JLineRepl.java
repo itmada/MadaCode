@@ -382,7 +382,7 @@ public final class JLineRepl extends Repl {
                 session.longRunningTaskId(),
                 interrupting)));
         lines.add("");
-        lines.add(Tk.dim(longRunningStatusSpinner.tick() + " long task runing..."));
+        lines.add(Tk.dim(longRunningStatusSpinner.tick() + " long task running..."));
         return lines;
     }
 

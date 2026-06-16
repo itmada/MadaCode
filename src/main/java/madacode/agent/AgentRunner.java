@@ -7,7 +7,6 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.turn.TurnResult;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.permission.PermissionGate;
-import madacode.permission.PermissionMode;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.core.engine.ToolExecutor;
@@ -29,6 +28,12 @@ import java.util.stream.Collectors;
  * <p>Plan mode propagates from parent to child: if the parent session is
  * in plan mode, the child is too. Writes inside the sub-agent are then
  * blocked by the same plan-mode check that protects the parent.
+ *
+ * <p>The child also inherits the parent's {@code permissionMode} verbatim:
+ * spawning a sub-agent never escalates privileges beyond what the user
+ * granted the parent session. Capabilities are narrowed by tool allowlists
+ * ({@code allowedTools}/{@code disallowedTools}), not by widening the
+ * permission mode.
  *
  * <p>A {@link ParentEventForwarder} bridges sub-agent events to the parent
  * session: token usage bubbles up for billing correctness, and child tool
@@ -69,10 +74,12 @@ public class AgentRunner {
         childSession.loadDeferredTools(parentSession.loadedDeferredTools());
         childSession.loadDeferredTools(canonicalToolNames(definition.allowedTools()));
 
-        PermissionMode childMode = resolveChildMode(
-                definition.permissionMode(),
-                parentSession.permissionMode());
-        childSession.setPermissionMode(childMode);
+        // Sub-agents inherit the parent session's permission mode. Spawning a
+        // sub-agent must never escalate privileges beyond what the user granted
+        // the parent: a parent in DEFAULT means the child also prompts before
+        // edits (the shared gate surfaces approvals to the user), while a parent
+        // in BYPASS propagates down so autonomous runs stay prompt-free.
+        childSession.setPermissionMode(parentSession.permissionMode());
 
         String parentToolUseId = ToolExecutor.CURRENT_TOOL_USE_ID.get();
         childSession.addListener(new ParentEventForwarder(parentSession, parentToolUseId));
@@ -80,20 +87,6 @@ public class AgentRunner {
         ToolUseContext childContext = parentContext.childContext(childSession);
 
         return childEngine.runTurn(childSession, input, childContext);
-    }
-
-    /**
-     * Resolves the sub-agent's permission mode using the "never downgrade
-     * parent's permissiveness" rule: if the parent is already at least as
-     * permissive as the agent's declared mode, inherit the parent's mode;
-     * otherwise the agent's own mode (defaulting to ACCEPT_EDITS) wins.
-     */
-    private static PermissionMode resolveChildMode(PermissionMode defMode, PermissionMode parentMode) {
-        PermissionMode effective = defMode != null ? defMode : PermissionMode.ACCEPT_EDITS;
-        if (parentMode.isAtLeastAsPermissiveAs(effective)) {
-            return parentMode;
-        }
-        return effective;
     }
 
     private ToolRegistry buildChildRegistry(AgentDefinition definition) {

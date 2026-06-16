@@ -152,6 +152,12 @@ public class QueryEngine {
                 return completeWithCancellation(session, cancel.reason(), iteration, elapsedMs(turnStart));
             }
             if (compactPlanner != null && compactPlanner.shouldCompact(session)) {
+                // Automatic compaction makes a single best-effort pass that
+                // already runs every strategy. A failure is surfaced via
+                // CompactFailed (rendered + forwarded to any parent), and we
+                // still proceed: over-soft is not necessarily over the hard
+                // context limit, and if it is, the provider rejects the request
+                // and the turn ends with a clean API error — no doomed retry loop.
                 compactPlanner.planAndApply(session, session::fireMetaEvent, cancel);
                 // Compact may take seconds (model API call). If the user cancelled
                 // during it, honor it now rather than firing a doomed turn request.

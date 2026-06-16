@@ -1,6 +1,8 @@
 package madacode.longrunning;
 
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -52,8 +54,10 @@ public final class LongRunningMonitorReader {
         String currentAction = null;
         List<String> recent = new ArrayList<>();
         boolean lastRecentWasInspect = false;
+        Instant lastEventTime = null;
 
         for (LongRunningTaskEvent event : events) {
+            lastEventTime = event.timestamp();
             Map<String, String> details = event.details();
             if ("worker_started".equals(event.type())) {
                 cycle = parseInt(details.get("cycle"), cycle);
@@ -111,6 +115,7 @@ public final class LongRunningMonitorReader {
                 currentTarget,
                 currentAction,
                 recent,
+                secondsSince(lastEventTime),
                 interrupting);
     }
 
@@ -190,7 +195,16 @@ public final class LongRunningMonitorReader {
                 null,
                 message,
                 List.of(message),
+                0,
                 interrupting);
+    }
+
+    private static long secondsSince(Instant timestamp) {
+        if (timestamp == null) {
+            return 0;
+        }
+        long seconds = Duration.between(timestamp, Instant.now()).toSeconds();
+        return Math.max(0, seconds);
     }
 
     private static String defaultTarget(LongRunningTaskStore store, String taskId) {

@@ -124,10 +124,20 @@ public class ConversationSession {
         this.inputHistoryRef.set(List.copyOf(Objects.requireNonNull(inputHistory, "inputHistory")));
     }
 
+    /**
+     * Replace the full message list (e.g. after a compaction pass).
+     *
+     * <p>Cumulative {@link #tokenUsage()} is intentionally <em>not</em> reset
+     * here: it is a session-wide cost tally consumed by {@code /cost}, and
+     * compaction rewriting the transcript must not erase prior usage. The live
+     * context-window gauge is computed separately (per-response
+     * {@code TokenReport}s and a content estimator), so it is unaffected.
+     * Callers that genuinely want a fresh tally must call
+     * {@link #resetTokenUsage()} explicitly.
+     */
     public void replaceMessages(List<Message> newMessages) {
         assertWriterThread();
         messagesRef.set(List.copyOf(newMessages));
-        tokenUsageRef.set(TokenUsage.ZERO);
         transcriptRewriteRequired = true;
     }
 

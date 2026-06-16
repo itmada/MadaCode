@@ -7,6 +7,7 @@ import madacode.core.model.MessageRole;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +103,28 @@ class ConversationSessionTest {
         session.addMessage(Message.user("Describe the session"));
 
         assertEquals("Describe the session", session.title());
+    }
+
+    @Test
+    void resetDiscardsBufferedStreamAndFiresResetEvent() {
+        ConversationSession session = new ConversationSession();
+        int reservedIndex = session.messages().size();
+        List<String> events = new ArrayList<>();
+        session.eventBus().addListener(new SessionListener() {
+            @Override public void onAssistantTextChunk(int index, String chunk) { events.add("chunk:" + chunk); }
+            @Override public void onAssistantStreamReset(int index) { events.add("reset:" + index); }
+        });
+
+        StreamingAssistantHandle handle = session.beginAssistantStream();
+        handle.appendText("partial-from-failed-attempt");
+        handle.reset();
+        handle.appendText("clean-retry-output");
+        Message committed = handle.finalizeAndAppend();
+
+        assertEquals("clean-retry-output", textOf(committed));
+        assertEquals(
+                List.of("chunk:partial-from-failed-attempt", "reset:" + reservedIndex, "chunk:clean-retry-output"),
+                events);
     }
 
     private static LinkedHashMap<String, String> linkedMap(String firstKey, String firstValue, String secondKey,

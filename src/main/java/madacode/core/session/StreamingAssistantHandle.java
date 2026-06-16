@@ -58,6 +58,21 @@ public final class StreamingAssistantHandle {
     }
 
     /**
+     * Discard everything streamed so far and tell the renderer to drop the
+     * in-progress draft, so a retried model attempt streams into a clean slate.
+     * Unlike {@link #abandon()} the handle stays open (not finalized) for the
+     * new attempt. Used by {@link madacode.services.api.RetryingApiClient} via
+     * {@link madacode.services.api.ApiStreamSink#onStreamReset()} when a
+     * mid-stream failure is retried.
+     */
+    public synchronized void reset() {
+        check();
+        textBuf.setLength(0);
+        blocks.clear();
+        session.eventBus().fireAssistantStreamReset(reservedIndex);
+    }
+
+    /**
      * Discard the in-progress stream without appending it to the session.
      * Use when cancellation occurs so that the caller can add a single clean
      * cancellation message rather than leaving an empty or partial assistant

@@ -23,6 +23,10 @@ public final class LongRunningMonitorRenderer {
                 ? (snapshot.interrupting() ? "Stopping current worker safely..." : "Working...")
                 : snapshot.currentAction();
         lines.add(snapshot.interrupting() ? Tk.failure(activity) : activity);
+        String idle = idleLine(snapshot.secondsSinceLastEvent());
+        if (idle != null) {
+            lines.add(Tk.dim(idle));
+        }
         lines.add("");
         lines.add(Tk.dim("Events"));
         if (snapshot.recentEvents().isEmpty()) {
@@ -68,5 +72,16 @@ public final class LongRunningMonitorRenderer {
                 ? "Cycle ?/?"
                 : "Cycle " + snapshot.cycle() + "/" + (snapshot.limit() == null ? "?" : snapshot.limit());
         return "Task " + snapshot.taskId() + " · " + worker + " · " + cycle;
+    }
+
+    private static String idleLine(long secondsSinceLastEvent) {
+        if (secondsSinceLastEvent < 60) {
+            return null;
+        }
+        long minutes = secondsSinceLastEvent / 60;
+        if (minutes < 5) {
+            return "No worker event for " + minutes + "m.";
+        }
+        return "No worker event for " + minutes + "m; the current command or API call may be stalled.";
     }
 }
