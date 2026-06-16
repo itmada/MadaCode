@@ -123,37 +123,33 @@ public final class LongRunningController {
         validateRequest(session, request);
         LongRunningTaskStore store = taskStore(session);
         String taskId = requireTaskId(session);
-        LongRunningStage target = request.targetStage().normalized();
         LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(request.reason())
                 .orElseThrow(() -> new IllegalStateException(
                         "Unknown long-running transition reason: " + request.reason()));
+        LongRunningLifecycleEvent event = LongRunningLifecycleEvent.controller(trigger);
+        LongRunningLifecycleDecision decision = LongRunningLifecycleStateMachine.decide(previous, event);
+        LongRunningStage target = decision.target();
+        if (target != request.targetStage().normalized()) {
+            throw new IllegalStateException(
+                    "Transition request target " + request.targetStage().normalized()
+                            + " does not match state machine target " + target
+                            + " for reason " + request.reason() + ".");
+        }
 
         switch (target) {
             case RUNNING -> {
                 ensureExecutionTask(session, request.summary());
-                store.markTaskExecuting(taskId);
                 session.setLongRunningStage(LongRunningStage.RUNNING);
                 session.setLongRunningReason(request.reason());
             }
             case INTERRUPT -> {
-                store.markTaskInterrupted(taskId, request.reason());
+                store.applyLifecycleEvent(taskId, event);
                 session.setLongRunningStage(LongRunningStage.INTERRUPT);
                 session.setLongRunningReason(request.reason());
             }
-            case DONE -> {
-                LongRunningTransitions.TerminalAction action =
-                        LongRunningTransitions.terminalActionFor(trigger);
-                if (action == null) {
-                    throw new IllegalStateException(
-                            "DONE transition reason is not mechanically applicable by the control session: "
-                                    + request.reason());
-                }
-                switch (action) {
-                    case COMPLETE -> store.markTaskCompleted(taskId);
-                    case CANCEL -> store.cancelTask(taskId);
-                    case FAIL -> store.markTaskFailed(taskId);
-                }
-                session.setLongRunningStage(LongRunningStage.DONE);
+            case COMPLETED, CANCELLED, FAILED -> {
+                store.applyLifecycleEvent(taskId, event);
+                session.setLongRunningStage(target);
                 session.setLongRunningReason(request.reason());
             }
             case DRAFT -> throw new IllegalStateException(
@@ -166,7 +162,7 @@ public final class LongRunningController {
         appliedDetails.put("approved_by", safe(approvedBy));
         if (target == LongRunningStage.INTERRUPT) {
             appliedDetails.put("interrupt_cause",
-                    LongRunningTransitions.causeFor(trigger).name().toLowerCase(java.util.Locale.ROOT));
+                    decision.interruptCause().name().toLowerCase(java.util.Locale.ROOT));
         }
         appendControllerEvent(session, "transition_applied", request, Map.copyOf(appliedDetails));
         appendEvent(session, "transition_applied", request, true,
@@ -186,7 +182,9 @@ public final class LongRunningController {
         LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(request.reason())
                 .orElseThrow(() -> new IllegalStateException(
                         "Unknown long-running transition reason: " + request.reason()));
-        if (!LongRunningTransitions.isAllowed(source, trigger, target)) {
+        LongRunningLifecycleDecision decision = LongRunningLifecycleStateMachine.decide(
+                source, LongRunningLifecycleEvent.controller(trigger));
+        if (decision.target() != target) {
             throw new IllegalStateException(
                     "Transition not allowed: " + LongRunningTransitions.describe(source, trigger, target)
                             + ". Legal from " + source + ": "

@@ -1,6 +1,7 @@
 package madacode.longrunning;
 
 import madacode.core.model.FinishReason;
+import madacode.core.session.LongRunningStage;
 import madacode.core.turn.TurnResult;
 
 import java.nio.file.Path;
@@ -82,7 +83,7 @@ public final class LongRunningLauncher {
                 Map.of("maxWorkers", String.valueOf(maxWorkers)));
 
         LongRunningTaskMetadata initialMeta = store.loadTask(taskId);
-        if ("DONE".equals(initialMeta.status())) {
+        if (stageOf(initialMeta).isTerminal()) {
             appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                     true, "Task is already " + initialMeta.status(),
                     Map.of("reason", "terminal_status"));
@@ -90,15 +91,17 @@ public final class LongRunningLauncher {
         }
 
         try {
-            LongRunningTaskMetadata executing = store.markTaskExecuting(taskId);
+            LongRunningTaskMetadata executing = ensureTaskExecuting(store, taskId);
             appendLauncherEvent(store, taskId, controlContext, "task_execution_started",
                     true, "Task entered execution state.",
                     Map.of("status", executing.status()));
         } catch (RuntimeException e) {
             appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                     false, "Launcher could not start execution: " + e.getMessage(),
-                    Map.of("reason", "execution_start_failed"));
-            var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, 0, "execution_start_failed");
+                    Map.of("reason", LongRunningTransitions.Trigger.EXECUTION_START_FAILED.wire()));
+            var stopFailure = returnTaskToInterrupt(
+                    store, taskId, controlContext, 0,
+                    LongRunningTransitions.Trigger.EXECUTION_START_FAILED);
             if (stopFailure != null) return stopFailure;
             return new LaunchResult(LaunchStatus.FAILED, 0,
                     "Could not start long-running execution: " + e.getMessage());
@@ -108,8 +111,10 @@ public final class LongRunningLauncher {
             if (Thread.currentThread().isInterrupted()) {
                 appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                         true, "Launcher interrupted before starting next worker.",
-                        Map.of("reason", "interrupted"));
-                var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i, "user_interrupted");
+                        Map.of("reason", LongRunningTransitions.Trigger.USER_INTERRUPTED.wire()));
+                var stopFailure = returnTaskToInterrupt(
+                        store, taskId, controlContext, i,
+                        LongRunningTransitions.Trigger.USER_INTERRUPTED);
                 if (stopFailure != null) return stopFailure;
                 return new LaunchResult(LaunchStatus.INTERRUPTED, i,
                         "Launcher interrupted before starting next worker.");
@@ -120,10 +125,12 @@ public final class LongRunningLauncher {
                 appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                         true, "Launcher exhausted dynamic worker cycle budget",
                         Map.of(
-                                "reason", "worker_cycle_budget_exhausted",
+                                "reason", LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED.wire(),
                                 "allowedCycles", String.valueOf(allowedCycles),
                                 "hardLimit", String.valueOf(maxWorkers)));
-                var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i, "worker_cycle_budget_exhausted");
+                var stopFailure = returnTaskToInterrupt(
+                        store, taskId, controlContext, i,
+                        LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED);
                 if (stopFailure != null) return stopFailure;
                 return new LaunchResult(LaunchStatus.MAX_WORKERS_EXHAUSTED, i,
                         "Launcher exhausted " + allowedCycles
@@ -132,7 +139,7 @@ public final class LongRunningLauncher {
 
             // Check if task is already terminal
             LongRunningTaskMetadata meta = store.loadTask(taskId);
-            if ("DONE".equals(meta.status())) {
+            if (stageOf(meta).isTerminal()) {
                 appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                         true, "Task is already " + meta.status(),
                         Map.of("reason", "terminal_status"));
@@ -159,7 +166,9 @@ public final class LongRunningLauncher {
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                             true, "Launcher interrupted during worker cycle.",
                             Map.of("reason", "interrupted"));
-                    var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, "user_interrupted");
+                    var stopFailure = returnTaskToInterrupt(
+                            store, taskId, controlContext, i + 1,
+                            LongRunningTransitions.Trigger.USER_INTERRUPTED);
                     if (stopFailure != null) return stopFailure;
                     return new LaunchResult(LaunchStatus.INTERRUPTED, i + 1,
                             "Launcher interrupted during worker cycle.");
@@ -169,8 +178,10 @@ public final class LongRunningLauncher {
                         Map.of("cycle", String.valueOf(i + 1), "error", e.getMessage()));
                 appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                         false, "Launcher stopped due to worker crash",
-                        Map.of("reason", "worker_crash"));
-                var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, "worker_crash");
+                        Map.of("reason", LongRunningTransitions.Trigger.WORKER_CRASH.wire()));
+                var stopFailure = returnTaskToInterrupt(
+                        store, taskId, controlContext, i + 1,
+                        LongRunningTransitions.Trigger.WORKER_CRASH);
                 if (stopFailure != null) return stopFailure;
                 return new LaunchResult(LaunchStatus.FAILED, i + 1,
                         "Worker crashed: " + e.getMessage());
@@ -208,17 +219,20 @@ public final class LongRunningLauncher {
                 case TASK_COMPLETED -> {
                     // Try to mark task completed
                     try {
-                        store.markTaskCompleted(taskId);
+                        store.applyLifecycleEvent(taskId, LongRunningLifecycleEvent.launcher(
+                                LongRunningTransitions.Trigger.TASK_COMPLETED));
                         appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                                 true, "Task completed successfully",
-                                Map.of("reason", "task_completed"));
+                                Map.of("reason", LongRunningTransitions.Trigger.TASK_COMPLETED.wire()));
                         return new LaunchResult(LaunchStatus.COMPLETED, i + 1,
                                 "Task completed: " + report.summary());
                     } catch (RuntimeException e) {
                         appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                                 false, "Task completion preconditions not met: " + e.getMessage(),
-                                Map.of("reason", "completion_failed"));
-                        var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, "completion_failed");
+                                Map.of("reason", LongRunningTransitions.Trigger.COMPLETION_FAILED.wire()));
+                        var stopFailure = returnTaskToInterrupt(
+                                store, taskId, controlContext, i + 1,
+                                LongRunningTransitions.Trigger.COMPLETION_FAILED);
                         if (stopFailure != null) return stopFailure;
                         return new LaunchResult(LaunchStatus.NEEDS_USER, i + 1,
                                 "Worker reported task_completed but preconditions not met: " + e.getMessage());
@@ -248,7 +262,9 @@ public final class LongRunningLauncher {
                             continue;
                         }
                     }
-                    var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, "worker_blocked");
+                    var stopFailure = returnTaskToInterrupt(
+                            store, taskId, controlContext, i + 1,
+                            LongRunningTransitions.Trigger.WORKER_BLOCKED);
                     if (stopFailure != null) return stopFailure;
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                             false, "Worker blocked: " + report.summary(),
@@ -257,20 +273,24 @@ public final class LongRunningLauncher {
                             "Worker blocked: " + report.summary());
                 }
                 case FAILED -> {
-                    var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, "worker_failed");
+                    var stopFailure = returnTaskToInterrupt(
+                            store, taskId, controlContext, i + 1,
+                            LongRunningTransitions.Trigger.WORKER_FAILED);
                     if (stopFailure != null) return stopFailure;
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                             false, "Worker failed: " + report.summary(),
-                            Map.of("reason", "worker_failed"));
+                            Map.of("reason", LongRunningTransitions.Trigger.WORKER_FAILED.wire()));
                     return new LaunchResult(LaunchStatus.FAILED, i + 1,
                             "Worker failed: " + report.summary());
                 }
                 case NEEDS_USER -> {
-                    var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, "needs_user");
+                    var stopFailure = returnTaskToInterrupt(
+                            store, taskId, controlContext, i + 1,
+                            LongRunningTransitions.Trigger.NEEDS_USER);
                     if (stopFailure != null) return stopFailure;
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                             true, "Worker needs user input: " + report.summary(),
-                            Map.of("reason", "needs_user"));
+                            Map.of("reason", LongRunningTransitions.Trigger.NEEDS_USER.wire()));
                     return new LaunchResult(LaunchStatus.NEEDS_USER, i + 1,
                             "Worker needs user input: " + report.summary());
                 }
@@ -280,8 +300,10 @@ public final class LongRunningLauncher {
         // Exhausted max workers
         appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                 true, "Launcher exhausted " + maxWorkers + " worker cycles",
-                Map.of("reason", "worker_cycle_budget_exhausted"));
-        var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, maxWorkers, "worker_cycle_budget_exhausted");
+                Map.of("reason", LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED.wire()));
+        var stopFailure = returnTaskToInterrupt(
+                store, taskId, controlContext, maxWorkers,
+                LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED);
         if (stopFailure != null) return stopFailure;
         return new LaunchResult(LaunchStatus.MAX_WORKERS_EXHAUSTED, maxWorkers,
                 "Launcher exhausted " + maxWorkers + " worker cycles. Task may still have remaining work.");
@@ -310,19 +332,36 @@ public final class LongRunningLauncher {
         return Math.min(hardLimit, Math.max(1, featureCount + issueCount));
     }
 
+    private LongRunningTaskMetadata ensureTaskExecuting(LongRunningTaskStore store, String taskId) {
+        LongRunningTaskMetadata metadata = store.loadTask(taskId);
+        if ("RUNNING".equals(metadata.status())) {
+            return metadata;
+        }
+        LongRunningTransitions.Trigger trigger = "INTERRUPT".equals(metadata.status())
+                ? LongRunningTransitions.Trigger.RESUME_AFTER_INTERRUPT
+                : LongRunningTransitions.Trigger.USER_CONFIRMED_START;
+        return store.applyLifecycleEvent(taskId, LongRunningLifecycleEvent.launcher(trigger));
+    }
+
+    private static LongRunningStage stageOf(LongRunningTaskMetadata metadata) {
+        return LongRunningStage.fromWire(metadata.status())
+                .orElseThrow(() -> new LongRunningTaskStoreException(
+                        "Unsupported task status: " + metadata.status()));
+    }
+
     private LaunchResult returnTaskToInterrupt(
             LongRunningTaskStore store,
             String taskId,
             ControlContext controlContext,
             int workersLaunched,
-            String reason) {
+            LongRunningTransitions.Trigger trigger) {
         try {
-            store.markTaskInterrupted(taskId, reason);
+            store.applyLifecycleEvent(taskId, LongRunningLifecycleEvent.launcher(trigger));
             return null;
         } catch (RuntimeException exception) {
             appendLauncherEvent(store, taskId, controlContext, "launcher_stop_state_update_failed",
                     false, "Failed to mark task INTERRUPT: " + exception.getMessage(),
-                    Map.of("reason", reason));
+                    Map.of("reason", trigger.wire()));
             return new LaunchResult(LaunchStatus.FAILED, workersLaunched,
                     "Launcher stopped but could not mark task INTERRUPT: " + exception.getMessage());
         }
@@ -387,7 +426,7 @@ public final class LongRunningLauncher {
     }
 
     private record WorkerNoReportCause(
-            String reason,
+            LongRunningTransitions.Trigger reason,
             String workerMessage,
             String launcherMessage,
             String resultMessage,
@@ -402,7 +441,7 @@ public final class LongRunningLauncher {
                     : " " + finalText;
             if (finishReason == FinishReason.MAX_ITERATIONS) {
                 return new WorkerNoReportCause(
-                        "worker_iteration_budget_exhausted",
+                        LongRunningTransitions.Trigger.WORKER_ITERATION_BUDGET_EXHAUSTED,
                         "Worker reached max iterations before worker_report",
                         "Launcher stopped: worker exhausted iteration budget before reporting",
                         "Worker reached max iterations before worker_report." + suffix,
@@ -411,7 +450,7 @@ public final class LongRunningLauncher {
             }
             if (finishReason == FinishReason.MODEL_TRUNCATED) {
                 return new WorkerNoReportCause(
-                        "worker_model_truncated",
+                        LongRunningTransitions.Trigger.WORKER_MODEL_TRUNCATED,
                         "Worker response was truncated before worker_report",
                         "Launcher stopped: worker response was truncated before reporting",
                         "Worker response was truncated before worker_report.",
@@ -420,7 +459,7 @@ public final class LongRunningLauncher {
             }
             if (finishReason == FinishReason.API_ERROR) {
                 return new WorkerNoReportCause(
-                        "worker_api_error",
+                        LongRunningTransitions.Trigger.WORKER_API_ERROR,
                         "Worker turn ended with API error before worker_report",
                         "Launcher stopped: worker API error before reporting",
                         "Worker turn ended with API error before worker_report." + suffix,
@@ -430,7 +469,7 @@ public final class LongRunningLauncher {
             if (finishReason == FinishReason.CANCELLED
                     || finishReason == FinishReason.PERMISSION_CANCELLED) {
                 return new WorkerNoReportCause(
-                        "worker_cancelled",
+                        LongRunningTransitions.Trigger.WORKER_CANCELLED,
                         "Worker turn was cancelled before worker_report",
                         "Launcher stopped: worker was cancelled before reporting",
                         "Worker turn was cancelled before worker_report." + suffix,
@@ -438,7 +477,7 @@ public final class LongRunningLauncher {
                         finalText);
             }
             return new WorkerNoReportCause(
-                    "no_report",
+                    LongRunningTransitions.Trigger.NO_REPORT,
                     "Worker did not produce a report",
                     "Launcher stopped: worker did not report",
                     "Worker did not produce a worker_report. The worker session may have failed.",
@@ -449,12 +488,12 @@ public final class LongRunningLauncher {
         Map<String, String> workerDetails(int cycle, String workerSessionId) {
             return details(Map.of(
                     "cycle", String.valueOf(cycle),
-                    "reason", reason,
+                    "reason", reason.wire(),
                     "workerSessionId", workerSessionId == null ? "" : workerSessionId));
         }
 
         Map<String, String> launcherDetails() {
-            return details(Map.of("reason", reason));
+            return details(Map.of("reason", reason.wire()));
         }
 
         private Map<String, String> details(Map<String, String> base) {

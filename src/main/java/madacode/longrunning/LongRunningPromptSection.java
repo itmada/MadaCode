@@ -26,11 +26,11 @@ public final class LongRunningPromptSection implements PromptSection {
             case DRAFT -> draftPrompt(session);
             case RUNNING -> runningPrompt(session);
             case INTERRUPT -> interruptPrompt(session);
-            case DONE -> bullets(
+            case COMPLETED, CANCELLED, FAILED -> bullets(
                     "Long-running stage: " + stage.name() + ".",
                     "The long-running worker lifecycle is terminal, but you remain the controller agent and may use ordinary tools for inspection, cleanup, and user-requested project changes subject to normal permissions.",
                     "Do not call worker_report or longrun_task_update from the control session.",
-                    "DONE/cancelled means the task lifecycle was cancelled or completed; it does not delete the task-store directory.");
+                    stage.name() + " means the task lifecycle ended; it does not delete the task-store directory.");
         };
         return Optional.of(body);
     }
@@ -39,12 +39,12 @@ public final class LongRunningPromptSection implements PromptSection {
         return bullets(
                 "You are in harness-controlled long-running mode.",
                 "You are the controller agent and remain the main agent. Ordinary tools such as file reads, bash, write, and edit remain available subject to the normal permission gate.",
-                "Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, and DONE.",
+                "Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, COMPLETED, CANCELLED, and FAILED.",
                 "RUNNING is monitor-owned: the controller input loop is suspended while workers execute.",
                 "Treat session messages prefixed with [controller-event] as trusted controller/runtime facts that happened outside the model turn.",
-                "Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING or DONE; runtime asks the user before applying model-requested transitions.",
+                "Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING, CANCELLED, or FAILED; runtime asks the user before applying model-requested transitions.",
                 "Do not claim a state transition happened until runtime confirms it.",
-                "Never use DONE/cancelled to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.");
+                "Never use CANCELLED or FAILED to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.");
     }
 
     private static String draftPrompt(ConversationSession session) {
@@ -54,8 +54,8 @@ public final class LongRunningPromptSection implements PromptSection {
         items.add("Clarify requirements, refine scope, and keep the draft plan durable as it changes.");
         items.add("If the project lacks standard startup scripts, try to create an `init.sh` or document the exact build/test commands in the plan, so future workers know exactly how to test their changes quickly.");
         items.add("You may also perform ordinary controller-agent work requested by the user, including inspecting files, running commands, editing files, or deleting files with normal permission approval.");
-        items.add("When the draft is ready to run, call longrun_state_transition_request target_status=RUNNING with a concise summary; runtime will ask the user to confirm.");
-        items.add("If the user wants to cancel the long-running lifecycle, request target_status=DONE with reason=user_requested_cancel.");
+        items.add("When the draft is ready to run, call longrun_state_transition_request target_status=RUNNING reason=user_confirmed_start with a concise summary; runtime will ask the user to confirm.");
+        items.add("If the user wants to cancel the long-running lifecycle, request target_status=CANCELLED with reason=user_requested_cancel.");
         items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
         appendTaskIdentity(items, session);
         return bullets(items);
@@ -79,7 +79,7 @@ public final class LongRunningPromptSection implements PromptSection {
         items.add("Inspect the task store, progress.txt, known_issues.json, and logs/events.jsonl as needed before revising the plan.");
         items.add("Use longrun_plan_update to record corrections, added constraints, feature changes, known issues, and progress notes.");
         items.add("When the task is ready to resume, call longrun_state_transition_request target_status=RUNNING reason=resume_after_interrupt with a concise summary; runtime will ask the user to confirm.");
-        items.add("If the user wants to cancel the lifecycle, request target_status=DONE with reason=user_requested_cancel.");
+        items.add("If the user wants to cancel the lifecycle, request target_status=CANCELLED with reason=user_requested_cancel.");
         items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
         appendTaskIdentity(items, session);
         return bullets(items);

@@ -48,7 +48,7 @@ public final class LongRunningWorkerPrompt {
                 Use longrun_task_update for task-store mutations such as append_progress, mark_feature_passed, record_issue, resolve_issue, and update_issue_status.
                 Record progress before you finish, including the bounded item you chose, why you chose it, what changed, and what remains.
                 Do not edit task-store source files directly; use longrun_task_update for state changes.
-                Workers never mark DONE or cancel the task directly; when completion preconditions are satisfied, call worker_report with status=task_completed and the launcher will mark the task complete.
+                Workers never mark lifecycle terminal states directly; when completion preconditions are satisfied, call worker_report with status=task_completed and the launcher will mark the task COMPLETED.
                 Never edit logs/events.jsonl directly; the harness records structured events automatically.
 
                 Do not assume your code works just by reading it. You must physically run relevant tests, build scripts, or execution commands in bash to verify your implementation end-to-end before marking a feature as passed.

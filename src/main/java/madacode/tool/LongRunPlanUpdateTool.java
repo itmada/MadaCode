@@ -127,9 +127,13 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
         LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
         try {
             store.validateTaskDirectory(taskId);
-            if (session.longRunningStage() == LongRunningStage.INTERRUPT
-                    && "RUNNING".equals(store.loadTask(taskId).status())) {
-                return failed("Cannot update the plan while another launcher still owns the running task.");
+            LongRunningTaskMetadata currentTask = store.loadTask(taskId);
+            LongRunningStage durableStage = LongRunningStage.fromWire(currentTask.status())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Unsupported task status: " + currentTask.status()));
+            if (!isDraftStage(durableStage)) {
+                return failed("longrun_plan_update is only available while the durable task is DRAFT or INTERRUPT. "
+                        + "Current task status: " + currentTask.status());
             }
             session.setLongRunningTaskDirectory(store.taskDirectoryPath(taskId).toString());
 
@@ -163,11 +167,10 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
                 : input.title().strip();
         String reason = normalizeOptional(input.reason());
         LongRunningTaskMetadata current = store.loadTask(taskId);
-        String status = session.longRunningStage() == LongRunningStage.INTERRUPT ? "INTERRUPT" : "DRAFT";
         LongRunningTaskMetadata updated = store.updateTaskShell(
                 taskId,
                 title,
-                status,
+                current.status(),
                 reason,
                 current.executionStarted(),
                 session.sessionId(),

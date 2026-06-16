@@ -99,14 +99,14 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
             recordControllerEvent("worker_runtime_start_failed",
                     Map.of("reason", "no_active_task"));
             screen.scrollback("No active long-running task.");
-            markInterrupted("runtime_start_failed");
+            markInterrupted(LongRunningTransitions.Trigger.RUNTIME_START_FAILED.wire());
             return false;
         }
         if (runtime == null) {
             recordControllerEvent("worker_runtime_start_failed",
                     Map.of("reason", "runtime_unavailable"));
             screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
-            markInterrupted("runtime_start_failed");
+            markInterrupted(LongRunningTransitions.Trigger.RUNTIME_START_FAILED.wire());
             return false;
         }
         boolean started;
@@ -130,7 +130,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     + (exception.getMessage() == null
                     ? exception.getClass().getSimpleName()
                     : exception.getMessage()));
-            markInterrupted("runtime_start_failed");
+            markInterrupted(LongRunningTransitions.Trigger.RUNTIME_START_FAILED.wire());
             return false;
         }
         if (!started) {
@@ -163,16 +163,20 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
 
     public void markInterrupted(String reason) {
         ConversationSession session = session();
-        session.setLongRunningStage(LongRunningStage.INTERRUPT);
-        session.setLongRunningReason(reason);
+        LongRunningTransitions.Trigger trigger = interruptTrigger(reason);
         String taskId = session.longRunningTaskId();
         if (taskId == null || taskId.isBlank()) {
+            session.setLongRunningStage(LongRunningStage.INTERRUPT);
+            session.setLongRunningReason(trigger.wire());
             return;
         }
         recordControllerEvent("task_marked_interrupted",
-                Map.of("reason", reason == null ? "" : reason));
+                Map.of("reason", trigger.wire()));
         try {
-            taskStore(session).markTaskInterrupted(taskId, reason);
+            LongRunningTaskMetadata interrupted =
+                    taskStore(session).applyLifecycleEvent(taskId, LongRunningLifecycleEvent.runtime(trigger));
+            session.setLongRunningStage(LongRunningStage.INTERRUPT);
+            session.setLongRunningReason(interrupted.reason());
         } catch (RuntimeException exception) {
             screen.scrollback(Tk.errorTag("long-running") + " "
                     + "Failed to mark task INTERRUPT: " + exception.getMessage());
@@ -224,13 +228,13 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
             Throwable error = completion.error();
             summary = "[failed] Long-running launcher failed: "
                     + (error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
-            markInterrupted("runtime_failed");
+            markInterrupted(LongRunningTransitions.Trigger.RUNTIME_FAILED.wire());
             targetStage = LongRunningStage.INTERRUPT;
         } else {
             LongRunningLauncher.LaunchResult result = completion.result();
             summary = longRunningResultSummary(result);
             LongRunningStage fallbackStage = switch (result.status()) {
-                case COMPLETED -> LongRunningStage.DONE;
+                case COMPLETED -> LongRunningStage.COMPLETED;
                 case ALREADY_RUNNING, BLOCKED, FAILED, NEEDS_USER, INTERRUPTED, MAX_WORKERS_EXHAUSTED ->
                         LongRunningStage.INTERRUPT;
             };
@@ -238,7 +242,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                 markTaskInterruptedIfNeeded(completion.taskId(), result.status());
             }
             targetStage = stageFromTaskStore(completion.taskId())
-                    .filter(stage -> stage == LongRunningStage.DONE || stage == LongRunningStage.INTERRUPT)
+                    .filter(stage -> stage.isTerminal() || stage == LongRunningStage.INTERRUPT)
                     .orElse(fallbackStage);
         }
         session.setLongRunningStage(targetStage);
@@ -304,8 +308,11 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         try {
             LongRunningTaskStore store = taskStore(session());
             String currentStatus = store.loadTask(taskId).status();
-            if (!"DONE".equals(currentStatus) && !"INTERRUPT".equals(currentStatus)) {
-                store.markTaskInterrupted(taskId, interruptReasonFor(status));
+            LongRunningStage currentStage = LongRunningStage.fromWire(currentStatus)
+                    .orElseThrow(() -> new LongRunningTaskStoreException(
+                            "Unsupported task status: " + currentStatus));
+            if (!currentStage.isTerminal() && currentStage != LongRunningStage.INTERRUPT) {
+                store.applyLifecycleEvent(taskId, LongRunningLifecycleEvent.runtime(interruptTriggerFor(status)));
             }
         } catch (RuntimeException exception) {
             screen.scrollback(Tk.errorTag("long-running") + " "
@@ -375,22 +382,30 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         if (source == LongRunningStage.INTERRUPT && target == LongRunningStage.RUNNING) {
             return "Resume this long-running task now?" + suffix;
         }
-        if (target == LongRunningStage.DONE) {
-            return "Mark this long-running task DONE?" + suffix;
+        if (target.isTerminal()) {
+            return "Mark this long-running task " + target.name() + "?" + suffix;
         }
         return "Apply long-running transition " + source + " -> " + target + "?" + suffix;
     }
 
-    private static String interruptReasonFor(LongRunningLauncher.LaunchStatus status) {
+    private static LongRunningTransitions.Trigger interruptTriggerFor(LongRunningLauncher.LaunchStatus status) {
         return switch (status) {
-            case ALREADY_RUNNING -> "already_running";
-            case BLOCKED -> "worker_blocked";
-            case FAILED -> "worker_failed";
-            case NEEDS_USER -> "needs_user";
-            case INTERRUPTED -> "user_interrupted";
-            case MAX_WORKERS_EXHAUSTED -> "worker_cycle_budget_exhausted";
-            case COMPLETED -> "task_completed";
+            case ALREADY_RUNNING -> LongRunningTransitions.Trigger.ALREADY_RUNNING_ELSEWHERE;
+            case BLOCKED -> LongRunningTransitions.Trigger.WORKER_BLOCKED;
+            case FAILED -> LongRunningTransitions.Trigger.WORKER_FAILED;
+            case NEEDS_USER -> LongRunningTransitions.Trigger.NEEDS_USER;
+            case INTERRUPTED -> LongRunningTransitions.Trigger.USER_INTERRUPTED;
+            case MAX_WORKERS_EXHAUSTED -> LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED;
+            case COMPLETED -> LongRunningTransitions.Trigger.TASK_COMPLETED;
         };
+    }
+
+    private static LongRunningTransitions.Trigger interruptTrigger(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return LongRunningTransitions.Trigger.USER_INTERRUPTED;
+        }
+        return LongRunningTransitions.Trigger.fromWire(reason)
+                .orElse(LongRunningTransitions.Trigger.RUNTIME_FAILED);
     }
 
     private static String safeTaskId(String taskId) {

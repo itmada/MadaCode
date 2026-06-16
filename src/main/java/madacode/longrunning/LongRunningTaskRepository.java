@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.core.session.LongRunningStage;
 import madacode.util.AtomicFiles;
 
 import java.io.IOException;
@@ -42,7 +43,8 @@ final class LongRunningTaskRepository {
 
     private static final Pattern SAFE_TASK_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
     private static final Set<String> ALLOWED_ISSUE_STATUSES = Set.of("open", "resolved", "blocked", "deferred");
-    private static final Set<String> ALLOWED_TASK_STATUSES = Set.of("DRAFT", "RUNNING", "INTERRUPT", "DONE");
+    private static final Set<String> ALLOWED_TASK_STATUSES = Set.of(
+            "DRAFT", "RUNNING", "INTERRUPT", "COMPLETED", "CANCELLED", "FAILED");
     private static final String ROOT_DIR = ".mada/long-running";
     private static final String DEFAULT_INIT_SCRIPT = """
             #!/usr/bin/env bash
@@ -470,68 +472,29 @@ final class LongRunningTaskRepository {
     }
 
     LongRunningTaskMetadata markTaskCompleted(String taskId) {
-        requireNonBlank(taskId, "taskId");
-        Path directory = validateTaskDirectory(taskId);
-        LongRunningTaskMetadata metadata = loadTask(taskId);
-        if (!"RUNNING".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be completed: current status is " + metadata.status());
-        }
-        validateTaskCompletionPreconditions(taskId, directory);
-        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
-                metadata.id(),
-                metadata.title(),
-                "DONE",
-                "task_completed",
-                metadata.executionStarted(),
-                metadata.createdAt(),
-                Instant.now(),
-                metadata.controlSessionId(),
-                metadata.planSummary());
-        try {
-            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException(
-                    "Failed to mark task " + taskId + " as completed", exception);
-        }
-        return updated;
+        return applyLifecycleTransition(taskId, LongRunningTransitions.Trigger.TASK_COMPLETED);
     }
 
     LongRunningTaskMetadata markTaskExecuting(String taskId) {
         requireNonBlank(taskId, "taskId");
-        Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
         if ("RUNNING".equals(metadata.status())) {
             return metadata;
         }
-        if (!"DRAFT".equals(metadata.status()) && !"INTERRUPT".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot enter execution: status="
-                            + metadata.status());
-        }
-        requireReadyForExecution(taskId, directory);
-        return writeTaskLifecycle(directory, metadata, "RUNNING", "RUNNING",
-                "Failed to mark task " + taskId + " as executing");
+        LongRunningTransitions.Trigger trigger = "INTERRUPT".equals(metadata.status())
+                ? LongRunningTransitions.Trigger.RESUME_AFTER_INTERRUPT
+                : LongRunningTransitions.Trigger.USER_CONFIRMED_START;
+        return applyLifecycleTransition(taskId, trigger);
     }
 
     LongRunningTaskMetadata markTaskInterrupted(String taskId, String reason) {
-        requireNonBlank(taskId, "taskId");
-        Path directory = validateTaskDirectory(taskId);
+        LongRunningTransitions.Trigger trigger = triggerFromReason(reason, LongRunningTransitions.Trigger.USER_INTERRUPTED);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        String effectiveReason = reason == null || reason.isBlank() ? "user_interrupted" : reason.strip();
         if ("INTERRUPT".equals(metadata.status())
-                && effectiveReason.equals(metadata.reason())) {
+                && trigger.wire().equals(metadata.reason())) {
             return metadata;
         }
-        if (!"DRAFT".equals(metadata.status())
-                && !"RUNNING".equals(metadata.status())
-                && !"INTERRUPT".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot enter interrupt state: status="
-                            + metadata.status());
-        }
-        return writeTaskLifecycle(directory, metadata, "INTERRUPT", effectiveReason,
-                "Failed to mark task " + taskId + " as interrupted");
+        return applyLifecycleTransition(taskId, trigger);
     }
 
     void requireRunning(String taskId) {
@@ -543,57 +506,48 @@ final class LongRunningTaskRepository {
     }
 
     LongRunningTaskMetadata cancelTask(String taskId) {
-        requireNonBlank(taskId, "taskId");
-        Path directory = validateTaskDirectory(taskId);
-        LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("DONE".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot be cancelled: current status is " + metadata.status());
-        }
-        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
-                metadata.id(),
-                metadata.title(),
-                "DONE",
-                "cancelled",
-                metadata.executionStarted(),
-                metadata.createdAt(),
-                Instant.now(),
-                metadata.controlSessionId(),
-                metadata.planSummary());
-        try {
-            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
-        } catch (IOException exception) {
-            throw new LongRunningTaskStoreException(
-                    "Failed to cancel task " + taskId, exception);
-        }
-        return updated;
+        return applyLifecycleTransition(taskId, LongRunningTransitions.Trigger.USER_REQUESTED_CANCEL);
     }
 
     LongRunningTaskMetadata markTaskFailed(String taskId) {
+        return applyLifecycleTransition(taskId, LongRunningTransitions.Trigger.FAILURE);
+    }
+
+    LongRunningTaskMetadata applyLifecycleTransition(
+            String taskId,
+            LongRunningTransitions.Trigger trigger) {
+        return applyLifecycleEvent(taskId, LongRunningLifecycleEvent.storeCompatibility(trigger));
+    }
+
+    LongRunningTaskMetadata applyLifecycleEvent(
+            String taskId,
+            LongRunningLifecycleEvent event) {
         requireNonBlank(taskId, "taskId");
         Path directory = validateTaskDirectory(taskId);
         LongRunningTaskMetadata metadata = loadTask(taskId);
-        if ("DONE".equals(metadata.status())) {
-            throw new LongRunningTaskStoreException(
-                    "Task " + taskId + " cannot fail: current status is " + metadata.status());
-        }
-        LongRunningTaskMetadata updated = new LongRunningTaskMetadata(
-                metadata.id(),
-                metadata.title(),
-                "DONE",
-                "failure",
-                metadata.executionStarted(),
-                metadata.createdAt(),
-                Instant.now(),
-                metadata.controlSessionId(),
-                metadata.planSummary());
+        LongRunningStage source = LongRunningStage.fromWire(metadata.status())
+                .orElseThrow(() -> new LongRunningTaskStoreException(
+                        "Unsupported task lifecycle status: " + metadata.status()));
+        LongRunningLifecycleDecision decision;
         try {
-            writeJsonAtomically(directory.resolve(TASK_FILE), serializeTask(updated));
-        } catch (IOException exception) {
+            decision = LongRunningLifecycleStateMachine.decide(source, event);
+        } catch (IllegalStateException exception) {
             throw new LongRunningTaskStoreException(
-                    "Failed to mark task " + taskId + " as failed", exception);
+                    "Task " + taskId + " cannot apply lifecycle event "
+                            + event.reason() + " from status=" + metadata.status()
+                            + ": " + exception.getMessage(), exception);
         }
-        return updated;
+
+        LongRunningStage target = decision.target();
+        if (target == LongRunningStage.RUNNING) {
+            requireReadyForExecution(taskId, directory);
+        } else if (target == LongRunningStage.COMPLETED) {
+            validateTaskCompletionPreconditions(taskId, directory);
+        }
+
+        return writeTaskLifecycle(directory, metadata, target.name(), event.reason(),
+                "Failed to apply lifecycle transition " + source + " --"
+                        + event.reason() + "--> " + target + " for task " + taskId);
     }
 
     Path validateTaskDirectory(String taskId) {
@@ -647,7 +601,7 @@ final class LongRunningTaskRepository {
     }
 
     /**
-     * Single source of truth for "may this task be marked DONE=completed?".
+     * Single source of truth for "may this task be marked COMPLETED?".
      * Returns a human-readable blocking reason, or {@code null} if completion is
      * allowed. Both the throwing precondition and the pre-flight tool check call
      * this so the gate cannot drift between them.
@@ -745,20 +699,28 @@ final class LongRunningTaskRepository {
     private static String mapLifecycleStatus(String status) {
         String normalized = requireNonBlank(status, "status").toUpperCase();
         return switch (normalized) {
-            case "DRAFT", "RUNNING", "INTERRUPT", "DONE" -> normalized;
+            case "DRAFT", "RUNNING", "INTERRUPT", "COMPLETED", "CANCELLED", "FAILED" -> normalized;
             default -> throw new LongRunningTaskStoreException("Unsupported lifecycle status: " + status);
         };
     }
 
     private static String mapLifecycleReason(String status, String reason) {
         String normalizedStatus = requireNonBlank(status, "status").toUpperCase();
-        if ("DONE".equals(normalizedStatus)) {
-            return "task_completed";
-        }
         if ("INTERRUPT".equals(normalizedStatus)) {
-            return reason == null || reason.isBlank() ? "user_interrupted" : reason.strip();
+            return reason == null || reason.isBlank()
+                    ? LongRunningTransitions.Trigger.USER_INTERRUPTED.wire()
+                    : reason.strip();
         }
         return reason == null || reason.isBlank() ? null : reason.strip();
+    }
+
+    private static LongRunningTransitions.Trigger triggerFromReason(
+            String reason,
+            LongRunningTransitions.Trigger fallback) {
+        String effectiveReason = reason == null || reason.isBlank() ? fallback.wire() : reason.strip();
+        return LongRunningTransitions.Trigger.fromWire(effectiveReason)
+                .orElseThrow(() -> new LongRunningTaskStoreException(
+                        "Unknown long-running lifecycle reason: " + effectiveReason));
     }
 
     private static Instant determineExecutionStarted(LongRunningTaskMetadata metadata, String status) {

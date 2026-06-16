@@ -142,7 +142,10 @@ public final class LongRunningTaskInitializer {
         Path dir = store.validateTaskDirectory(taskId);
         LongRunningTaskMetadata meta = store.loadTask(taskId);
         if ("DRAFT".equals(meta.status()) || "INTERRUPT".equals(meta.status())) {
-            meta = store.markTaskExecuting(taskId);
+            LongRunningTransitions.Trigger trigger = "INTERRUPT".equals(meta.status())
+                    ? LongRunningTransitions.Trigger.RESUME_AFTER_INTERRUPT
+                    : LongRunningTransitions.Trigger.USER_CONFIRMED_START;
+            meta = store.applyLifecycleEvent(taskId, LongRunningLifecycleEvent.controller(trigger));
             store.appendProgress(taskId, initializedProgressEntry(session, expandedInput));
             store.appendEvent(taskId, LongRunningTaskEvent.of(
                     "task_execution_initialized",

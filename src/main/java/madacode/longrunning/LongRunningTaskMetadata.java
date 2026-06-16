@@ -41,7 +41,7 @@ public record LongRunningTaskMetadata(
     private static String requireStatus(String value) {
         String normalized = requireNonBlank(value, "status").toUpperCase();
         return switch (normalized) {
-            case "DRAFT", "RUNNING", "INTERRUPT", "DONE" -> normalized;
+            case "DRAFT", "RUNNING", "INTERRUPT", "COMPLETED", "CANCELLED", "FAILED" -> normalized;
             default -> throw new IllegalArgumentException("Unsupported task status: " + value);
         };
     }

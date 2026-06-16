@@ -1,27 +1,68 @@
 #!/bin/sh
 
-set -e
+set -eu
+
+say() {
+    printf '%s\n' "$*"
+}
+
+warn() {
+    printf 'install.sh: warning: %s\n' "$*" >&2
+}
+
+fail() {
+    printf 'install.sh: %s\n' "$*" >&2
+    exit 1
+}
+
+find_on_path() {
+    cmd=$1
+    old_ifs=$IFS
+    IFS=:
+    for dir in ${PATH:-}; do
+        IFS=$old_ifs
+        [ -n "$dir" ] || dir=.
+        if [ -x "$dir/$cmd" ]; then
+            printf '%s\n' "$dir/$cmd"
+            return 0
+        fi
+        IFS=:
+    done
+    IFS=$old_ifs
+    return 1
+}
+
+cleanup() {
+    rm -f "${JAR_TMP:-}" "${WRAPPER_TMP:-}"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 129' HUP
+trap 'cleanup; exit 143' TERM
 
 ROOT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 JAR_SOURCE="$ROOT_DIR/target/MadaCode.jar"
 INSTALL_DIR="$HOME/.mada"
 BIN_DIR="$HOME/.local/bin"
 JAR_TARGET="$INSTALL_DIR/MadaCode.jar"
+JAR_TMP="$INSTALL_DIR/MadaCode.jar.tmp.$$"
 WRAPPER="$BIN_DIR/mada"
+WRAPPER_TMP="$BIN_DIR/mada.tmp.$$"
 
 cd "$ROOT_DIR"
 
+[ -x "$ROOT_DIR/mvnw" ] || fail "Maven wrapper is missing or not executable: $ROOT_DIR/mvnw"
+
+say "Building MadaCode..."
 ./mvnw package -DskipTests
 
-if [ ! -f "$JAR_SOURCE" ]; then
-    echo "install.sh: expected jar not found at $JAR_SOURCE" >&2
-    exit 1
-fi
+[ -f "$JAR_SOURCE" ] || fail "expected jar not found at $JAR_SOURCE"
 
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
-cp "$JAR_SOURCE" "$JAR_TARGET"
+cp "$JAR_SOURCE" "$JAR_TMP"
+mv "$JAR_TMP" "$JAR_TARGET"
 
-cat > "$WRAPPER" <<'EOF'
+cat > "$WRAPPER_TMP" <<'EOF'
 #!/bin/sh
 
 set -eu
@@ -64,17 +105,35 @@ fi
 exec "$JAVA" -jar "$JAR" "$@"
 EOF
 
+chmod +x "$WRAPPER_TMP"
+mv "$WRAPPER_TMP" "$WRAPPER"
 chmod +x "$WRAPPER"
 
-echo "Installed MadaCode to $JAR_TARGET"
-echo "Installed mada launcher to $WRAPPER"
+"$WRAPPER" --help >/dev/null || fail "installed launcher failed self-check: $WRAPPER --help"
+
+say "Installed MadaCode to $JAR_TARGET"
+say "Installed mada launcher to $WRAPPER"
 
 case ":$PATH:" in
-    *":$BIN_DIR:"*) ;;
+    *":$BIN_DIR:"*)
+        RESOLVED=$(find_on_path mada || true)
+        if [ "$RESOLVED" != "$WRAPPER" ]; then
+            warn "PATH resolves 'mada' to ${RESOLVED:-nothing}, not $WRAPPER"
+            warn "Move $BIN_DIR earlier in PATH or remove the conflicting launcher."
+        fi
+        ;;
     *)
-        echo
-        echo "$BIN_DIR is not on PATH."
-        echo "Add this line to ~/.zshrc, then restart your shell:"
-        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        say ""
+        warn "$BIN_DIR is not on PATH, so 'mada' may not be found."
+        say "Add this line to your shell profile, then restart your shell:"
+        say "  export PATH=\"\$HOME/.local/bin:\$PATH\""
         ;;
 esac
+
+say ""
+say "Try:"
+say "  mada --new       # start a new session"
+say "  mada --continue  # continue the latest session"
+say "  mada             # open the interactive startup selector"
+say ""
+say "If your shell still runs an older mada, run 'hash -r' or restart the shell."

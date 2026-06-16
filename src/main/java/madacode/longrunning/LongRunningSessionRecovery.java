@@ -12,7 +12,7 @@ import java.util.Objects;
  * <p>The transcript stores the controller conversation, while the task store is
  * the lifecycle authority for worker execution. Every resume path must pass
  * through this class so stale RUNNING sessions do not resurrect dead launchers
- * and DRAFT/INTERRUPT/DONE visibility stays aligned with the task metadata.
+ * and session visibility stays aligned with the task metadata.
  */
 public final class LongRunningSessionRecovery {
 
@@ -45,7 +45,7 @@ public final class LongRunningSessionRecovery {
             reconcileStage(session, store, task);
         } catch (RuntimeException ignored) {
             session.setLongRunningStage(LongRunningStage.INTERRUPT);
-            session.setLongRunningReason("recovery_failed");
+            session.setLongRunningReason(LongRunningTransitions.Trigger.RECOVERY_FAILED.wire());
         }
     }
 
@@ -62,13 +62,17 @@ public final class LongRunningSessionRecovery {
                 session.setLongRunningStage(LongRunningStage.INTERRUPT);
                 session.setLongRunningReason(task.reason());
             }
-            case "DONE" -> {
-                session.setLongRunningStage(LongRunningStage.DONE);
-                session.setLongRunningReason(task.reason());
-            }
+            case "COMPLETED", "CANCELLED", "FAILED" -> setStageFromTask(session, task);
             case "RUNNING" -> recoverRunningTask(session, store, task.id());
             default -> throw new IllegalStateException("Unsupported task status: " + task.status());
         }
+    }
+
+    private static void setStageFromTask(ConversationSession session, LongRunningTaskMetadata task) {
+        LongRunningStage stage = LongRunningStage.fromWire(task.status())
+                .orElseThrow(() -> new IllegalStateException("Unsupported task status: " + task.status()));
+        session.setLongRunningStage(stage);
+        session.setLongRunningReason(task.reason());
     }
 
     private static void recoverRunningTask(
@@ -76,12 +80,14 @@ public final class LongRunningSessionRecovery {
             LongRunningTaskStore store,
             String taskId) {
         try (LongRunningTaskLease ignored = store.acquireExecutionLease(taskId)) {
-            LongRunningTaskMetadata interrupted = store.markTaskInterrupted(taskId, "process_restarted");
+            LongRunningTaskMetadata interrupted = store.applyLifecycleEvent(
+                    taskId,
+                    LongRunningLifecycleEvent.recovery(LongRunningTransitions.Trigger.PROCESS_RESTARTED));
             session.setLongRunningStage(LongRunningStage.INTERRUPT);
             session.setLongRunningReason(interrupted.reason());
         } catch (LongRunningTaskLeaseUnavailableException exception) {
             session.setLongRunningStage(LongRunningStage.INTERRUPT);
-            session.setLongRunningReason("already_running_elsewhere");
+            session.setLongRunningReason(LongRunningTransitions.Trigger.ALREADY_RUNNING_ELSEWHERE.wire());
         }
     }
 }

@@ -110,7 +110,9 @@ public final class LongRunningRuntime implements AutoCloseable {
             return false;
         }
         interruptRequested.set(true);
-        interruptReason.set(reason == null || reason.isBlank() ? "user_interrupted" : reason.strip());
+        interruptReason.set(reason == null || reason.isBlank()
+                ? LongRunningTransitions.Trigger.USER_INTERRUPTED.wire()
+                : reason.strip());
         Thread thread = launcherThread.get();
         if (thread != null) {
             thread.interrupt();
@@ -125,7 +127,7 @@ public final class LongRunningRuntime implements AutoCloseable {
 
     @Override
     public void close() {
-        interrupt("runtime_closed");
+        interrupt(LongRunningTransitions.Trigger.RUNTIME_CLOSED.wire());
         executor.shutdownNow();
         try {
             executor.awaitTermination(5, TimeUnit.SECONDS);
@@ -147,8 +149,11 @@ public final class LongRunningRuntime implements AutoCloseable {
         if (projectDir == null || taskId == null || reason == null || reason.isBlank()) {
             return;
         }
+        LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(reason)
+                .orElse(LongRunningTransitions.Trigger.USER_INTERRUPTED);
         try {
-            new LongRunningTaskStore(projectDir).markTaskInterrupted(taskId, reason);
+            new LongRunningTaskStore(projectDir).applyLifecycleEvent(
+                    taskId, LongRunningLifecycleEvent.runtime(trigger));
         } catch (RuntimeException ignored) {
             // Completion reconciliation will surface the persisted task state.
         }

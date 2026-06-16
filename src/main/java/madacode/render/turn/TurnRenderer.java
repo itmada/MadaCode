@@ -74,7 +74,9 @@ public final class TurnRenderer implements SessionListener {
             dismissStatusLine();
             return;
         }
-        showStatusLine(last, TurnStatusRenderable.Mode.TOOL_USE);
+        // A tool is still executing, so its card owns the animation; the status
+        // line yields and stays static (no competing braille spinner).
+        showStatusLine(last, TurnStatusRenderable.Mode.TOOL_ACTIVE);
     }
 
     @Override
@@ -102,9 +104,10 @@ public final class TurnRenderer implements SessionListener {
         if (!activeToolDescriptions.isEmpty()) {
             maybeRestoreToolStatus();
         } else if (hasPendingToolCard()) {
-            // Tools are declared but none has started yet — keep the spinner
-            // alive across the permission/hook gap so the UI never goes blank.
-            showStatusLine("Preparing...", TurnStatusRenderable.Mode.TOOL_USE);
+            // Tools are declared but none has started yet — the card is still
+            // pure-queued and renders empty, so the status line is the only
+            // indicator and keeps its spinner alive across the hook gap.
+            showStatusLine("Preparing...", TurnStatusRenderable.Mode.WORKING);
         } else {
             dismissStatusLine();
         }
@@ -161,7 +164,7 @@ public final class TurnRenderer implements SessionListener {
             // Keep a spinner running (below the card) so the gap between block
             // arrival and onToolExecutionStarted (permission gate, hook I/O) is
             // not blank.
-            showStatusLine("Preparing...", TurnStatusRenderable.Mode.TOOL_USE);
+            showStatusLine("Preparing...", TurnStatusRenderable.Mode.WORKING);
             turnView.markDirty();
         }
     }
@@ -208,7 +211,8 @@ public final class TurnRenderer implements SessionListener {
         }
         String activity = toolDisplays.activityDescription(toolName, input);
         activeToolDescriptions.put(toolUseId, activity);
-        showStatusLine(activity, TurnStatusRenderable.Mode.TOOL_USE);
+        // Card now animates its own spinner; status line yields to it.
+        showStatusLine(activity, TurnStatusRenderable.Mode.TOOL_ACTIVE);
         turnView.markDirty();
     }
 
@@ -363,6 +367,12 @@ public final class TurnRenderer implements SessionListener {
         if (card != null) {
             if (screen instanceof JLineScreen jls) jls.lockModal();
             card.enterPermissionPhase();
+            // The card is now started and animates its own spinner while the
+            // approval prompt is up; yield the status line so the two braille
+            // spinners don't run side by side during the permission wait.
+            if (statusLine != null) {
+                statusLine.updateMessage("", TurnStatusRenderable.Mode.TOOL_ACTIVE);
+            }
             turnView.flushNow();
         }
     }

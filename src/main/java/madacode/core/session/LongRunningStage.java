@@ -6,7 +6,9 @@ public enum LongRunningStage {
     DRAFT,
     RUNNING,
     INTERRUPT,
-    DONE;
+    COMPLETED,
+    CANCELLED,
+    FAILED;
 
     public LongRunningStage normalized() {
         return this;
@@ -20,8 +22,14 @@ public enum LongRunningStage {
             case "DRAFT" -> Optional.of(DRAFT);
             case "RUNNING" -> Optional.of(RUNNING);
             case "INTERRUPT" -> Optional.of(INTERRUPT);
-            case "DONE" -> Optional.of(DONE);
+            case "COMPLETED" -> Optional.of(COMPLETED);
+            case "CANCELLED", "CANCELED" -> Optional.of(CANCELLED);
+            case "FAILED" -> Optional.of(FAILED);
             default -> Optional.empty();
         };
+    }
+
+    public boolean isTerminal() {
+        return this == COMPLETED || this == CANCELLED || this == FAILED;
     }
 }

@@ -63,7 +63,7 @@ public final class LongRunStateTransitionRequestTool
         properties.set("target_status", ToolSchemas.stringEnumProperty(
                 mapper,
                 "Requested target status for the control session",
-                "RUNNING", "DONE"));
+                "RUNNING", "CANCELLED", "FAILED"));
         properties.set("reason", ToolSchemas.stringEnumProperty(
                 mapper,
                 "Why this transition is being requested",

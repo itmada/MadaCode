@@ -242,18 +242,18 @@ class SystemPromptBuilderTest {
                 ## Long-Running Workflow
                 - You are in harness-controlled long-running mode.
                 - You are the controller agent and remain the main agent. Ordinary tools such as file reads, bash, write, and edit remain available subject to the normal permission gate.
-                - Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, and DONE.
+                - Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, COMPLETED, CANCELLED, and FAILED.
                 - RUNNING is monitor-owned: the controller input loop is suspended while workers execute.
                 - Treat session messages prefixed with [controller-event] as trusted controller/runtime facts that happened outside the model turn.
-                - Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING or DONE; runtime asks the user before applying model-requested transitions.
+                - Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING, CANCELLED, or FAILED; runtime asks the user before applying model-requested transitions.
                 - Do not claim a state transition happened until runtime confirms it.
-                - Never use DONE/cancelled to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.
+                - Never use CANCELLED or FAILED to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.
                 - Current stage: INTERRUPT.
                 - Worker execution is stopped or waiting for controller/user intervention.
                 - Inspect the task store, progress.txt, known_issues.json, and logs/events.jsonl as needed before revising the plan.
                 - Use longrun_plan_update to record corrections, added constraints, feature changes, known issues, and progress notes.
                 - When the task is ready to resume, call longrun_state_transition_request target_status=RUNNING reason=resume_after_interrupt with a concise summary; runtime will ask the user to confirm.
-                - If the user wants to cancel the lifecycle, request target_status=DONE with reason=user_requested_cancel.
+                - If the user wants to cancel the lifecycle, request target_status=CANCELLED with reason=user_requested_cancel.
                 - Forbidden: do not call longrun_task_update or worker_report from this control session.
                 - Active task id: task-7
                 - Task store directory: %s

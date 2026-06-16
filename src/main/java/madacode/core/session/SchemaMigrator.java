@@ -116,7 +116,7 @@ final class SchemaMigrator {
         return root;
     }
 
-    // ---- v6 → v7: converge long-running state to DRAFT/RUNNING/INTERRUPT/DONE ----
+    // ---- v6 → v7: normalize long-running lifecycle state names ----
     private static ObjectNode v6ToV7(ObjectNode root) {
         JsonNode stageNode = root.get("longRunningStage");
         if (stageNode != null && stageNode.isTextual()) {

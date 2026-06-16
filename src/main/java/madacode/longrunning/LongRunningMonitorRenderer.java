@@ -77,7 +77,9 @@ public final class LongRunningMonitorRenderer {
             return Tk.info("‖ INTERRUPT");
         }
         return switch (snapshot.stage() == null ? "" : snapshot.stage()) {
-            case "DONE" -> Tk.success("✓ DONE");
+            case "COMPLETED" -> Tk.success("✓ COMPLETED");
+            case "CANCELLED" -> Tk.warn("× CANCELLED");
+            case "FAILED" -> Tk.failure("✗ FAILED");
             case "INTERRUPT" -> Tk.info("‖ INTERRUPT");
             default -> Tk.accent("◍ RUNNING");
         };

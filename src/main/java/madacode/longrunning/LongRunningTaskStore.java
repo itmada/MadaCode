@@ -173,12 +173,29 @@ public final class LongRunningTaskStore {
         return lockManager.withTaskMetadataLock(taskId, () -> repository.markTaskCompleted(taskId));
     }
 
+    public synchronized LongRunningTaskMetadata applyLifecycleTransition(
+            String taskId,
+            LongRunningTransitions.Trigger trigger) {
+        Objects.requireNonNull(trigger, "trigger");
+        return lockManager.withTaskMetadataLock(taskId, () -> repository.applyLifecycleTransition(taskId, trigger));
+    }
+
+    public synchronized LongRunningTaskMetadata applyLifecycleEvent(
+            String taskId,
+            LongRunningLifecycleEvent event) {
+        Objects.requireNonNull(event, "event");
+        return lockManager.withTaskMetadataLock(taskId, () -> repository.applyLifecycleEvent(taskId, event));
+    }
+
     public synchronized LongRunningTaskMetadata markTaskExecuting(String taskId) {
         return lockManager.withTaskMetadataLock(taskId, () -> repository.markTaskExecuting(taskId));
     }
 
     public synchronized LongRunningTaskMetadata markTaskInterrupted(String taskId) {
-        return lockManager.withTaskMetadataLock(taskId, () -> repository.markTaskInterrupted(taskId, "user_interrupted"));
+        return lockManager.withTaskMetadataLock(
+                taskId,
+                () -> repository.markTaskInterrupted(
+                        taskId, LongRunningTransitions.Trigger.USER_INTERRUPTED.wire()));
     }
 
     public synchronized LongRunningTaskMetadata markTaskInterrupted(String taskId, String reason) {
