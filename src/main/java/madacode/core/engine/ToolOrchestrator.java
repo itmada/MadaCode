@@ -18,6 +18,8 @@ import madacode.core.turn.TurnRunner;
 
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
+import madacode.tool.access.ToolAccessResolver;
+import madacode.tool.access.ToolAccessScope;
 import madacode.tool.validation.ToolInputCoercion;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +39,7 @@ public final class ToolOrchestrator {
 
     private final ToolRegistry toolRegistry;
     private final ToolExecutor toolExecutor;
+    private final ToolAccessResolver toolAccessResolver;
     private final ObjectMapper mapper;
 
     public ToolOrchestrator(ToolRegistry toolRegistry, ToolExecutor toolExecutor) {
@@ -46,6 +49,7 @@ public final class ToolOrchestrator {
     public ToolOrchestrator(ToolRegistry toolRegistry, ToolExecutor toolExecutor, ObjectMapper mapper) {
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.toolExecutor = Objects.requireNonNull(toolExecutor, "toolExecutor");
+        this.toolAccessResolver = ToolAccessResolver.defaultResolver();
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -55,7 +59,7 @@ public final class ToolOrchestrator {
         if (toolCalls.isEmpty()) return List.of();
 
         List<ResolvedToolCall> resolvedCalls = toolCalls.stream()
-                .map(this::resolve)
+                .map((ToolCall call) -> resolve(call, context.toolAccessScope()))
                 .toList();
         List<ToolResult> results = new ArrayList<>(Collections.nCopies(toolCalls.size(), null));
         int i = 0;
@@ -167,8 +171,8 @@ public final class ToolOrchestrator {
         return r == null ? "interrupted" : r;
     }
 
-    private ResolvedToolCall resolve(ToolCall call) {
-        return ResolvedToolCall.resolve(call, toolRegistry, mapper);
+    private ResolvedToolCall resolve(ToolCall call, ToolAccessScope accessScope) {
+        return ResolvedToolCall.resolve(call, toolRegistry, mapper, toolAccessResolver, accessScope);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -204,9 +208,21 @@ public final class ToolOrchestrator {
         }
 
         static ResolvedToolCall resolve(ToolCall toolCall, ToolRegistry toolRegistry, ObjectMapper mapper) {
+            return resolve(toolCall, toolRegistry, mapper, null, null);
+        }
+
+        static ResolvedToolCall resolve(
+                ToolCall toolCall,
+                ToolRegistry toolRegistry,
+                ObjectMapper mapper,
+                ToolAccessResolver accessResolver,
+                ToolAccessScope accessScope) {
             Tool<?> tool = toolRegistry.find(toolCall.toolName()).orElse(null);
             if (tool == null) {
                 return new ResolvedToolCall(toolCall, null, toolCall.input().deepCopy(), null, null, true);
+            }
+            if (accessResolver != null && accessResolver.exposedToolDenialReason(tool, accessScope) != null) {
+                return new ResolvedToolCall(toolCall, tool, toolCall.input().deepCopy(), null, null, true);
             }
             try {
                 Object typedInput = ToolInputCoercion.coerceUnchecked(tool, toolCall.input(), mapper);
@@ -218,8 +234,16 @@ public final class ToolOrchestrator {
             }
         }
 
+        ResolvedToolCall resolveIfNeeded(
+                ToolRegistry toolRegistry,
+                ObjectMapper mapper,
+                ToolAccessResolver accessResolver,
+                ToolAccessScope accessScope) {
+            return resolved ? this : resolve(toolCall, toolRegistry, mapper, accessResolver, accessScope);
+        }
+
         ResolvedToolCall resolveIfNeeded(ToolRegistry toolRegistry, ObjectMapper mapper) {
-            return resolved ? this : resolve(toolCall, toolRegistry, mapper);
+            return resolveIfNeeded(toolRegistry, mapper, null, null);
         }
 
         boolean hasReusableTypedInput(ObjectNode effectiveInput) {

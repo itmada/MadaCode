@@ -10,6 +10,7 @@ import madacode.permission.PermissionGate;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.core.engine.ToolExecutor;
+import madacode.tool.access.AgentToolProfile;
 import madacode.util.ToolNameNormalizer;
 
 import java.util.Objects;
@@ -19,11 +20,12 @@ import java.util.stream.Collectors;
 /**
  * Runs a sub-agent with an independent message context.
  *
- * <p>Single source of truth for sub-agent capabilities: the child
- * {@link ToolRegistry} is filtered by {@code allowedTools}/{@code disallowedTools}
- * (with {@code agent} always excluded to prevent recursion). The child
- * shares the parent's {@link PermissionGate} so child tool approvals
- * surface to the user's terminal.
+ * <p>Sub-agent capabilities are attached to the child {@link ToolUseContext}
+ * as an {@link AgentToolProfile}. The child keeps the full tool directory for
+ * name resolution and {@code tool_search}, while the tool access layer decides
+ * prompt visibility, search loadability, and execution callability from that
+ * profile. The child shares the parent's {@link PermissionGate} so child tool
+ * approvals surface to the user's terminal.
  *
  * <p>Plan mode propagates from parent to child: if the parent session is
  * in plan mode, the child is too. Writes inside the sub-agent are then
@@ -55,14 +57,12 @@ public class AgentRunner {
     }
 
     public TurnResult run(AgentDefinition definition, String input, ToolUseContext parentContext) {
-        ToolRegistry childRegistry = buildChildRegistry(definition);
-
         SystemPromptBuilder childPromptBuilder = SystemPromptBuilder.builder()
                 .agentContext(definition.systemPrompt())
                 .build();
 
         QueryEngine.Builder engineBuilder = QueryEngine.builder(
-                apiClient, childRegistry, childPromptBuilder, parentGate);
+                apiClient, fullRegistry, childPromptBuilder, parentGate);
         if (definition.maxIterations() != null) {
             engineBuilder.maxIterations(definition.maxIterations());
         }
@@ -71,8 +71,6 @@ public class AgentRunner {
         ConversationSession parentSession = parentContext.session();
         ConversationSession childSession = new ConversationSession(parentContext.workingDirectory());
         childSession.setPlanMode(parentSession.isPlanMode());
-        childSession.loadDeferredTools(parentSession.loadedDeferredTools());
-        childSession.loadDeferredTools(canonicalToolNames(definition.allowedTools()));
 
         // Sub-agents inherit the parent session's permission mode. Spawning a
         // sub-agent must never escalate privileges beyond what the user granted
@@ -84,30 +82,15 @@ public class AgentRunner {
         String parentToolUseId = ToolExecutor.CURRENT_TOOL_USE_ID.get();
         childSession.addListener(new ParentEventForwarder(parentSession, parentToolUseId));
 
-        ToolUseContext childContext = parentContext.childContext(childSession);
+        ToolUseContext childContext = parentContext.childContext(
+                childSession,
+                new AgentToolProfile(
+                        definition.agentType(),
+                        canonicalToolNames(definition.allowedTools()),
+                        canonicalToolNames(definition.disallowedTools()),
+                        true));
 
         return childEngine.runTurn(childSession, input, childContext);
-    }
-
-    private ToolRegistry buildChildRegistry(AgentDefinition definition) {
-        ToolRegistry childRegistry = new ToolRegistry();
-        Set<String> allowedTools = canonicalToolNames(definition.allowedTools());
-        Set<String> disallowedTools = canonicalToolNames(definition.disallowedTools());
-        fullRegistry.tools().stream()
-                .filter(t -> {
-                    if ("agent".equals(t.name())) {
-                        return false;
-                    }
-                    if (disallowedTools.contains(t.name())) {
-                        return false;
-                    }
-                    if (!allowedTools.isEmpty()) {
-                        return allowedTools.contains(t.name());
-                    }
-                    return true;
-                })
-                .forEach(childRegistry::register);
-        return childRegistry;
     }
 
     private Set<String> canonicalToolNames(Set<String> names) {

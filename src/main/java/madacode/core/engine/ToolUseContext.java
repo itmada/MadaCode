@@ -5,6 +5,8 @@ import madacode.core.turn.CancellationToken;
 import madacode.cli.UnavailablePromptChannel;
 import madacode.cli.UserPromptChannel;
 import madacode.tool.VisibleTools;
+import madacode.tool.access.AgentToolProfile;
+import madacode.tool.access.ToolAccessScope;
 
 import java.nio.file.Path;
 import java.util.Objects;
@@ -18,7 +20,7 @@ public final class ToolUseContext {
     private final int maxDepth;
     private final CancellationToken cancellationToken;
     private final UserPromptChannel userPrompts;
-    private final Set<String> exposedToolNames;
+    private final ToolAccessScope toolAccessScope;
 
     public ToolUseContext(Path workingDirectory, ConversationSession session) {
         this(workingDirectory, session, 0, 1, CancellationToken.never(), UnavailablePromptChannel.INSTANCE);
@@ -42,7 +44,8 @@ public final class ToolUseContext {
                           int maxDepth,
                           CancellationToken cancellationToken,
                           UserPromptChannel userPrompts) {
-        this(workingDirectory, session, depth, maxDepth, cancellationToken, userPrompts, null);
+        this(workingDirectory, session, depth, maxDepth, cancellationToken, userPrompts,
+                ToolAccessScope.unrestricted(session));
     }
 
     private ToolUseContext(Path workingDirectory,
@@ -51,12 +54,14 @@ public final class ToolUseContext {
                            int maxDepth,
                            CancellationToken cancellationToken,
                            UserPromptChannel userPrompts,
-                           Set<String> exposedToolNames) {
+                           ToolAccessScope toolAccessScope) {
         this.workingDirectory = Objects.requireNonNull(workingDirectory, "workingDirectory");
         this.session = Objects.requireNonNull(session, "session");
         this.cancellationToken = Objects.requireNonNull(cancellationToken, "cancellationToken");
         this.userPrompts = Objects.requireNonNull(userPrompts, "userPrompts");
-        this.exposedToolNames = exposedToolNames == null ? null : Set.copyOf(exposedToolNames);
+        this.toolAccessScope = toolAccessScope == null
+                ? ToolAccessScope.unrestricted(session)
+                : toolAccessScope;
         if (depth < 0) {
             throw new IllegalArgumentException("depth must be >= 0, was " + depth);
         }
@@ -97,6 +102,10 @@ public final class ToolUseContext {
         return userPrompts;
     }
 
+    public ToolAccessScope toolAccessScope() {
+        return toolAccessScope;
+    }
+
     public boolean canSpawnSubAgent() {
         return depth < maxDepth;
     }
@@ -113,24 +122,21 @@ public final class ToolUseContext {
                 : Set.copyOf(tools.names());
         return new ToolUseContext(
                 workingDirectory, session, depth, maxDepth,
-                cancellationToken, userPrompts, names);
-    }
-
-    public boolean hasExposedToolSnapshot() {
-        return exposedToolNames != null;
-    }
-
-    public boolean wasToolExposed(String canonicalToolName) {
-        if (exposedToolNames == null) {
-            return true;
-        }
-        return exposedToolNames.contains(canonicalToolName);
+                cancellationToken, userPrompts, toolAccessScope.withExposedToolNames(names));
     }
 
     public ToolUseContext childContext(ConversationSession childSession) {
+        return childContext(childSession, AgentToolProfile.unrestricted());
+    }
+
+    public ToolUseContext childContext(ConversationSession childSession, AgentToolProfile childProfile) {
         // Sub-agents must not prompt the main user.
         return new ToolUseContext(
                 workingDirectory, childSession, depth + 1, maxDepth,
-                cancellationToken, UnavailablePromptChannel.INSTANCE);
+                cancellationToken, UnavailablePromptChannel.INSTANCE,
+                ToolAccessScope.forAgent(
+                        childSession,
+                        childProfile,
+                        toolAccessScope.loadedToolNamesSnapshot()));
     }
 }

@@ -11,7 +11,7 @@ public final class VisibleTools implements Iterable<Tool<?>> {
 
     private final List<Tool<?>> tools;
 
-    VisibleTools(Collection<Tool<?>> tools) {
+    public VisibleTools(Collection<Tool<?>> tools) {
         this.tools = List.copyOf(tools == null ? List.<Tool<?>>of() : tools);
     }
 

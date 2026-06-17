@@ -5,12 +5,15 @@ import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
 import madacode.tool.Tool;
 
-import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 
 /**
- * Unified policy governing long-running-specific tool visibility and execution.
+ * Workflow overlay for long-running-specific tool visibility and execution.
+ *
+ * <p>The global tool access boundary lives in
+ * {@link madacode.tool.access.ToolAccessResolver}. This policy only describes
+ * the long-running workflow role/stage restrictions that the resolver applies
+ * alongside agent capability profiles and deferred-tool loading.
  *
  * <p>Long-running mode does not restrict ordinary controller-agent tools. The
  * control session remains the main agent and can use normal read/write/bash
@@ -37,11 +40,7 @@ public final class LongRunningToolPolicy {
 
     private LongRunningToolPolicy() {}
 
-    /**
-     * Returns {@code true} if the given tool is visible (and thus executable)
-     * in the current session state.
-     */
-    public static boolean isToolVisible(String toolName, ConversationSession session) {
+    private static boolean isToolVisible(String toolName, ConversationSession session) {
         if (!isLongRunningTool(toolName)) {
             return true;
         }
@@ -67,12 +66,7 @@ public final class LongRunningToolPolicy {
         };
     }
 
-    /**
-     * Returns {@code true} if the given tool is visible in the current session
-     * state, considering both long-running tool filtering and pre-execution
-     * write-tool restrictions.
-     */
-    public static boolean isToolVisible(Tool<?> tool, ConversationSession session) {
+    private static boolean isToolVisible(Tool<?> tool, ConversationSession session) {
         if (tool == null) return false;
         String name = tool.name();
 
@@ -102,23 +96,27 @@ public final class LongRunningToolPolicy {
     }
 
     /**
-     * Filters a tool collection, retaining only tools that are visible for the
-     * given session state.
+     * Returns {@code true} when the long-running workflow itself should expose
+     * the tool immediately, independent of deferred-tool loading.
      */
-    public static Collection<Tool<?>> filterVisibleTools(
-            Collection<Tool<?>> tools, ConversationSession session) {
-        return tools.stream()
-                .filter(tool -> isToolVisible(tool, session))
-                .toList();
+    public static boolean isSessionVisibleTool(Tool<?> tool, ConversationSession session) {
+        if (tool == null || session == null || session.workflowMode() != SessionMode.LONG_RUNNING) {
+            return false;
+        }
+        if (isLongRunningTool(tool.name())) {
+            return isToolVisible(tool, session);
+        }
+        return session.isLongRunningWorkerSession() && isToolVisible(tool, session);
     }
 
     /**
      * Returns a denial reason if the tool is not allowed to execute in the
      * current session state, or {@code null} if it is allowed.
      *
-     * <p>This is the <em>single hard execution guard</em> — even if a tool
-     * somehow appears in a model request, it is rejected here. Callers that
-     * only need a boolean check can test {@code reason != null}.
+     * <p>This is the workflow-specific portion of the execution guard. The
+     * global hard boundary is {@link madacode.tool.access.ToolAccessResolver},
+     * which applies this overlay together with agent capability profiles,
+     * deferred-tool loading, and the per-request exposure snapshot.
      *
      * <p>The allow/deny rules are identical to {@link #isToolVisible}; this
      * method adds human-readable reasons for diagnostics.

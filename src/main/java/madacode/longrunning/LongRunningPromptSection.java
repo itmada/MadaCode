@@ -18,6 +18,11 @@ public final class LongRunningPromptSection implements PromptSection {
         if (session == null) {
             return Optional.empty();
         }
+        // Worker sessions carry their own role prompt via agentContext; the
+        // controller-facing long-running protocol must never reach a worker.
+        if (session.isLongRunningWorkerSession()) {
+            return Optional.empty();
+        }
         LongRunningStage stage = session.longRunningStage();
         if (stage == null) {
             return Optional.empty();

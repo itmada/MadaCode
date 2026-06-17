@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.core.model.ToolResult;
-import madacode.longrunning.LongRunningToolPolicy;
+import madacode.tool.access.ToolAccessDecision;
+import madacode.tool.access.ToolAccessResolver;
+import madacode.tool.access.ToolAccessScope;
 import madacode.util.ToolNameNormalizer;
 
 import java.util.ArrayList;
@@ -17,10 +19,11 @@ import java.util.Set;
 
 public final class ToolSearchTool implements Tool<ToolSearchTool.Input> {
 
-    public static final String NAME = "tool_search";
+    public static final String NAME = ToolNames.TOOL_SEARCH;
 
     private static final int DEFAULT_MAX_RESULTS = 8;
     private static final int HARD_MAX_RESULTS = 20;
+    private static final ToolAccessResolver ACCESS = ToolAccessResolver.defaultResolver();
 
     private final ToolRegistry registry;
     private final ObjectMapper mapper;
@@ -135,14 +138,13 @@ public final class ToolSearchTool implements Tool<ToolSearchTool.Input> {
             Tool<?> tool = registry.find(requestedName).orElse(null);
             if (tool == null) {
                 notes.add(requestedName + ": not found");
-            } else if (ToolVisibility.isAlwaysVisible(tool.name())) {
-                notes.add(tool.name() + ": already always visible");
-            } else if (context != null && context.session().loadedDeferredTools().contains(tool.name())) {
-                notes.add(tool.name() + ": already loaded");
-            } else if (!LongRunningToolPolicy.isToolVisible(tool, context == null ? null : context.session())) {
-                notes.add(tool.name() + ": not available in the current session state");
             } else {
-                loaded.add(tool);
+                ToolAccessDecision decision = ACCESS.decideForToolSearch(tool, scope(context));
+                if (decision.loadableBySearch()) {
+                    loaded.add(tool);
+                } else {
+                    notes.add(decision.denialReason());
+                }
             }
         }
         return new SearchResult(loaded, notes);
@@ -166,13 +168,12 @@ public final class ToolSearchTool implements Tool<ToolSearchTool.Input> {
         if (tool == null) {
             return false;
         }
-        if (ToolVisibility.isAlwaysVisible(tool.name())) {
-            return false;
-        }
-        if (context != null && context.session().loadedDeferredTools().contains(tool.name())) {
-            return false;
-        }
-        return LongRunningToolPolicy.isToolVisible(tool, context == null ? null : context.session());
+        ToolAccessDecision decision = ACCESS.decideForToolSearch(tool, scope(context));
+        return decision.loadableBySearch();
+    }
+
+    private static ToolAccessScope scope(ToolUseContext context) {
+        return context == null ? ToolAccessScope.unrestricted(null) : context.toolAccessScope();
     }
 
     private static int score(Tool<?> tool, String[] terms) {

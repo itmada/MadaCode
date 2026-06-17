@@ -9,7 +9,9 @@ import madacode.core.model.MetaEvent;
 import madacode.core.model.ToolCall;
 import madacode.core.model.ToolResult;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionListener;
+import madacode.core.session.SessionMode;
 import madacode.core.turn.CancellationException;
 import madacode.hook.HookManager;
 import madacode.permission.PermissionDecision;
@@ -18,6 +20,10 @@ import madacode.services.api.ApiClient;
 import madacode.tool.AgentTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
+import madacode.tool.ToolVisibility;
+import madacode.tool.VisibleTools;
+import madacode.tool.access.AgentToolProfile;
+import madacode.tool.access.ToolAccessResolver;
 import madacode.tool.validation.ToolInputValidator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +31,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -66,6 +73,73 @@ class ToolExecutorTest {
         assertFalse(listener.events.contains("meta-error"));
         assertTrue(listener.events.contains("completed"));
         assertEquals(List.of("result", "completed"), listener.events);
+    }
+
+    @Test
+    void directExecutorRejectsToolLoadedAfterRequestButNotExposedInSnapshot() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool tool = RecordingTool.succeeding("capture", listener.events);
+
+        ToolUseContext context = context(listener, tool).withExposedTools(ToolVisibility.empty());
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), null).execute(
+                call(tool.name(), validInput("hello")),
+                context);
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("not exposed"));
+        assertEquals(List.of("result", "completed"), listener.events);
+        assertTrue(context.session().loadedDeferredTools().contains(tool.name()));
+    }
+
+    @Test
+    void childContextInheritsLoadedToolOverlayWithoutMutatingChildSession() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool inherited = RecordingTool.succeeding("inherited_tool", listener.events);
+        RecordingTool explicitlyAllowed = RecordingTool.succeeding("allowed_tool", listener.events);
+        RecordingTool outsideProfile = RecordingTool.succeeding("outside_profile", listener.events);
+
+        ConversationSession parentSession = session(listener, inherited);
+        ToolUseContext parentContext = new ToolUseContext(tempDir, parentSession);
+        ConversationSession childSession = new ConversationSession(tempDir);
+        ToolUseContext childContext = parentContext.childContext(
+                childSession,
+                new AgentToolProfile(
+                        "child",
+                        Set.of(inherited.name(), explicitlyAllowed.name()),
+                        Set.of(),
+                        true));
+
+        VisibleTools visibleTools = ToolAccessResolver.defaultResolver().visibleTools(
+                List.of(inherited, explicitlyAllowed, outsideProfile),
+                childContext.toolAccessScope());
+
+        assertEquals(Set.of(inherited.name(), explicitlyAllowed.name()), visibleTools.names());
+        assertTrue(parentSession.loadedDeferredTools().contains(inherited.name()));
+        assertTrue(childSession.loadedDeferredTools().isEmpty());
+        assertFalse(ToolAccessResolver.defaultResolver()
+                .decideForToolSearch(outsideProfile, childContext.toolAccessScope())
+                .loadableBySearch());
+    }
+
+    @Test
+    void longRunningWorkerCapabilitySetAlsoRestrictsToolSearchLoadability() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool workerTool = RecordingTool.succeeding("file_read", listener.events);
+        RecordingTool outsideWorkerSet = RecordingTool.succeeding("web_fetch", listener.events);
+        ConversationSession workerSession = new ConversationSession(tempDir);
+        workerSession.setWorkflowMode(SessionMode.LONG_RUNNING);
+        workerSession.setLongRunningStage(LongRunningStage.RUNNING);
+        workerSession.setLongRunningWorkerSession(true);
+        ToolUseContext workerContext = new ToolUseContext(tempDir, workerSession);
+
+        ToolAccessResolver resolver = ToolAccessResolver.defaultResolver();
+        VisibleTools visibleTools = resolver.visibleTools(
+                List.of(workerTool, outsideWorkerSet),
+                workerContext.toolAccessScope());
+
+        assertEquals(Set.of(workerTool.name()), visibleTools.names());
+        assertFalse(resolver.decideForToolSearch(outsideWorkerSet, workerContext.toolAccessScope())
+                .loadableBySearch());
     }
 
     @Test

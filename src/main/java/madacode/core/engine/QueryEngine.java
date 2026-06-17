@@ -26,6 +26,7 @@ import madacode.logging.DefaultDiagnosticEvents;
 import madacode.logging.DiagnosticEvents;
 import madacode.permission.PermissionGate;
 import madacode.tool.ToolRegistry;
+import madacode.tool.access.ToolAccessResolver;
 import madacode.tool.validation.ToolInputValidator;
 
 import java.util.ArrayList;
@@ -41,6 +42,7 @@ public class QueryEngine {
     private final ToolInputValidator toolInputValidator;
     private final CompactPlanner compactPlanner;
     private final ApiMessageProjection apiMessageProjection;
+    private final ToolAccessResolver toolAccessResolver;
     private final Integer maxIterations;
     private final HookManager hookManager;
     private final DiagnosticEvents diagnosticEvents;
@@ -52,6 +54,7 @@ public class QueryEngine {
         this.toolInputValidator = Objects.requireNonNull(builder.toolInputValidator, "toolInputValidator");
         this.compactPlanner = builder.compactPlanner;
         this.apiMessageProjection = Objects.requireNonNull(builder.apiMessageProjection, "apiMessageProjection");
+        this.toolAccessResolver = ToolAccessResolver.defaultResolver();
         this.maxIterations = builder.maxIterations;
         this.hookManager = builder.hookManager;
         this.diagnosticEvents = Objects.requireNonNull(builder.diagnosticEvents, "diagnosticEvents");
@@ -171,7 +174,7 @@ public class QueryEngine {
             // Recalculate visible tools and system prompt each iteration so that
             // stage changes within a turn (e.g. longrun_task_update completing a
             // task) are reflected in subsequent model requests.
-            var visibleTools = SystemPromptBuilder.visibleToolsForSession(toolRegistry.tools(), session);
+            var visibleTools = toolAccessResolver.visibleTools(toolRegistry.tools(), ctx.toolAccessScope());
             String systemPrompt = systemPromptBuilder.build(
                     visibleTools, session.workingDirectory(), session);
             ToolUseContext executionCtx = ctx.withExposedTools(visibleTools);

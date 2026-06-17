@@ -25,7 +25,7 @@ import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
-import madacode.tool.ToolVisibility;
+import madacode.tool.access.ToolAccessResolver;
 import madacode.tool.validation.ToolInputCoercion;
 import madacode.tool.validation.ToolInputValidator;
 import madacode.tool.validation.ValidationResult;
@@ -43,6 +43,7 @@ public final class ToolExecutor {
     private final PermissionGate permissionGate;
     private final HookManager hookManager;
     private final DiagnosticEvents diagnosticEvents;
+    private final ToolAccessResolver toolAccessResolver;
     private final ObjectMapper mapper;
 
     public ToolExecutor(ToolRegistry toolRegistry,
@@ -79,6 +80,7 @@ public final class ToolExecutor {
         this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate");
         this.hookManager = hookManager;
         this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
+        this.toolAccessResolver = ToolAccessResolver.defaultResolver();
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -104,7 +106,8 @@ public final class ToolExecutor {
                     false);
         }
 
-        resolvedCall = resolvedCall.resolveIfNeeded(toolRegistry, mapper);
+        resolvedCall = resolvedCall.resolveIfNeeded(
+                toolRegistry, mapper, toolAccessResolver, context.toolAccessScope());
         Tool<?> tool = resolvedCall.tool();
         if (tool == null) {
             // An unknown tool is a per-tool, recoverable failure (the model can
@@ -128,7 +131,7 @@ public final class ToolExecutor {
         // Visibility is a hard execution boundary. QueryEngine binds each tool
         // batch to the exact declarations sent with the model request, so tools
         // loaded after that request cannot be called until the next iteration.
-        String denialReason = ToolVisibility.exposedToolDenialReason(tool, context);
+        String denialReason = toolAccessResolver.exposedToolDenialReason(tool, context.toolAccessScope());
         if (denialReason != null) {
             return failResult(session, toolCall, tool.name(), toolCall.input(), denialReason, 0, false);
         }
