@@ -23,5 +23,12 @@ public final class ToolNames {
     public static final String TODO_WRITE = "todo_write";
     public static final String TOOL_SEARCH = "tool_search";
 
+    // Long-running workflow lifecycle tools. Their capability/stage rules live in
+    // madacode.longrunning.LongRunningCapabilityPolicy.
+    public static final String WORKER_REPORT = "worker_report";
+    public static final String LONGRUN_TASK_UPDATE = "longrun_task_update";
+    public static final String LONGRUN_PLAN_UPDATE = "longrun_plan_update";
+    public static final String LONGRUN_STATE_TRANSITION_REQUEST = "longrun_state_transition_request";
+
     private ToolNames() {}
 }

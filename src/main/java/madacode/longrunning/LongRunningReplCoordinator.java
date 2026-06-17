@@ -84,9 +84,11 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                 ? workerTurnLogRoot
                 : sessionStorage.transcriptPath(session.sessionId()).getParent();
         LongRunningWorkerRunner.QueryEngineFactory engineFactory = (toolRegistry, promptBuilder) ->
-                new QueryEngine(
-                        queryEngine.apiClient(), toolRegistry, promptBuilder,
-                        longRunningWorkerPermissionGate());
+                QueryEngine.builder(
+                                queryEngine.apiClient(), toolRegistry, promptBuilder,
+                                longRunningWorkerPermissionGate())
+                        .toolAccessResolver(queryEngine.toolAccessResolver())
+                        .build();
         LongRunningWorkerRunner workerRunner = new LongRunningWorkerRunner(
                 engineFactory, sessionStorage, queryEngine.toolRegistry(), effectiveTurnLogRoot);
         return new LongRunningRuntime(new LongRunningLauncher(workerRunner, taskStoreFactory));

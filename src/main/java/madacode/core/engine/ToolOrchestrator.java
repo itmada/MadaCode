@@ -43,13 +43,28 @@ public final class ToolOrchestrator {
     private final ObjectMapper mapper;
 
     public ToolOrchestrator(ToolRegistry toolRegistry, ToolExecutor toolExecutor) {
-        this(toolRegistry, toolExecutor, new ObjectMapper());
+        this(toolRegistry, toolExecutor, ToolAccessResolver.defaultResolver(), new ObjectMapper());
     }
 
     public ToolOrchestrator(ToolRegistry toolRegistry, ToolExecutor toolExecutor, ObjectMapper mapper) {
+        this(toolRegistry, toolExecutor, ToolAccessResolver.defaultResolver(), mapper);
+    }
+
+    public ToolOrchestrator(
+            ToolRegistry toolRegistry,
+            ToolExecutor toolExecutor,
+            ToolAccessResolver toolAccessResolver) {
+        this(toolRegistry, toolExecutor, toolAccessResolver, new ObjectMapper());
+    }
+
+    public ToolOrchestrator(
+            ToolRegistry toolRegistry,
+            ToolExecutor toolExecutor,
+            ToolAccessResolver toolAccessResolver,
+            ObjectMapper mapper) {
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.toolExecutor = Objects.requireNonNull(toolExecutor, "toolExecutor");
-        this.toolAccessResolver = ToolAccessResolver.defaultResolver();
+        this.toolAccessResolver = Objects.requireNonNull(toolAccessResolver, "toolAccessResolver");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -221,6 +236,9 @@ public final class ToolOrchestrator {
             if (tool == null) {
                 return new ResolvedToolCall(toolCall, null, toolCall.input().deepCopy(), null, null, true);
             }
+            // Pre-resolution only avoids coercing input and marking concurrency-safe for
+            // tools that cannot execute in this request. ToolExecutor repeats the same
+            // access check as the authoritative execution boundary.
             if (accessResolver != null && accessResolver.exposedToolDenialReason(tool, accessScope) != null) {
                 return new ResolvedToolCall(toolCall, tool, toolCall.input().deepCopy(), null, null, true);
             }

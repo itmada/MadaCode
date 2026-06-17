@@ -7,12 +7,14 @@ import madacode.memory.MemoryLoader;
 import madacode.skill.SkillRegistry;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
+import madacode.tool.access.ToolAccessResolver;
 
 final class ToolContext {
 
     private final EnvironmentRuntime environment;
     private final BootstrapResources resources;
     private final ToolRegistry registry;
+    private final ToolAccessResolver toolAccessResolver;
     private final SkillRegistry skillRegistry;
     private final AgentRegistry agentRegistry;
     private final AgentRunner agentRunner;
@@ -23,12 +25,14 @@ final class ToolContext {
             EnvironmentRuntime environment,
             BootstrapResources resources,
             ToolRegistry registry,
+            ToolAccessResolver toolAccessResolver,
             SkillRegistry skillRegistry,
             AgentRegistry agentRegistry,
             AgentRunner agentRunner) {
         this.environment = environment;
         this.resources = resources;
         this.registry = registry;
+        this.toolAccessResolver = toolAccessResolver;
         this.skillRegistry = skillRegistry;
         this.agentRegistry = agentRegistry;
         this.agentRunner = agentRunner;
@@ -44,6 +48,10 @@ final class ToolContext {
 
     ToolRegistry registry() {
         return registry;
+    }
+
+    ToolAccessResolver toolAccessResolver() {
+        return toolAccessResolver;
     }
 
     SkillRegistry skillRegistry() {

@@ -8,10 +8,11 @@ import madacode.core.turn.TurnResult;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.permission.PermissionGate;
 import madacode.tool.Tool;
+import madacode.tool.ToolNameCanonicalizer;
 import madacode.tool.ToolRegistry;
 import madacode.core.engine.ToolExecutor;
-import madacode.tool.access.AgentToolProfile;
-import madacode.util.ToolNameNormalizer;
+import madacode.tool.access.ToolAccessResolver;
+import madacode.tool.access.ToolCapabilityProfile;
 
 import java.util.Objects;
 import java.util.Set;
@@ -21,7 +22,7 @@ import java.util.stream.Collectors;
  * Runs a sub-agent with an independent message context.
  *
  * <p>Sub-agent capabilities are attached to the child {@link ToolUseContext}
- * as an {@link AgentToolProfile}. The child keeps the full tool directory for
+ * as a {@link ToolCapabilityProfile}. The child keeps the full tool directory for
  * name resolution and {@code tool_search}, while the tool access layer decides
  * prompt visibility, search loadability, and execution callability from that
  * profile. The child shares the parent's {@link PermissionGate} so child tool
@@ -49,11 +50,21 @@ public class AgentRunner {
     private final ToolRegistry fullRegistry;
     private final ApiClient apiClient;
     private final PermissionGate parentGate;
+    private final ToolAccessResolver toolAccessResolver;
 
     public AgentRunner(ToolRegistry fullRegistry, ApiClient apiClient, PermissionGate parentGate) {
+        this(fullRegistry, apiClient, parentGate, ToolAccessResolver.defaultResolver());
+    }
+
+    public AgentRunner(
+            ToolRegistry fullRegistry,
+            ApiClient apiClient,
+            PermissionGate parentGate,
+            ToolAccessResolver toolAccessResolver) {
         this.fullRegistry = fullRegistry;
         this.apiClient = apiClient;
         this.parentGate = Objects.requireNonNull(parentGate, "parentGate");
+        this.toolAccessResolver = Objects.requireNonNull(toolAccessResolver, "toolAccessResolver");
     }
 
     public TurnResult run(AgentDefinition definition, String input, ToolUseContext parentContext) {
@@ -62,7 +73,8 @@ public class AgentRunner {
                 .build();
 
         QueryEngine.Builder engineBuilder = QueryEngine.builder(
-                apiClient, fullRegistry, childPromptBuilder, parentGate);
+                        apiClient, fullRegistry, childPromptBuilder, parentGate)
+                .toolAccessResolver(toolAccessResolver);
         if (definition.maxIterations() != null) {
             engineBuilder.maxIterations(definition.maxIterations());
         }
@@ -82,13 +94,13 @@ public class AgentRunner {
         String parentToolUseId = ToolExecutor.CURRENT_TOOL_USE_ID.get();
         childSession.addListener(new ParentEventForwarder(parentSession, parentToolUseId));
 
-        ToolUseContext childContext = parentContext.childContext(
-                childSession,
-                new AgentToolProfile(
-                        definition.agentType(),
-                        canonicalToolNames(definition.allowedTools()),
-                        canonicalToolNames(definition.disallowedTools()),
-                        true));
+        Set<String> allowedTools = canonicalToolNames(definition.allowedTools());
+        Set<String> disallowedTools = canonicalToolNames(definition.disallowedTools());
+        ToolCapabilityProfile childProfile = !definition.allowedToolsSpecified()
+                ? ToolCapabilityProfile.subAgentUnrestricted(definition.agentType(), disallowedTools)
+                : ToolCapabilityProfile.subAgentRestrictedAllowList(
+                        definition.agentType(), allowedTools, disallowedTools);
+        ToolUseContext childContext = parentContext.childContext(childSession, childProfile);
 
         return childEngine.runTurn(childSession, input, childContext);
     }
@@ -109,6 +121,6 @@ public class AgentRunner {
         }
         return fullRegistry.find(name)
                 .map(Tool::name)
-                .orElse(ToolNameNormalizer.normalize(name));
+                .orElse(ToolNameCanonicalizer.canonicalize(name));
     }
 }

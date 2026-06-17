@@ -31,6 +31,7 @@ final class EngineAssembly {
                         permission)
                 .diagnosticEvents(environment.diagnosticEvents())
                 .compactPlanner(compaction)
+                .toolAccessResolver(tools.toolAccessResolver())
                 .hookManager(new HookManager(environment.paths().globalHooksFile()))
                 .build();
         return new EngineRuntime(engine, permission, compaction);

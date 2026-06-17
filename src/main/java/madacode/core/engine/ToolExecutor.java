@@ -58,7 +58,8 @@ public final class ToolExecutor {
                         PermissionGate permissionGate,
                         HookManager hookManager,
                         DiagnosticEvents diagnosticEvents) {
-        this(toolRegistry, inputValidator, permissionGate, hookManager, diagnosticEvents, new ObjectMapper());
+        this(toolRegistry, inputValidator, permissionGate, hookManager,
+                diagnosticEvents, ToolAccessResolver.defaultResolver());
     }
 
     public ToolExecutor(ToolRegistry toolRegistry,
@@ -66,7 +67,8 @@ public final class ToolExecutor {
                         PermissionGate permissionGate,
                         HookManager hookManager,
                         ObjectMapper mapper) {
-        this(toolRegistry, inputValidator, permissionGate, hookManager, new DefaultDiagnosticEvents(), mapper);
+        this(toolRegistry, inputValidator, permissionGate, hookManager,
+                new DefaultDiagnosticEvents(), ToolAccessResolver.defaultResolver(), mapper);
     }
 
     public ToolExecutor(ToolRegistry toolRegistry,
@@ -74,13 +76,24 @@ public final class ToolExecutor {
                         PermissionGate permissionGate,
                         HookManager hookManager,
                         DiagnosticEvents diagnosticEvents,
+                        ToolAccessResolver toolAccessResolver) {
+        this(toolRegistry, inputValidator, permissionGate, hookManager,
+                diagnosticEvents, toolAccessResolver, new ObjectMapper());
+    }
+
+    public ToolExecutor(ToolRegistry toolRegistry,
+                        ToolInputValidator inputValidator,
+                        PermissionGate permissionGate,
+                        HookManager hookManager,
+                        DiagnosticEvents diagnosticEvents,
+                        ToolAccessResolver toolAccessResolver,
                         ObjectMapper mapper) {
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.inputValidator = Objects.requireNonNull(inputValidator, "inputValidator");
         this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate");
         this.hookManager = hookManager;
         this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
-        this.toolAccessResolver = ToolAccessResolver.defaultResolver();
+        this.toolAccessResolver = Objects.requireNonNull(toolAccessResolver, "toolAccessResolver");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -128,9 +141,10 @@ public final class ToolExecutor {
                     false);
         }
 
-        // Visibility is a hard execution boundary. QueryEngine binds each tool
-        // batch to the exact declarations sent with the model request, so tools
-        // loaded after that request cannot be called until the next iteration.
+        // Authoritative access boundary. QueryEngine binds each tool batch to the
+        // exact declarations sent with the model request, so tools loaded after
+        // that request cannot be called until the next iteration. ToolOrchestrator
+        // may pre-check this only to skip coercion/concurrency classification.
         String denialReason = toolAccessResolver.exposedToolDenialReason(tool, context.toolAccessScope());
         if (denialReason != null) {
             return failResult(session, toolCall, tool.name(), toolCall.input(), denialReason, 0, false);

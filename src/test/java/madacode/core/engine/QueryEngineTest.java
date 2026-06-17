@@ -215,12 +215,8 @@ class QueryEngineTest {
     }
 
     private ToolUseContext context(ConversationSession session, CancellationToken cancellationToken) {
-        return new ToolUseContext(
-                session.workingDirectory(),
-                session,
-                0,
-                1,
-                cancellationToken);
+        return new ToolUseContext(session.workingDirectory(), session)
+                .withCancellationToken(cancellationToken);
     }
 
     private ApiClient.ApiResponse response(

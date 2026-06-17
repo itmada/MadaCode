@@ -90,6 +90,7 @@ public class SkillTool implements Tool<SkillTool.Input> {
                     rendered,
                     Set.copyOf(s.allowedTools()),
                     Set.copyOf(s.disallowedTools()),
+                    s.allowedToolsSpecified(),
                     s.maxIterations(), PermissionMode.ACCEPT_EDITS);
             TurnResult result = agentRunner.run(def, rendered, context);
             return AgentResults.toToolResult(name(), result);

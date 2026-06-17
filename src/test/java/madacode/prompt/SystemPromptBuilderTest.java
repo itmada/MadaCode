@@ -95,6 +95,7 @@ class SystemPromptBuilderTest {
                 "inline",
                 List.of(),
                 List.of(),
+                true,
                 null);
         SkillRegistry skillRegistry = new SkillRegistry(
                 new SkillStateStore(tempDir.resolve("skills.json")),

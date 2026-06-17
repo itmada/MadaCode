@@ -10,37 +10,51 @@ import java.util.Set;
 /**
  * Runtime state used by the tool access layer.
  *
- * <p>The session owns persistent deferred-tool loading. The scope adds
- * per-runtime overlays such as inherited loaded tools for sub-agents and the
- * exact tool snapshot exposed to one model request.
+ * <p>The session owns persistent deferred-tool loading. The scope adds per-runtime
+ * overlays: an optional explicit capability profile (for sub-agents), inherited
+ * loaded tools, and the exact tool snapshot exposed to one model request.
+ *
+ * <p>When {@code explicitProfile} is {@code null} the resolver derives the effective
+ * capability from the session's workflow role, so a scope built with a plain
+ * {@link #forSession} on e.g. a long-running worker session is still restricted —
+ * the restriction follows the session, not the construction site.
+ *
+ * <p>Assembly flow:
+ * <ol>
+ *   <li>Root turns start with {@link #forSession}: session and workflow role only.</li>
+ *   <li>Sub-agents use {@link #forSubAgent}: explicit profile plus the parent's
+ *       loaded deferred-tool snapshot.</li>
+ *   <li>Each model request calls {@link #withRequestExposedToolNames}: the exact
+ *       tool declarations sent to the model become the execution boundary for that
+ *       tool batch.</li>
+ * </ol>
  */
 public record ToolAccessScope(
         ConversationSession session,
-        AgentToolProfile agentToolProfile,
+        ToolCapabilityProfile explicitProfile,
         Set<String> preloadedToolNames,
         Set<String> exposedToolNames) {
 
     public ToolAccessScope {
-        agentToolProfile = agentToolProfile == null
-                ? AgentToolProfile.unrestricted()
-                : agentToolProfile;
         preloadedToolNames = Set.copyOf(Objects.requireNonNullElse(preloadedToolNames, Set.of()));
         exposedToolNames = exposedToolNames == null ? null : Set.copyOf(exposedToolNames);
     }
 
-    public static ToolAccessScope unrestricted(ConversationSession session) {
-        return new ToolAccessScope(session, AgentToolProfile.unrestricted(), Set.of(), null);
+    /** Scope whose capability is derived from the session's workflow role. */
+    public static ToolAccessScope forSession(ConversationSession session) {
+        return new ToolAccessScope(session, null, Set.of(), null);
     }
 
-    public static ToolAccessScope forAgent(
+    /** Scope with an explicit sub-agent capability profile plus inherited loaded tools. */
+    public static ToolAccessScope forSubAgent(
             ConversationSession session,
-            AgentToolProfile profile,
+            ToolCapabilityProfile profile,
             Collection<String> preloadedToolNames) {
         return new ToolAccessScope(session, profile, names(preloadedToolNames), null);
     }
 
-    public ToolAccessScope withExposedToolNames(Collection<String> toolNames) {
-        return new ToolAccessScope(session, agentToolProfile, preloadedToolNames, names(toolNames));
+    public ToolAccessScope withRequestExposedToolNames(Collection<String> toolNames) {
+        return new ToolAccessScope(session, explicitProfile, preloadedToolNames, names(toolNames));
     }
 
     public boolean hasExposedToolSnapshot() {

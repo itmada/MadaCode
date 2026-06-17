@@ -22,8 +22,8 @@ import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.tool.ToolVisibility;
 import madacode.tool.VisibleTools;
-import madacode.tool.access.AgentToolProfile;
 import madacode.tool.access.ToolAccessResolver;
+import madacode.tool.access.ToolCapabilityProfile;
 import madacode.tool.validation.ToolInputValidator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -103,11 +103,10 @@ class ToolExecutorTest {
         ConversationSession childSession = new ConversationSession(tempDir);
         ToolUseContext childContext = parentContext.childContext(
                 childSession,
-                new AgentToolProfile(
+                ToolCapabilityProfile.subAgentRestrictedAllowList(
                         "child",
                         Set.of(inherited.name(), explicitlyAllowed.name()),
-                        Set.of(),
-                        true));
+                        Set.of()));
 
         VisibleTools visibleTools = ToolAccessResolver.defaultResolver().visibleTools(
                 List.of(inherited, explicitlyAllowed, outsideProfile),
@@ -118,7 +117,30 @@ class ToolExecutorTest {
         assertTrue(childSession.loadedDeferredTools().isEmpty());
         assertFalse(ToolAccessResolver.defaultResolver()
                 .decideForToolSearch(outsideProfile, childContext.toolAccessScope())
-                .loadableBySearch());
+                .loadable());
+    }
+
+    @Test
+    void explicitEmptyAllowListMeansNoToolsWhileSubAgentUnrestrictedInheritsDirectory() {
+        RecordingListener listener = new RecordingListener();
+        RecordingTool deferred = RecordingTool.succeeding("deferred_tool", listener.events);
+        ConversationSession parentSession = session(listener, deferred);
+        ToolUseContext parentContext = new ToolUseContext(tempDir, parentSession);
+
+        ToolUseContext emptyAllowListContext = parentContext.childContext(
+                new ConversationSession(tempDir),
+                ToolCapabilityProfile.subAgentRestrictedAllowList("none", Set.of(), Set.of()));
+        ToolUseContext defaultContext = parentContext.childContext(
+                new ConversationSession(tempDir),
+                ToolCapabilityProfile.subAgentUnrestricted("default", Set.of()));
+
+        ToolAccessResolver resolver = ToolAccessResolver.defaultResolver();
+
+        assertFalse(resolver.decideForToolSearch(deferred, emptyAllowListContext.toolAccessScope())
+                .loadable());
+        assertTrue(resolver.visibleTools(List.of(deferred), defaultContext.toolAccessScope())
+                .names()
+                .contains(deferred.name()));
     }
 
     @Test
@@ -139,7 +161,7 @@ class ToolExecutorTest {
 
         assertEquals(Set.of(workerTool.name()), visibleTools.names());
         assertFalse(resolver.decideForToolSearch(outsideWorkerSet, workerContext.toolAccessScope())
-                .loadableBySearch());
+                .loadable());
     }
 
     @Test

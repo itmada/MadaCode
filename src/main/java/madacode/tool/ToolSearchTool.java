@@ -23,19 +23,24 @@ public final class ToolSearchTool implements Tool<ToolSearchTool.Input> {
 
     private static final int DEFAULT_MAX_RESULTS = 8;
     private static final int HARD_MAX_RESULTS = 20;
-    private static final ToolAccessResolver ACCESS = ToolAccessResolver.defaultResolver();
 
     private final ToolRegistry registry;
+    private final ToolAccessResolver access;
     private final ObjectMapper mapper;
 
     public record Input(String query, Integer max_results) {}
 
     public ToolSearchTool(ToolRegistry registry) {
-        this(registry, new ObjectMapper());
+        this(registry, ToolAccessResolver.defaultResolver());
     }
 
-    ToolSearchTool(ToolRegistry registry, ObjectMapper mapper) {
+    public ToolSearchTool(ToolRegistry registry, ToolAccessResolver access) {
+        this(registry, access, new ObjectMapper());
+    }
+
+    ToolSearchTool(ToolRegistry registry, ToolAccessResolver access, ObjectMapper mapper) {
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.access = Objects.requireNonNull(access, "access");
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -139,11 +144,11 @@ public final class ToolSearchTool implements Tool<ToolSearchTool.Input> {
             if (tool == null) {
                 notes.add(requestedName + ": not found");
             } else {
-                ToolAccessDecision decision = ACCESS.decideForToolSearch(tool, scope(context));
-                if (decision.loadableBySearch()) {
+                ToolAccessDecision decision = access.decideForToolSearch(tool, scope(context));
+                if (decision.loadable()) {
                     loaded.add(tool);
                 } else {
-                    notes.add(decision.denialReason());
+                    notes.add(requestedName + ": " + decision.reason());
                 }
             }
         }
@@ -168,12 +173,12 @@ public final class ToolSearchTool implements Tool<ToolSearchTool.Input> {
         if (tool == null) {
             return false;
         }
-        ToolAccessDecision decision = ACCESS.decideForToolSearch(tool, scope(context));
-        return decision.loadableBySearch();
+        ToolAccessDecision decision = access.decideForToolSearch(tool, scope(context));
+        return decision.loadable();
     }
 
     private static ToolAccessScope scope(ToolUseContext context) {
-        return context == null ? ToolAccessScope.unrestricted(null) : context.toolAccessScope();
+        return context == null ? ToolAccessScope.forSession(null) : context.toolAccessScope();
     }
 
     private static int score(Tool<?> tool, String[] terms) {

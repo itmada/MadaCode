@@ -5,7 +5,7 @@ import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
 import madacode.permission.PermissionMode;
 import madacode.skill.SkillFrontmatterParser;
-import madacode.util.ToolNameNormalizer;
+import madacode.tool.ToolNameCanonicalizer;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -68,9 +68,10 @@ public final class AgentDefinitionParser {
         String desc = orEmpty(SkillFrontmatterParser.stringField(fm, "description"));
         String when = orEmpty(SkillFrontmatterParser.stringField(fm, "when_to_use"));
 
-        List<String> allowed = ToolNameNormalizer.normalize(
+        boolean allowedToolsSpecified = fm.containsKey("allowed_tools");
+        List<String> allowed = canonicalize(
                 SkillFrontmatterParser.stringListField(fm, "allowed_tools"));
-        List<String> disallowed = ToolNameNormalizer.normalize(
+        List<String> disallowed = canonicalize(
                 SkillFrontmatterParser.stringListField(fm, "disallowed_tools"));
 
         Integer maxIter = optionalPositiveInt(fm, "max_iterations", source, publisher);
@@ -79,7 +80,7 @@ public final class AgentDefinitionParser {
             return Optional.of(new AgentDefinition(
                     name, desc, when, body,
                     Set.copyOf(allowed), Set.copyOf(disallowed),
-                    maxIter, PermissionMode.ACCEPT_EDITS));
+                    allowedToolsSpecified, maxIter, PermissionMode.ACCEPT_EDITS));
         } catch (IllegalArgumentException e) {
             publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("AgentDefinitionParser"),
@@ -118,5 +119,15 @@ public final class AgentDefinitionParser {
 
     private static String orEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    private static List<String> canonicalize(List<String> names) {
+        if (names == null) {
+            return List.of();
+        }
+        return names.stream()
+                .map(ToolNameCanonicalizer::canonicalize)
+                .filter(name -> name != null && !name.isBlank())
+                .toList();
     }
 }

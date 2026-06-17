@@ -39,8 +39,9 @@ public final class QueryEngineTurnRunner implements TurnRunner {
     @Override
     public TurnResult run(Turn turn, ConversationSession session, CancellationToken token)
             throws Exception {
-        ToolUseContext ctx = new ToolUseContext(
-                session.workingDirectory(), session, 0, 1, token, prompts);
+        ToolUseContext ctx = new ToolUseContext(session.workingDirectory(), session)
+                .withCancellationToken(token)
+                .withUserPrompts(prompts);
         return queryEngine.runTurn(session, turn.userInput(), ctx);
     }
 }

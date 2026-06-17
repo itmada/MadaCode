@@ -3,7 +3,7 @@ package madacode.skill;
 import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
-import madacode.util.ToolNameNormalizer;
+import madacode.tool.ToolNameCanonicalizer;
 
 import java.io.IOException;
 import java.net.URI;
@@ -119,14 +119,15 @@ public final class BundledSkillLoader implements SkillLoader {
         String mode = SkillFrontmatterParser.stringField(fm, "mode");
         if (mode == null) mode = "inline";
 
-        List<String> allowed = ToolNameNormalizer.normalize(
+        boolean allowedToolsSpecified = fm.containsKey("allowed_tools");
+        List<String> allowed = canonicalize(
                 SkillFrontmatterParser.stringListField(fm, "allowed_tools"));
-        List<String> disallowed = ToolNameNormalizer.normalize(
+        List<String> disallowed = canonicalize(
                 SkillFrontmatterParser.stringListField(fm, "disallowed_tools"));
         Integer maxIter = optionalPositiveInt(fm, "max_iterations", mdPath, publisher);
 
         return new Skill(name, desc, when, tags, source, parsed.body(),
-                mdPath, dirPath, mode, allowed, disallowed, maxIter);
+                mdPath, dirPath, mode, allowed, disallowed, allowedToolsSpecified, maxIter);
     }
 
     private static Integer optionalPositiveInt(
@@ -152,5 +153,15 @@ public final class BundledSkillLoader implements SkillLoader {
                 EventContext.bootstrap("BundledSkillLoader"),
                 source + ": " + field + " must be a positive integer; leaving unbounded"));
         return null;
+    }
+
+    private static List<String> canonicalize(List<String> names) {
+        if (names == null) {
+            return List.of();
+        }
+        return names.stream()
+                .map(ToolNameCanonicalizer::canonicalize)
+                .filter(name -> name != null && !name.isBlank())
+                .toList();
     }
 }

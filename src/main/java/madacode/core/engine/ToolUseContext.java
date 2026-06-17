@@ -5,7 +5,7 @@ import madacode.core.turn.CancellationToken;
 import madacode.cli.UnavailablePromptChannel;
 import madacode.cli.UserPromptChannel;
 import madacode.tool.VisibleTools;
-import madacode.tool.access.AgentToolProfile;
+import madacode.tool.access.ToolCapabilityProfile;
 import madacode.tool.access.ToolAccessScope;
 
 import java.nio.file.Path;
@@ -22,30 +22,15 @@ public final class ToolUseContext {
     private final UserPromptChannel userPrompts;
     private final ToolAccessScope toolAccessScope;
 
+    /**
+     * Root context for a turn: depth 0, single-level spawn budget, no cancellation,
+     * no user prompts, and a session-derived access scope. Every other shape is built
+     * from here with the {@code withX} copy methods, mirroring {@link #withExposedTools}
+     * and {@link #childContext}.
+     */
     public ToolUseContext(Path workingDirectory, ConversationSession session) {
-        this(workingDirectory, session, 0, 1, CancellationToken.never(), UnavailablePromptChannel.INSTANCE);
-    }
-
-    public ToolUseContext(Path workingDirectory, ConversationSession session, int depth, int maxDepth) {
-        this(workingDirectory, session, depth, maxDepth, CancellationToken.never(), UnavailablePromptChannel.INSTANCE);
-    }
-
-    public ToolUseContext(Path workingDirectory,
-                          ConversationSession session,
-                          int depth,
-                          int maxDepth,
-                          CancellationToken cancellationToken) {
-        this(workingDirectory, session, depth, maxDepth, cancellationToken, UnavailablePromptChannel.INSTANCE);
-    }
-
-    public ToolUseContext(Path workingDirectory,
-                          ConversationSession session,
-                          int depth,
-                          int maxDepth,
-                          CancellationToken cancellationToken,
-                          UserPromptChannel userPrompts) {
-        this(workingDirectory, session, depth, maxDepth, cancellationToken, userPrompts,
-                ToolAccessScope.unrestricted(session));
+        this(workingDirectory, session, 0, 1, CancellationToken.never(),
+                UnavailablePromptChannel.INSTANCE, ToolAccessScope.forSession(session));
     }
 
     private ToolUseContext(Path workingDirectory,
@@ -60,7 +45,7 @@ public final class ToolUseContext {
         this.cancellationToken = Objects.requireNonNull(cancellationToken, "cancellationToken");
         this.userPrompts = Objects.requireNonNull(userPrompts, "userPrompts");
         this.toolAccessScope = toolAccessScope == null
-                ? ToolAccessScope.unrestricted(session)
+                ? ToolAccessScope.forSession(session)
                 : toolAccessScope;
         if (depth < 0) {
             throw new IllegalArgumentException("depth must be >= 0, was " + depth);
@@ -116,25 +101,39 @@ public final class ToolUseContext {
      * snapshot as a hard boundary, so tools loaded or hidden after the request
      * cannot be smuggled into the same tool batch.
      */
+    /** Copy bound to a cooperative cancellation signal for this turn. */
+    public ToolUseContext withCancellationToken(CancellationToken cancellationToken) {
+        return new ToolUseContext(
+                workingDirectory, session, depth, maxDepth,
+                cancellationToken, userPrompts, toolAccessScope);
+    }
+
+    /** Copy bound to a user interaction channel (e.g. ask_user_question). */
+    public ToolUseContext withUserPrompts(UserPromptChannel userPrompts) {
+        return new ToolUseContext(
+                workingDirectory, session, depth, maxDepth,
+                cancellationToken, userPrompts, toolAccessScope);
+    }
+
     public ToolUseContext withExposedTools(VisibleTools tools) {
         Set<String> names = tools == null
                 ? Set.of()
                 : Set.copyOf(tools.names());
         return new ToolUseContext(
                 workingDirectory, session, depth, maxDepth,
-                cancellationToken, userPrompts, toolAccessScope.withExposedToolNames(names));
+                cancellationToken, userPrompts, toolAccessScope.withRequestExposedToolNames(names));
     }
 
     public ToolUseContext childContext(ConversationSession childSession) {
-        return childContext(childSession, AgentToolProfile.unrestricted());
+        return childContext(childSession, ToolCapabilityProfile.unrestricted());
     }
 
-    public ToolUseContext childContext(ConversationSession childSession, AgentToolProfile childProfile) {
+    public ToolUseContext childContext(ConversationSession childSession, ToolCapabilityProfile childProfile) {
         // Sub-agents must not prompt the main user.
         return new ToolUseContext(
                 workingDirectory, childSession, depth + 1, maxDepth,
                 cancellationToken, UnavailablePromptChannel.INSTANCE,
-                ToolAccessScope.forAgent(
+                ToolAccessScope.forSubAgent(
                         childSession,
                         childProfile,
                         toolAccessScope.loadedToolNamesSnapshot()));

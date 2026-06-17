@@ -13,24 +13,34 @@ public final class AgentDefinition {
     private final String systemPrompt;
     private final Set<String> allowedTools;
     private final Set<String> disallowedTools;
+    private final boolean allowedToolsSpecified;
     private final Integer maxIterations;
     private final PermissionMode permissionMode;
 
     /** Convenience constructor for simple definitions with no turn limit. */
     public AgentDefinition(String name, String description, Set<String> allowedTools) {
         this(name, description, "", "", allowedTools, Set.of(),
-                null, PermissionMode.ACCEPT_EDITS);
+                true, null, PermissionMode.ACCEPT_EDITS);
     }
 
     public AgentDefinition(String agentType, String description, String whenToUse,
                            String systemPrompt, Set<String> allowedTools,
                            Set<String> disallowedTools, Integer maxIterations, PermissionMode permissionMode) {
+        this(agentType, description, whenToUse, systemPrompt, allowedTools, disallowedTools,
+                allowedTools != null, maxIterations, permissionMode);
+    }
+
+    public AgentDefinition(String agentType, String description, String whenToUse,
+                           String systemPrompt, Set<String> allowedTools,
+                           Set<String> disallowedTools, boolean allowedToolsSpecified,
+                           Integer maxIterations, PermissionMode permissionMode) {
         this.agentType = Objects.requireNonNull(agentType, "agentType");
         this.description = Objects.requireNonNull(description, "description");
         this.whenToUse = Objects.requireNonNull(whenToUse, "whenToUse");
         this.systemPrompt = Objects.requireNonNull(systemPrompt, "systemPrompt");
-        this.allowedTools = Set.copyOf(allowedTools);
-        this.disallowedTools = Set.copyOf(disallowedTools);
+        this.allowedTools = Set.copyOf(allowedTools == null ? Set.of() : allowedTools);
+        this.disallowedTools = Set.copyOf(disallowedTools == null ? Set.of() : disallowedTools);
+        this.allowedToolsSpecified = allowedToolsSpecified;
         this.maxIterations = requirePositiveOrNull(maxIterations, "maxIterations");
         this.permissionMode = permissionMode == null ? PermissionMode.ACCEPT_EDITS : permissionMode;
     }
@@ -49,6 +59,7 @@ public final class AgentDefinition {
     public String systemPrompt()    { return systemPrompt; }
     public Set<String> allowedTools()    { return allowedTools; }
     public Set<String> disallowedTools() { return disallowedTools; }
+    public boolean allowedToolsSpecified() { return allowedToolsSpecified; }
     public Integer maxIterations()  { return maxIterations; }
     public PermissionMode permissionMode() { return permissionMode; }
 }

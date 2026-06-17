@@ -15,6 +15,7 @@ import madacode.skill.SkillRegistry;
 import madacode.skill.SkillSource;
 import madacode.skill.SkillStateStore;
 import madacode.tool.ToolRegistry;
+import madacode.tool.access.ToolAccessResolver;
 
 import java.util.List;
 
@@ -29,11 +30,14 @@ final class ToolAssembly {
             PermissionGate permission,
             AppEventPublisher publisher) {
         ToolRegistry registry = new ToolRegistry();
+        ToolAccessResolver toolAccessResolver =
+                new ToolAccessResolver(ToolAccessResolver.defaultWorkflowPolicy());
         SkillRegistry skills = initSkills(environment, publisher);
         AgentRegistry agents = initAgents(environment, publisher);
-        AgentRunner agentRunner = new AgentRunner(registry, environment.api(), permission);
+        AgentRunner agentRunner = new AgentRunner(
+                registry, environment.api(), permission, toolAccessResolver);
         ToolContext context = new ToolContext(
-                environment, resources, registry, skills, agents, agentRunner);
+                environment, resources, registry, toolAccessResolver, skills, agents, agentRunner);
 
         List<ToolModule> modules = List.of(
                 new FileToolModule(),
@@ -49,6 +53,7 @@ final class ToolAssembly {
 
         return new ToolRuntime(
                 registry,
+                toolAccessResolver,
                 context.memory(),
                 context.mcpManager(),
                 skills,

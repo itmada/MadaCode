@@ -54,7 +54,7 @@ public class QueryEngine {
         this.toolInputValidator = Objects.requireNonNull(builder.toolInputValidator, "toolInputValidator");
         this.compactPlanner = builder.compactPlanner;
         this.apiMessageProjection = Objects.requireNonNull(builder.apiMessageProjection, "apiMessageProjection");
-        this.toolAccessResolver = ToolAccessResolver.defaultResolver();
+        this.toolAccessResolver = Objects.requireNonNull(builder.toolAccessResolver, "toolAccessResolver");
         this.maxIterations = builder.maxIterations;
         this.hookManager = builder.hookManager;
         this.diagnosticEvents = Objects.requireNonNull(builder.diagnosticEvents, "diagnosticEvents");
@@ -82,6 +82,9 @@ public class QueryEngine {
     /** Returns the tool registry used by this engine. */
     public ToolRegistry toolRegistry() { return toolRegistry; }
 
+    /** Returns the access resolver used for prompt visibility, search, and execution. */
+    public ToolAccessResolver toolAccessResolver() { return toolAccessResolver; }
+
     public static Builder builder(ApiClient apiClient,
                                   ToolRegistry toolRegistry,
                                   SystemPromptBuilder systemPromptBuilder,
@@ -97,6 +100,7 @@ public class QueryEngine {
         private ToolInputValidator toolInputValidator = new ToolInputValidator();
         private CompactPlanner compactPlanner;
         private ApiMessageProjection apiMessageProjection = new ApiMessageProjection();
+        private ToolAccessResolver toolAccessResolver = ToolAccessResolver.defaultResolver();
         private Integer maxIterations;
         private HookManager hookManager;
         private DiagnosticEvents diagnosticEvents = new DefaultDiagnosticEvents();
@@ -120,6 +124,7 @@ public class QueryEngine {
         public Builder toolInputValidator(ToolInputValidator v) { this.toolInputValidator = Objects.requireNonNull(v); return this; }
         public Builder compactPlanner(CompactPlanner p)     { this.compactPlanner = p; return this; }
         public Builder apiMessageProjection(ApiMessageProjection p) { this.apiMessageProjection = Objects.requireNonNull(p); return this; }
+        public Builder toolAccessResolver(ToolAccessResolver r) { this.toolAccessResolver = Objects.requireNonNull(r); return this; }
         public Builder hookManager(HookManager h)           { this.hookManager = h; return this; }
         public Builder diagnosticEvents(DiagnosticEvents d) { this.diagnosticEvents = Objects.requireNonNull(d); return this; }
 
@@ -144,8 +149,10 @@ public class QueryEngine {
         diagnosticEvents.turnStarted(session, maxIterations);
 
         ToolExecutor toolExecutor = new ToolExecutor(
-                toolRegistry, toolInputValidator, permissionGate, hookManager, diagnosticEvents);
-        ToolOrchestrator toolOrchestrator = new ToolOrchestrator(toolRegistry, toolExecutor);
+                toolRegistry, toolInputValidator, permissionGate, hookManager,
+                diagnosticEvents, toolAccessResolver);
+        ToolOrchestrator toolOrchestrator = new ToolOrchestrator(
+                toolRegistry, toolExecutor, toolAccessResolver);
 
         CancellationToken cancel = ctx.cancellationToken();
 

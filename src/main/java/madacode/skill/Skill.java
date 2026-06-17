@@ -16,6 +16,7 @@ public record Skill(
         String mode,                  // "inline" (default) or "fork"
         List<String> allowedTools,
         List<String> disallowedTools,
+        boolean allowedToolsSpecified,
         Integer maxIterations) {
 
     public Skill {

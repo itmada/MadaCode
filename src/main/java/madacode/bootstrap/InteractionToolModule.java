@@ -23,6 +23,6 @@ final class InteractionToolModule implements ToolModule {
         context.register(new LongRunTaskUpdateTool());
         context.register(new WorkerReportTool());
         context.register(new AddProviderTool(env.providerRegistry(), env.providerLoader()));
-        context.register(new ToolSearchTool(context.registry()));
+        context.register(new ToolSearchTool(context.registry(), context.toolAccessResolver()));
     }
 }

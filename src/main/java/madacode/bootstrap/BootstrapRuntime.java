@@ -20,6 +20,7 @@ import madacode.logging.DiagnosticEvents;
 import madacode.services.api.ApiClient;
 import madacode.services.compact.CompactPlanner;
 import madacode.skill.SkillRegistry;
+import madacode.tool.access.ToolAccessResolver;
 import madacode.storage.RuntimePaths;
 import madacode.tool.ToolRegistry;
 import madacode.tui.JLineScreen;
@@ -52,6 +53,7 @@ record EventsRuntime(
 
 record ToolRuntime(
         ToolRegistry registry,
+        ToolAccessResolver toolAccessResolver,
         MemoryLoader memory,
         McpConnectionManager mcpManager,
         SkillRegistry skillRegistry,
