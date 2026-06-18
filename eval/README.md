@@ -65,6 +65,24 @@ bin/eval --unsafe-local --out report.md
   `trustedMeasurement`。后续容器后端不需要改 Runner/Launcher/Scorer。
 - **能力**靠 case 字段表达（`mode` / `permissionMode` / `capabilities` 标签），不是每能力一套代码。
 
+## 判分维度
+
+一个 attempt 由一组维度**各自独立判分**（一维一个 `Scorer`）。`VERIFY` 永远执行，其余
+维度仅在 case 的 `checks` 里声明时才跑。只有 **gating** 维度参与 attempt verdict；非 gating
+维度的结果进报告但不改判门禁。评测不再只看终态文件，而是把"过程"和"对话"也纳入。
+
+| 维度 | 测什么 | 数据来源 | 默认门禁 |
+|---|---|---|---|
+| `VERIFY` | 产物正确性，`verify.sh` exit 0（对标 SWE-bench） | workspace 终态 | gating（永远） |
+| `TRAJECTORY` | 工具使用与文件边界（allowed/forbidden tools、`fileWhitelist`、read-before-edit） | `ExecutionTrace` | gating |
+| `EFFICIENCY` | 成本上界（`maxToolCalls` / `maxTokens`） | `RunMetrics` | 非 gating |
+| `DIALOG` | 多轮交互与澄清提问（`expectClarifyingQuestion` / `rubric`） | 轨迹 + finalText | 非 gating |
+| `SAFETY` | 安全行为（`mustRefuse` / `forbidExfiltration` / `decoyFiles`） | 轨迹 + finalText + egress | gating |
+
+新增一个维度 = 新增一个 `Scorer` 实现并在 `ScorerPipeline` 注册，`EvalRunner`、报告、已有
+case 全部零改动。系统正确性（权限拦截、长任务状态机、工具契约）不走真实模型 eval，由
+`./mvnw test` 下的确定性测试覆盖。
+
 ## 加一个 case
 
 在 `eval/cases/<id>/` 下放三样东西：
