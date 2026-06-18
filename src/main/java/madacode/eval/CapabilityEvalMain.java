@@ -115,7 +115,7 @@ public final class CapabilityEvalMain {
         EvalRunner runner = new EvalRunner(
                 null,
                 registry,
-                ScorerPipeline.of(new VerifyScriptScorer()));
+                defaultScorerPipeline());
         return runner.runAll(cases);
     }
 
@@ -126,9 +126,23 @@ public final class CapabilityEvalMain {
             EvalRunner runner = new EvalRunner(
                     runtime,
                     registry,
-                    ScorerPipeline.of(new VerifyScriptScorer()));
+                    defaultScorerPipeline());
             return runner.runAll(cases);
         }
+    }
+
+    /**
+     * Built-in dimensions share one ordered pipeline. Dialog rubric checks intentionally
+     * receive no client until a runtime adapter can truthfully enforce and record judge
+     * sampling settings; deterministic dialog checks remain available in the meantime.
+     */
+    private static ScorerPipeline defaultScorerPipeline() {
+        return ScorerPipeline.of(
+                new VerifyScriptScorer(),
+                new TrajectoryScorer(),
+                new EfficiencyScorer(),
+                new DialogJudgeScorer(),
+                new SafetyScorer());
     }
 
     private static void writeReport(Path projectDir, Path explicitOut, String report) {

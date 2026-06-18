@@ -130,12 +130,14 @@ public final class EvalReport {
         }
         sb.append('\n');
 
-        // Failure detail: every non-passing attempt of every non-PASS case.
+        // Failure/detail findings: include non-gating dimensional failures even when the
+        // overall attempt passed, so optional measurements never disappear from the report.
         List<EvalCaseReport> imperfect = reports.stream()
-                .filter(r -> r.gateVerdict() != EvalCaseReport.GateVerdict.PASS)
+                .filter(r -> r.gateVerdict() != EvalCaseReport.GateVerdict.PASS
+                        || r.attempts().stream().anyMatch(EvalReport::hasDimensionFinding))
                 .toList();
         if (!imperfect.isEmpty()) {
-            sb.append("## Failures & flakes\n\n");
+            sb.append("## Failures, flakes & dimension findings\n\n");
             for (EvalCaseReport r : imperfect) {
                 sb.append("### ").append(r.id()).append(" — gate ").append(r.gateVerdict())
                         .append(", ").append(r.passAtKVerdict())
@@ -144,7 +146,7 @@ public final class EvalReport {
                 int attempt = 0;
                 for (EvalResult a : r.attempts()) {
                     attempt++;
-                    if (a.passed()) {
+                    if (a.passed() && !hasDimensionFinding(a)) {
                         continue;
                     }
                     sb.append("- attempt ").append(attempt).append('/').append(r.samples())
@@ -207,19 +209,31 @@ public final class EvalReport {
     }
 
     private static String dimensionSummary(EvalCaseReport report) {
-        java.util.Map<Dimension, long[]> counts = new java.util.EnumMap<>(Dimension.class);
+        java.util.Map<Dimension, java.util.Map<EvalResult.JudgeStatus, Long>> counts =
+                new java.util.EnumMap<>(Dimension.class);
         for (EvalResult attempt : report.attempts()) {
             for (DimensionScore score : attempt.dimensions()) {
-                long[] values = counts.computeIfAbsent(score.dimension(), ignored -> new long[2]);
-                if (score.status() == EvalResult.JudgeStatus.PASS) {
-                    values[0]++;
-                }
-                values[1]++;
+                counts.computeIfAbsent(
+                                score.dimension(),
+                                ignored -> new java.util.EnumMap<>(EvalResult.JudgeStatus.class))
+                        .merge(score.status(), 1L, Long::sum);
             }
         }
         return counts.entrySet().stream()
-                .map(entry -> entry.getKey() + "=" + entry.getValue()[0] + "/" + entry.getValue()[1])
+                .map(entry -> entry.getKey() + "=" + statusCounts(entry.getValue()))
                 .collect(java.util.stream.Collectors.joining(", "));
+    }
+
+    private static String statusCounts(java.util.Map<EvalResult.JudgeStatus, Long> counts) {
+        return java.util.Arrays.stream(EvalResult.JudgeStatus.values())
+                .filter(status -> counts.getOrDefault(status, 0L) > 0)
+                .map(status -> status.name().charAt(0) + String.valueOf(counts.get(status)))
+                .collect(java.util.stream.Collectors.joining("/"));
+    }
+
+    private static boolean hasDimensionFinding(EvalResult attempt) {
+        return attempt.dimensions().stream()
+                .anyMatch(score -> score.status() != EvalResult.JudgeStatus.PASS);
     }
 
     private static List<String> manifestMismatches(

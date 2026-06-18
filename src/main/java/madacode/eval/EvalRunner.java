@@ -324,7 +324,9 @@ public final class EvalRunner {
 
     private static EvalResult.JudgeStatus aggregateJudgeStatus(
             List<DimensionScore> dimensions) {
-        if (dimensions.stream().anyMatch(score -> score.status() == EvalResult.JudgeStatus.ERROR)) {
+        if (dimensions.stream()
+                .filter(DimensionScore::gating)
+                .anyMatch(score -> score.status() == EvalResult.JudgeStatus.ERROR)) {
             return EvalResult.JudgeStatus.ERROR;
         }
         if (dimensions.stream()

@@ -36,6 +36,8 @@ bin/eval --unsafe-local --out report.md
 - **执行器**复用真实 `QueryEngine`、managed turn、长任务 Controller/状态机和 worker。
 - **判分架构**是一维一个 `Scorer`：`VERIFY` 永远执行且作为门禁，其余维度仅在
   `checks` 中声明时执行。某个 scorer 抛错会被类型化为该维度的 `ERROR`，不会静默跳过。
+  只有声明为 gating 的维度决定 attempt verdict；非 gating 的 FAIL/ERROR 保留在报告中，
+  但不会把原本成功的执行改判为失败或基础设施错误。
 - **轨迹边界**是整个 attempt，而不是某一个 session。控制、长任务 worker 和后续 subagent
   session 都汇入同一个 `ExecutionTraceCollector`；文件变化由 workspace 前后快照计算，
   不从工具名称猜测。长任务运行时自己的 `.mada/long-running/` 状态不计入候选文件改动，
@@ -128,6 +130,11 @@ verify.sh     验收脚本，cwd=沙箱，exit 0 = 通过
 未声明的可选维度不会执行。默认门禁值为：trajectory/safety=`true`，
 efficiency/dialog=`false`。`instruction` 与 `conversation` 同时出现时，
 `instruction` 必须等于第一轮文本，避免两个任务入口产生歧义。
+
+当前 dialog 的 `expectClarifyingQuestion` 使用确定性轨迹判分；`rubric` 已有可注入
+`DialogJudgeClient` 边界，但默认 CLI 尚未注册真实 judge client，因为现有 provider API
+不能诚实保证并记录请求级 temperature/seed。声明 rubric 而没有 client 时，该维度明确返回
+`ERROR`，不会伪装成已完成 LLM 判分。
 
 Schema 是 fail-closed：未知字段、重复 ID、目录名与 ID 不一致、非正预算、缺失 workspace/
 verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在模型调用前失败。
