@@ -1,6 +1,7 @@
 package madacode.longrunning;
 
 import madacode.core.model.FinishReason;
+import madacode.core.model.TokenUsage;
 import madacode.core.session.LongRunningStage;
 import madacode.core.turn.TurnResult;
 
@@ -77,6 +78,9 @@ public final class LongRunningLauncher {
             ControlContext controlContext,
             int maxWorkers,
             LongRunningTaskStore store) {
+        TokenUsage totalTokenUsage = TokenUsage.ZERO;
+        int totalToolCalls = 0;
+        int totalWorkerIterations = 0;
         // Append launcher started event
         appendLauncherEvent(store, taskId, controlContext, "launcher_started",
                 true, "Launcher started for task " + taskId,
@@ -102,7 +106,9 @@ public final class LongRunningLauncher {
             var stopFailure = returnTaskToInterrupt(
                     store, taskId, controlContext, 0,
                     LongRunningTransitions.Trigger.EXECUTION_START_FAILED);
-            if (stopFailure != null) return stopFailure;
+            if (stopFailure != null) {
+                return stopFailure.withMetrics(totalTokenUsage, totalToolCalls, totalWorkerIterations);
+            }
             return new LaunchResult(LaunchStatus.FAILED, 0,
                     "Could not start long-running execution: " + e.getMessage());
         }
@@ -115,9 +121,12 @@ public final class LongRunningLauncher {
                 var stopFailure = returnTaskToInterrupt(
                         store, taskId, controlContext, i,
                         LongRunningTransitions.Trigger.USER_INTERRUPTED);
-                if (stopFailure != null) return stopFailure;
+                if (stopFailure != null) {
+                    return stopFailure.withMetrics(totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                }
                 return new LaunchResult(LaunchStatus.INTERRUPTED, i,
-                        "Launcher interrupted before starting next worker.");
+                        "Launcher interrupted before starting next worker.",
+                        totalTokenUsage, totalToolCalls, totalWorkerIterations);
             }
 
             int allowedCycles = allowedWorkerCycles(store, taskId, maxWorkers);
@@ -131,10 +140,13 @@ public final class LongRunningLauncher {
                 var stopFailure = returnTaskToInterrupt(
                         store, taskId, controlContext, i,
                         LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED);
-                if (stopFailure != null) return stopFailure;
+                if (stopFailure != null) {
+                    return stopFailure.withMetrics(totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                }
                 return new LaunchResult(LaunchStatus.MAX_WORKERS_EXHAUSTED, i,
                         "Launcher exhausted " + allowedCycles
-                                + " worker cycle(s) allowed by the current feature and issue lists.");
+                                + " worker cycle(s) allowed by the current feature and issue lists.",
+                        totalTokenUsage, totalToolCalls, totalWorkerIterations);
             }
 
             // Check if task is already terminal
@@ -143,7 +155,9 @@ public final class LongRunningLauncher {
                 appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                         true, "Task is already " + meta.status(),
                         Map.of("reason", "terminal_status"));
-                return new LaunchResult(LaunchStatus.COMPLETED, i, "Task already " + meta.status());
+                return new LaunchResult(
+                        LaunchStatus.COMPLETED, i, "Task already " + meta.status(),
+                        totalTokenUsage, totalToolCalls, totalWorkerIterations);
             }
 
             // Append worker started event
@@ -159,6 +173,8 @@ public final class LongRunningLauncher {
             try {
                 result = workerRunner.run(taskId, projectDir);
             } catch (RuntimeException e) {
+                boolean quiescent =
+                        !(e instanceof LongRunningWorkerRunner.WorkerDidNotTerminateException);
                 if (Thread.currentThread().isInterrupted() || causedByInterruption(e)) {
                     appendLauncherEvent(store, taskId, controlContext, "worker_finished",
                             false, "Worker interrupted: " + safeMessage(e),
@@ -169,9 +185,13 @@ public final class LongRunningLauncher {
                     var stopFailure = returnTaskToInterrupt(
                             store, taskId, controlContext, i + 1,
                             LongRunningTransitions.Trigger.USER_INTERRUPTED);
-                    if (stopFailure != null) return stopFailure;
+                    if (stopFailure != null) {
+                        return stopFailure.withMetrics(
+                                totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                    }
                     return new LaunchResult(LaunchStatus.INTERRUPTED, i + 1,
-                            "Launcher interrupted during worker cycle.");
+                            "Launcher interrupted during worker cycle.",
+                            totalTokenUsage, totalToolCalls, totalWorkerIterations, quiescent);
                 }
                 appendLauncherEvent(store, taskId, controlContext, "worker_finished",
                         false, "Worker crashed: " + e.getMessage(),
@@ -182,10 +202,17 @@ public final class LongRunningLauncher {
                 var stopFailure = returnTaskToInterrupt(
                         store, taskId, controlContext, i + 1,
                         LongRunningTransitions.Trigger.WORKER_CRASH);
-                if (stopFailure != null) return stopFailure;
+                if (stopFailure != null) {
+                    return stopFailure.withMetrics(
+                            totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                }
                 return new LaunchResult(LaunchStatus.FAILED, i + 1,
-                        "Worker crashed: " + e.getMessage());
+                        "Worker crashed: " + e.getMessage(),
+                        totalTokenUsage, totalToolCalls, totalWorkerIterations);
             }
+            totalTokenUsage = totalTokenUsage.plus(result.tokenUsage());
+            totalToolCalls += result.toolCalls();
+            totalWorkerIterations += result.turnResult() == null ? 0 : result.turnResult().iterations();
 
             // Check if worker produced a report
             if (result.report().isEmpty()) {
@@ -197,9 +224,12 @@ public final class LongRunningLauncher {
                         false, cause.launcherMessage(),
                         cause.launcherDetails());
                 var stopFailure = returnTaskToInterrupt(store, taskId, controlContext, i + 1, cause.reason());
-                if (stopFailure != null) return stopFailure;
+                if (stopFailure != null) {
+                    return stopFailure.withMetrics(
+                            totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                }
                 return new LaunchResult(LaunchStatus.FAILED, i + 1,
-                        cause.resultMessage());
+                        cause.resultMessage(), totalTokenUsage, totalToolCalls, totalWorkerIterations);
             }
 
             WorkerReport report = result.report().get();
@@ -225,7 +255,8 @@ public final class LongRunningLauncher {
                                 true, "Task completed successfully",
                                 Map.of("reason", LongRunningTransitions.Trigger.TASK_COMPLETED.wire()));
                         return new LaunchResult(LaunchStatus.COMPLETED, i + 1,
-                                "Task completed: " + report.summary());
+                                "Task completed: " + report.summary(),
+                                totalTokenUsage, totalToolCalls, totalWorkerIterations);
                     } catch (RuntimeException e) {
                         appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                                 false, "Task completion preconditions not met: " + e.getMessage(),
@@ -233,9 +264,13 @@ public final class LongRunningLauncher {
                         var stopFailure = returnTaskToInterrupt(
                                 store, taskId, controlContext, i + 1,
                                 LongRunningTransitions.Trigger.COMPLETION_FAILED);
-                        if (stopFailure != null) return stopFailure;
+                        if (stopFailure != null) {
+                            return stopFailure.withMetrics(
+                                    totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                        }
                         return new LaunchResult(LaunchStatus.NEEDS_USER, i + 1,
-                                "Worker reported task_completed but preconditions not met: " + e.getMessage());
+                                "Worker reported task_completed but preconditions not met: " + e.getMessage(),
+                                totalTokenUsage, totalToolCalls, totalWorkerIterations);
                     }
                 }
                 case BLOCKED -> {
@@ -265,34 +300,46 @@ public final class LongRunningLauncher {
                     var stopFailure = returnTaskToInterrupt(
                             store, taskId, controlContext, i + 1,
                             LongRunningTransitions.Trigger.WORKER_BLOCKED);
-                    if (stopFailure != null) return stopFailure;
+                    if (stopFailure != null) {
+                        return stopFailure.withMetrics(
+                                totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                    }
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                             false, "Worker blocked: " + report.summary(),
                             Map.of("reason", "blocked"));
                     return new LaunchResult(LaunchStatus.BLOCKED, i + 1,
-                            "Worker blocked: " + report.summary());
+                            "Worker blocked: " + report.summary(),
+                            totalTokenUsage, totalToolCalls, totalWorkerIterations);
                 }
                 case FAILED -> {
                     var stopFailure = returnTaskToInterrupt(
                             store, taskId, controlContext, i + 1,
                             LongRunningTransitions.Trigger.WORKER_FAILED);
-                    if (stopFailure != null) return stopFailure;
+                    if (stopFailure != null) {
+                        return stopFailure.withMetrics(
+                                totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                    }
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                             false, "Worker failed: " + report.summary(),
                             Map.of("reason", LongRunningTransitions.Trigger.WORKER_FAILED.wire()));
                     return new LaunchResult(LaunchStatus.FAILED, i + 1,
-                            "Worker failed: " + report.summary());
+                            "Worker failed: " + report.summary(),
+                            totalTokenUsage, totalToolCalls, totalWorkerIterations);
                 }
                 case NEEDS_USER -> {
                     var stopFailure = returnTaskToInterrupt(
                             store, taskId, controlContext, i + 1,
                             LongRunningTransitions.Trigger.NEEDS_USER);
-                    if (stopFailure != null) return stopFailure;
+                    if (stopFailure != null) {
+                        return stopFailure.withMetrics(
+                                totalTokenUsage, totalToolCalls, totalWorkerIterations);
+                    }
                     appendLauncherEvent(store, taskId, controlContext, "launcher_stopped",
                             true, "Worker needs user input: " + report.summary(),
                             Map.of("reason", LongRunningTransitions.Trigger.NEEDS_USER.wire()));
                     return new LaunchResult(LaunchStatus.NEEDS_USER, i + 1,
-                            "Worker needs user input: " + report.summary());
+                            "Worker needs user input: " + report.summary(),
+                            totalTokenUsage, totalToolCalls, totalWorkerIterations);
                 }
             }
         }
@@ -304,9 +351,12 @@ public final class LongRunningLauncher {
         var stopFailure = returnTaskToInterrupt(
                 store, taskId, controlContext, maxWorkers,
                 LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED);
-        if (stopFailure != null) return stopFailure;
+        if (stopFailure != null) {
+            return stopFailure.withMetrics(totalTokenUsage, totalToolCalls, totalWorkerIterations);
+        }
         return new LaunchResult(LaunchStatus.MAX_WORKERS_EXHAUSTED, maxWorkers,
-                "Launcher exhausted " + maxWorkers + " worker cycles. Task may still have remaining work.");
+                "Launcher exhausted " + maxWorkers + " worker cycles. Task may still have remaining work.",
+                totalTokenUsage, totalToolCalls, totalWorkerIterations);
     }
 
     private static boolean causedByInterruption(Throwable throwable) {
@@ -409,8 +459,43 @@ public final class LongRunningLauncher {
     public record LaunchResult(
             LaunchStatus status,
             int workersLaunched,
-            String message
-    ) {}
+            String message,
+            TokenUsage tokenUsage,
+            int toolCalls,
+            int workerIterations,
+            boolean quiescent
+    ) {
+        public LaunchResult(LaunchStatus status, int workersLaunched, String message) {
+            this(status, workersLaunched, message, TokenUsage.ZERO, 0, 0, true);
+        }
+
+        public LaunchResult(
+                LaunchStatus status,
+                int workersLaunched,
+                String message,
+                TokenUsage tokenUsage,
+                int toolCalls) {
+            this(status, workersLaunched, message, tokenUsage, toolCalls, 0, true);
+        }
+
+        public LaunchResult(
+                LaunchStatus status,
+                int workersLaunched,
+                String message,
+                TokenUsage tokenUsage,
+                int toolCalls,
+                int workerIterations) {
+            this(status, workersLaunched, message, tokenUsage, toolCalls, workerIterations, true);
+        }
+
+        private LaunchResult withMetrics(
+                TokenUsage tokenUsage,
+                int toolCalls,
+                int workerIterations) {
+            return new LaunchResult(
+                    status, workersLaunched, message, tokenUsage, toolCalls, workerIterations, quiescent);
+        }
+    }
 
     public record ControlContext(String sessionId, String stage) {
         public ControlContext {

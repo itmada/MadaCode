@@ -2,6 +2,7 @@ package madacode.bootstrap;
 
 import madacode.core.engine.QueryEngine;
 import madacode.hook.HookManager;
+import madacode.memory.MemoryLoader;
 import madacode.permission.PermissionGate;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.services.compact.CompactBudget;
@@ -22,22 +23,40 @@ final class EngineAssembly {
             ToolRuntime tools,
             PermissionGate permission) {
         CompactPlanner compaction = createCompaction(environment);
-        QueryEngine engine = QueryEngine.builder(
-                        environment.api(), tools.registry(),
-                        SystemPromptBuilder.builder()
-                                .memoryLoader(tools.memory())
-                                .skillRegistry(tools.skillRegistry())
-                                .build(),
-                        permission)
-                .diagnosticEvents(environment.diagnosticEvents())
-                .compactPlanner(compaction)
-                .toolAccessResolver(tools.toolAccessResolver())
+        QueryEngine engine = configuredBuilder(
+                        environment, tools, permission, tools.memory(), compaction)
                 .hookManager(new HookManager(environment.paths().globalHooksFile()))
                 .build();
         return new EngineRuntime(engine, permission, compaction);
     }
 
-    private static CompactPlanner createCompaction(EnvironmentRuntime environment) {
+    /**
+     * The shared {@link QueryEngine} configuration used by both the interactive runtime and
+     * the headless eval runtime ({@code HeadlessAgentRuntime}). Centralizing it here means
+     * the agent under eval gets the same system prompt (skills + memory), context compaction,
+     * diagnostics, and tool-access policy as production — no drift. Callers layer on their own
+     * specifics: production attaches hooks; eval caps iterations and passes a {@code null}
+     * memory loader for reproducibility.
+     */
+    static QueryEngine.Builder configuredBuilder(
+            EnvironmentRuntime environment,
+            ToolRuntime tools,
+            PermissionGate permission,
+            MemoryLoader memory,
+            CompactPlanner compaction) {
+        return QueryEngine.builder(
+                        environment.api(), tools.registry(),
+                        SystemPromptBuilder.builder()
+                                .memoryLoader(memory)
+                                .skillRegistry(tools.skillRegistry())
+                                .build(),
+                        permission)
+                .diagnosticEvents(environment.diagnosticEvents())
+                .compactPlanner(compaction)
+                .toolAccessResolver(tools.toolAccessResolver());
+    }
+
+    static CompactPlanner createCompaction(EnvironmentRuntime environment) {
         TokenEstimator estimator = new TokenEstimator();
         CompactBudget budget = CompactBudget.defaults();
         return new CompactPlanner(

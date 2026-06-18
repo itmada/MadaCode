@@ -1,0 +1,9 @@
+{
+  "id": "common-feature-002",
+  "description": "Implement Strings.reverse from its doc comment",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["feature", "single-file"],
+  "instruction": "文件 Strings.java 里的 reverse(String s) 方法还没有实现（返回 null）。请按其文档注释实现它：返回输入字符串反转后的结果，空字符串返回空字符串。",
+  "maxIterations": 25
+}

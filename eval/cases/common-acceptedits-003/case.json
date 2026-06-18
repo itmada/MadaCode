@@ -1,0 +1,9 @@
+{
+  "id": "common-acceptedits-003",
+  "description": "Edit-only task under the accept-edits permission policy",
+  "mode": "common",
+  "permissionMode": "accept-edits",
+  "capabilities": ["edit", "accept-edits-policy"],
+  "instruction": "文件 Config.java 里的常量 MAX 现在是 1，请把它改成 100。只需编辑文件即可。",
+  "maxIterations": 20
+}

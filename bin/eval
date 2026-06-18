@@ -1,0 +1,45 @@
+#!/bin/sh
+# Capability eval runner. Drives the real MadaCode agent over eval/cases and reports a
+# success rate. Run from the repo root so ./eval/cases resolves.
+#
+#   bin/eval --unsafe-local     run every case against the real model (costs API budget)
+#   bin/eval --self-test        validate sandbox + scoring with no model calls
+#   bin/eval --unsafe-local --mode common
+#   bin/eval --unsafe-local --case <id>
+#   bin/eval --unsafe-local --capability <tag>
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd "$SCRIPT_DIR/.." && pwd)
+JAR="$ROOT_DIR/target/MadaCode.jar"
+
+if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    JAVA="$JAVA_HOME/bin/java"
+else
+    JAVA=$(command -v java || true)
+fi
+
+if [ -z "${JAVA:-}" ]; then
+    echo "eval: Java 21 or newer is required, but java was not found." >&2
+    exit 1
+fi
+
+NEEDS_BUILD=false
+if [ ! -f "$JAR" ]; then
+    NEEDS_BUILD=true
+elif find "$ROOT_DIR/pom.xml" "$ROOT_DIR/src" -newer "$JAR" -print -quit | grep . >/dev/null; then
+    NEEDS_BUILD=true
+fi
+
+if [ "$NEEDS_BUILD" = true ]; then
+    echo "eval: building target/MadaCode.jar..." >&2
+    (cd "$ROOT_DIR" && ./mvnw package -DskipTests)
+fi
+
+if [ ! -f "$JAR" ]; then
+    echo "eval: build completed but expected jar was not found at $JAR" >&2
+    exit 1
+fi
+
+exec "$JAVA" -cp "$JAR" madacode.eval.CapabilityEvalMain "$@"

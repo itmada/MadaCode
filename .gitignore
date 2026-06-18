@@ -31,3 +31,6 @@ Thumbs.db
 .env
 .env.*
 .mada/settings.local.json
+
+# Eval reports (generated)
+eval/reports/

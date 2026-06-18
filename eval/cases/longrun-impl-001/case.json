@@ -1,0 +1,9 @@
+{
+  "id": "longrun-impl-001",
+  "description": "Long-running mode: implement two unfinished methods across the workspace",
+  "mode": "long-running",
+  "permissionMode": "bypass",
+  "capabilities": ["feature", "multi-method", "long-running"],
+  "instruction": "Math2.java 里有两个未实现的方法：square(n) 应返回 n 的平方，cube(n) 应返回 n 的立方。请把它们都实现并保证正确。",
+  "maxCycles": 6
+}

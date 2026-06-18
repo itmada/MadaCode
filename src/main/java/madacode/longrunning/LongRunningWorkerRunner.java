@@ -2,6 +2,9 @@ package madacode.longrunning;
 
 import madacode.core.engine.QueryEngine;
 import madacode.core.engine.QueryEngineTurnRunner;
+import madacode.core.model.ContentBlock;
+import madacode.core.model.Message;
+import madacode.core.model.TokenUsage;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
@@ -117,7 +120,12 @@ public class LongRunningWorkerRunner {
                     throw cause instanceof RuntimeException re ? re : new RuntimeException(cause);
                 } catch (InterruptedException e) {
                     handle.cancel().accept("long-running launcher interrupted");
+                    boolean quiescent = awaitWorkerStop(handle);
                     Thread.currentThread().interrupt();
+                    if (!quiescent) {
+                        throw new WorkerDidNotTerminateException(
+                                "Worker did not terminate within 10 seconds after cancellation", e);
+                    }
                     throw new RuntimeException("Worker interrupted", e);
                 }
             }
@@ -152,7 +160,9 @@ public class LongRunningWorkerRunner {
         return new WorkerRunResult(
                 workerSession.sessionId(),
                 turnResult,
-                report);
+                report,
+                workerSession.tokenUsage(),
+                countToolCalls(workerSession));
     }
 
     private static TurnResult waitForWorkerTurn(TurnHandle handle)
@@ -169,12 +179,53 @@ public class LongRunningWorkerRunner {
         }
     }
 
+    private static boolean awaitWorkerStop(TurnHandle handle) {
+        try {
+            handle.result().get(10, TimeUnit.SECONDS);
+            return true;
+        } catch (ExecutionException e) {
+            return true;
+        } catch (TimeoutException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     /**
      * Result of a single worker run.
      */
     public record WorkerRunResult(
             String workerSessionId,
             TurnResult turnResult,
-            Optional<WorkerReport> report
-    ) {}
+            Optional<WorkerReport> report,
+            TokenUsage tokenUsage,
+            int toolCalls
+    ) {
+        public WorkerRunResult(
+                String workerSessionId,
+                TurnResult turnResult,
+                Optional<WorkerReport> report) {
+            this(workerSessionId, turnResult, report, TokenUsage.ZERO, 0);
+        }
+    }
+
+    private static int countToolCalls(ConversationSession session) {
+        int count = 0;
+        for (Message message : session.messages()) {
+            for (ContentBlock block : message.contentBlocks()) {
+                if (block instanceof ContentBlock.ToolUseBlock) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    public static final class WorkerDidNotTerminateException extends RuntimeException {
+        public WorkerDidNotTerminateException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
 }

@@ -1,0 +1,9 @@
+{
+  "id": "common-bugfix-001",
+  "description": "Fix a wrong-operator bug in Calculator.add",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["bug-fix", "single-file"],
+  "instruction": "文件 Calculator.java 里的 add(a, b) 方法本应返回两个数之和，但当前实现返回的是差，结果错误。请修复 Calculator.java，让 add 正确返回 a + b。",
+  "maxIterations": 25
+}

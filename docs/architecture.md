@@ -133,9 +133,27 @@ token 估算 > 85%
 - `RetryingApiClient` 装饰器实现指数退避 + 抖动重试，**睡眠器与抖动函数以 `LongUnaryOperator` 注入**——重试逻辑可在测试中以虚拟时间确定性验证；
 - 流式 SSE 解析经 `ApiStreamSink` 增量回调，支撑边生成边渲染。
 
-## 8. Eval：LLM 应用的确定性回归
+## 8. Eval：类型化、可追溯的能力评测
 
-[eval/](../src/main/java/madacode/eval/)：`MockApiClient` 按场景脚本回放模型响应（含 tool_use 序列），`EvalScenario` + `EvalAssertion` 对 Agent 的**行为**（调了哪些工具、以什么顺序、最终状态）而非逐字输出做断言。解决 LLM 应用的经典工程难题：改了 prompt / 编排逻辑之后，如何无网络、零成本、确定性地验证没有回归。
+[eval/](../src/main/java/madacode/eval/) 使用真实模型和真实工作流执行能力型 case。每个 case
+在独立 execution environment 中运行，随后由 `verify.sh` 在 workspace 快照中判分；Judge
+是否对 Agent 隐藏由 environment 的信任边界声明。
+
+结果被拆成三个正交维度：
+
+- `HarnessStatus`：评测基础设施是否正常；
+- `ExecutionStatus`：Agent/工作流如何结束；
+- `JudgeStatus`：产物是否通过客观验收。
+
+只有三者满足 `OK + COMPLETED + PASS` 才产生最终 PASS，因此执行崩溃不会因为初始 workspace
+碰巧正确而形成假阳性。`RunBudget` 统一限制 turn、worker、墙钟时间和 Judge 进程；报告附带
+代码、case、provider/model、扩展配置与隔离级别的 manifest。
+
+当前执行环境为显式标记的 `LOCAL_UNSAFE` 临时工作目录后端，真实模型运行需主动确认。
+manifest 除隔离级别外还记录 Judge 可见性、宿主机访问、网络访问与 `trustedMeasurement`：
+`LOCAL_UNSAFE` 是本地 smoke/cost/stability 测量，不能声称为隐藏 Judge benchmark；可信评测
+需要容器或 VM 后端，让 Agent 只挂载 workspace，并把 Judge bundle 仅挂载到判分阶段。
+`EvalExecutionEnvironment` 是该后端的替换边界。
 
 ## 9. 装配与资源管理
 

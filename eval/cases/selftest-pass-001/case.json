@@ -1,0 +1,10 @@
+{
+  "id": "selftest-pass-001",
+  "description": "Self-test: workspace is already correct, must PASS (no model)",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["selftest"],
+  "instruction": "no-op (self-test only; verifies the sandbox + scorer plumbing)",
+  "samples": 1,
+  "expectedVerdict": "PASS"
+}
