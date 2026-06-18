@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
 /**
  * Creates and runs a fresh worker agent session for a single bounded work cycle.
@@ -38,6 +39,7 @@ public class LongRunningWorkerRunner {
     private final SessionStorage sessionStorage;
     private final ToolRegistry toolRegistry;
     private final Path turnLogRoot;
+    private final Consumer<ConversationSession> completedSessionObserver;
 
     /**
      * Creates a worker runner with the given dependencies.
@@ -51,10 +53,21 @@ public class LongRunningWorkerRunner {
             SessionStorage sessionStorage,
             ToolRegistry toolRegistry,
             Path turnLogRoot) {
+        this(queryEngineFactory, sessionStorage, toolRegistry, turnLogRoot, session -> {});
+    }
+
+    public LongRunningWorkerRunner(
+            QueryEngineFactory queryEngineFactory,
+            SessionStorage sessionStorage,
+            ToolRegistry toolRegistry,
+            Path turnLogRoot,
+            Consumer<ConversationSession> completedSessionObserver) {
         this.queryEngineFactory = Objects.requireNonNull(queryEngineFactory, "queryEngineFactory");
         this.sessionStorage = Objects.requireNonNull(sessionStorage, "sessionStorage");
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.turnLogRoot = Objects.requireNonNull(turnLogRoot, "turnLogRoot");
+        this.completedSessionObserver =
+                Objects.requireNonNull(completedSessionObserver, "completedSessionObserver");
     }
 
     /**
@@ -130,6 +143,7 @@ public class LongRunningWorkerRunner {
                 }
             }
         } finally {
+            completedSessionObserver.accept(workerSession);
             workerSession.removeListener(monitorBridge);
         }
 

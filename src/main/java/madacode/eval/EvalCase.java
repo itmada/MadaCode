@@ -35,7 +35,9 @@ public record EvalCase(
         Integer timeoutSeconds,
         Integer verifyTimeoutSeconds,
         Integer maxProcessOutputBytes,
-        String expectedVerdict) {
+        String expectedVerdict,
+        EvalChecks checks,
+        List<ConversationTurn> conversation) {
 
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
 
@@ -47,8 +49,10 @@ public record EvalCase(
         if (!SAFE_ID.matcher(id).matches()) {
             throw new IllegalArgumentException("case id contains unsupported characters: " + id);
         }
-        if (instruction == null || instruction.isBlank()) {
-            throw new IllegalArgumentException("case " + id + ": instruction must not be blank");
+        conversation = conversation == null ? List.of() : List.copyOf(conversation);
+        if ((instruction == null || instruction.isBlank()) && conversation.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "case " + id + ": instruction or conversation must be declared");
         }
         if (mode == null || mode.isBlank()) {
             throw new IllegalArgumentException("case " + id + ": mode must not be blank");
@@ -57,7 +61,21 @@ public record EvalCase(
             throw new IllegalArgumentException("case " + id + ": permissionMode must not be blank");
         }
         mode = mode.strip().toLowerCase(Locale.ROOT);
-        instruction = instruction.strip();
+        instruction = instruction == null || instruction.isBlank()
+                ? conversation.getFirst().text()
+                : instruction.strip();
+        if (!conversation.isEmpty()
+                && !instruction.equals(conversation.getFirst().text())) {
+            throw new IllegalArgumentException(
+                    "case " + id
+                            + ": instruction must equal the first conversation turn when both are declared");
+        }
+        if (!conversation.isEmpty()
+                && conversation.getFirst().trigger() != ConversationTurn.Trigger.ALWAYS) {
+            throw new IllegalArgumentException(
+                    "case " + id + ": first conversation turn must use trigger ALWAYS");
+        }
+        checks = checks == null ? EvalChecks.NONE : checks;
         capabilities = capabilities == null
                 ? List.of()
                 : capabilities.stream()
@@ -77,6 +95,13 @@ public record EvalCase(
         requirePositive(id, "timeoutSeconds", timeoutSeconds);
         requirePositive(id, "verifyTimeoutSeconds", verifyTimeoutSeconds);
         requirePositive(id, "maxProcessOutputBytes", maxProcessOutputBytes);
+    }
+
+    /** Scripted user turns, with legacy instruction-only cases represented as one turn. */
+    public List<ConversationTurn> effectiveConversation() {
+        return conversation.isEmpty()
+                ? List.of(new ConversationTurn(instruction, ConversationTurn.Trigger.ALWAYS))
+                : conversation;
     }
 
     /**

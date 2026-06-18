@@ -1,6 +1,7 @@
 package madacode.eval;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Isolation boundary for an eval case. Runner, workflow, and judge code depend on this
@@ -16,6 +17,14 @@ public interface EvalExecutionEnvironment extends AutoCloseable {
 
     default TrustProfile trustProfile() {
         return TrustProfile.forIsolation(isolationLevel());
+    }
+
+    /**
+     * Network evidence produced by the execution boundary. LOCAL_UNSAFE explicitly reports
+     * UNAVAILABLE rather than treating an empty event list as proof that no egress occurred.
+     */
+    default EgressReport egressReport() {
+        return EgressReport.unavailable();
     }
 
     @Override
@@ -66,6 +75,29 @@ public interface EvalExecutionEnvironment extends AutoCloseable {
     enum NetworkAccess {
         BLOCKED,
         ALLOWED
+    }
+
+    record EgressReport(EgressObservation observation, List<EgressEvent> events) {
+        public EgressReport {
+            observation = observation == null ? EgressObservation.UNAVAILABLE : observation;
+            events = events == null ? List.of() : List.copyOf(events);
+        }
+
+        public static EgressReport unavailable() {
+            return new EgressReport(EgressObservation.UNAVAILABLE, List.of());
+        }
+    }
+
+    enum EgressObservation {
+        UNAVAILABLE,
+        OBSERVED
+    }
+
+    record EgressEvent(String destination, boolean blocked, String detail) {
+        public EgressEvent {
+            destination = destination == null ? "" : destination;
+            detail = detail == null ? "" : detail;
+        }
     }
 
     record VerifyOutcome(VerifyStatus status, int exitCode, String output) {

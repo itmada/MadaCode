@@ -112,7 +112,10 @@ public final class CapabilityEvalMain {
                 .map(c -> c.evalCase().mode())
                 .distinct()
                 .forEach(mode -> registry.register(new NoOpModeLauncher(mode)));
-        EvalRunner runner = new EvalRunner(null, registry, new VerifyScriptScorer());
+        EvalRunner runner = new EvalRunner(
+                null,
+                registry,
+                ScorerPipeline.of(new VerifyScriptScorer()));
         return runner.runAll(cases);
     }
 
@@ -120,7 +123,10 @@ public final class CapabilityEvalMain {
         ModeLauncherRegistry registry = ModeLauncherRegistry.defaults();
         cases.forEach(evalCase -> registry.resolve(evalCase.evalCase().mode()));
         try (HeadlessAgentRuntime runtime = HeadlessAgentRuntime.create(projectDir)) {
-            EvalRunner runner = new EvalRunner(runtime, registry, new VerifyScriptScorer());
+            EvalRunner runner = new EvalRunner(
+                    runtime,
+                    registry,
+                    ScorerPipeline.of(new VerifyScriptScorer()));
             return runner.runAll(cases);
         }
     }

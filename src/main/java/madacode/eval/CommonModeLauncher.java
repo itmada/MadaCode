@@ -6,6 +6,8 @@ import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionMode;
 import madacode.core.turn.TurnResult;
 
+import java.util.List;
+
 /**
  * Common-mode launcher: the everyday interactive workflow. Hands the instruction to the
  * shared {@link QueryEngine#runTurn} core — the exact loop the REPL drives — and lets it
@@ -29,22 +31,53 @@ public final class CommonModeLauncher implements ModeLauncher {
             session.setPlanMode(true);
         }
         QueryEngine engine = context.runtime().newEngine(context.budget().maxIterations());
+        List<ConversationTurn> conversation = evalCase.effectiveConversation();
+        int totalIterations = 0;
+        String finalText = "";
         try {
-            TurnResult turn = context.runtime().runTurn(
-                    engine, session, evalCase.instruction(), context.remainingTime());
+            TurnResult turn = null;
+            for (ConversationTurn scriptedTurn : conversation) {
+                if (scriptedTurn.trigger() == ConversationTurn.Trigger.WHEN_AGENT_ASKS
+                        && !looksLikeQuestion(finalText)) {
+                    break;
+                }
+                turn = context.runtime().runTurn(
+                        engine, session, scriptedTurn.text(), context.remainingTime());
+                totalIterations += turn.iterations();
+                finalText = turn.finalText();
+                if (turn.finishReason() != FinishReason.COMPLETED) {
+                    break;
+                }
+            }
+            if (turn == null) {
+                throw new IllegalStateException("conversation did not execute a user turn");
+            }
             return new LaunchOutcome(
                     executionStatus(turn.finishReason()),
-                    RunMetrics.fromSession(session, turn.iterations()),
+                    RunMetrics.fromSession(session, totalIterations),
                     turn.finishReason().name(),
-                    turn.finalText());
+                    turn.finalText(),
+                    finalText,
+                    true);
         } catch (madacode.bootstrap.HeadlessAgentRuntime.HeadlessTurnTimeoutException e) {
             return new LaunchOutcome(
                     EvalResult.ExecutionStatus.TIMED_OUT,
-                    RunMetrics.fromSession(session, 0),
+                    RunMetrics.fromSession(session, totalIterations),
                     "TIMED_OUT",
                     e.getMessage(),
+                    finalText,
                     e.quiescent());
         }
+    }
+
+    private static boolean looksLikeQuestion(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = text.strip().toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("?")
+                || normalized.contains("？")
+                || normalized.matches("(?s).*(请问|能否|可以提供|需要.*吗|which|what|could you|can you).*");
     }
 
     private static EvalResult.ExecutionStatus executionStatus(FinishReason reason) {

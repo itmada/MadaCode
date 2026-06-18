@@ -10,12 +10,25 @@ package madacode.eval;
  */
 public interface Scorer {
 
-    Score score(EvalCase evalCase, EvalExecutionEnvironment environment, RunBudget budget);
+    Dimension dimension();
 
-    /** A single case's judged result. */
-    record Score(EvalResult.JudgeStatus status, int exitCode, String detail) {
-        public boolean passed() {
-            return status == EvalResult.JudgeStatus.PASS;
-        }
+    /** Optional dimensions are omitted when their corresponding checks are absent. */
+    boolean appliesTo(EvalCase evalCase);
+
+    /** Whether a failed measurement blocks the attempt's final verdict. */
+    boolean gating(EvalCase evalCase);
+
+    DimensionScore score(EvalCase evalCase, ScoringContext context);
+
+    /** Stable implementation/configuration identity recorded in the run manifest. */
+    default String reproducibilityDescriptor() {
+        return dimension() + "=" + getClass().getName();
+    }
+
+    default DimensionScore result(
+            EvalCase evalCase,
+            EvalResult.JudgeStatus status,
+            String detail) {
+        return new DimensionScore(dimension(), status, gating(evalCase), detail);
     }
 }

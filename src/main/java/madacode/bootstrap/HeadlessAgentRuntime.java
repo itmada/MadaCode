@@ -33,6 +33,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
+import java.util.function.Consumer;
 
 /**
  * A headless assembly of the full MadaCode agent — the same real object graph the
@@ -170,6 +171,16 @@ public final class HeadlessAgentRuntime implements AutoCloseable {
 
     /** Creates a worker runner whose model loop is explicitly bounded for an eval case. */
     public LongRunningWorkerRunner newWorkerRunner(int maxIterations) {
+        return newWorkerRunner(maxIterations, session -> {});
+    }
+
+    /**
+     * Creates a bounded worker runner and reports each completed worker session to an
+     * attempt-scoped observer. Production callers use the no-op overload.
+     */
+    public LongRunningWorkerRunner newWorkerRunner(
+            int maxIterations,
+            Consumer<ConversationSession> completedSessionObserver) {
         LongRunningWorkerRunner.QueryEngineFactory workerFactory = (registry, promptBuilder) ->
                 QueryEngine.builder(
                                 env.api(), registry, promptBuilder,
@@ -178,7 +189,11 @@ public final class HeadlessAgentRuntime implements AutoCloseable {
                         .maxIterations(maxIterations)
                         .build();
         return new LongRunningWorkerRunner(
-                workerFactory, sessionStorage, tools.registry(), turnLogRoot);
+                workerFactory,
+                sessionStorage,
+                tools.registry(),
+                turnLogRoot,
+                completedSessionObserver);
     }
 
     /**

@@ -6,10 +6,21 @@ import java.time.Duration;
 import java.util.Objects;
 
 /** Per-case dependencies supplied to a workflow launcher. */
-public record EvalRunContext(HeadlessAgentRuntime runtime, RunBudget budget, long startedAtNanos) {
+public record EvalRunContext(
+        HeadlessAgentRuntime runtime,
+        RunBudget budget,
+        ExecutionTraceCollector traceCollector,
+        long startedAtNanos) {
 
     public EvalRunContext(HeadlessAgentRuntime runtime, RunBudget budget) {
-        this(runtime, budget, System.nanoTime());
+        this(runtime, budget, null, System.nanoTime());
+    }
+
+    public EvalRunContext(
+            HeadlessAgentRuntime runtime,
+            RunBudget budget,
+            ExecutionTraceCollector traceCollector) {
+        this(runtime, budget, traceCollector, System.nanoTime());
     }
 
     public EvalRunContext {

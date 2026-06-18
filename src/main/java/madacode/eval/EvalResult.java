@@ -20,12 +20,18 @@ public record EvalResult(
         HarnessStatus harnessStatus,
         ExecutionStatus executionStatus,
         JudgeStatus judgeStatus,
+        List<DimensionScore> dimensions,
         long executionDurationMs,
         long judgeDurationMs,
         RunMetrics metrics,
         String terminalSummary,
         String detail,
         EvalRunManifest manifest) {
+
+    public EvalResult {
+        capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
+        dimensions = dimensions == null ? List.of() : List.copyOf(dimensions);
+    }
 
     public boolean passed() {
         return verdict == FinalVerdict.PASS;

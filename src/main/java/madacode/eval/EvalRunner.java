@@ -46,11 +46,18 @@ public final class EvalRunner {
 
     private final HeadlessAgentRuntime runtime;
     private final ModeLauncherRegistry launchers;
-    private final Scorer scorer;
+    private final ScorerPipeline scorers;
     private final EvalExecutionEnvironmentFactory environments;
 
     public EvalRunner(HeadlessAgentRuntime runtime, ModeLauncherRegistry launchers, Scorer scorer) {
-        this(runtime, launchers, scorer, Sandbox::of);
+        this(runtime, launchers, ScorerPipeline.of(scorer), Sandbox::of);
+    }
+
+    public EvalRunner(
+            HeadlessAgentRuntime runtime,
+            ModeLauncherRegistry launchers,
+            ScorerPipeline scorers) {
+        this(runtime, launchers, scorers, Sandbox::of);
     }
 
     public EvalRunner(
@@ -58,9 +65,17 @@ public final class EvalRunner {
             ModeLauncherRegistry launchers,
             Scorer scorer,
             EvalExecutionEnvironmentFactory environments) {
+        this(runtime, launchers, ScorerPipeline.of(scorer), environments);
+    }
+
+    public EvalRunner(
+            HeadlessAgentRuntime runtime,
+            ModeLauncherRegistry launchers,
+            ScorerPipeline scorers,
+            EvalExecutionEnvironmentFactory environments) {
         this.runtime = runtime;
         this.launchers = Objects.requireNonNull(launchers, "launchers");
-        this.scorer = Objects.requireNonNull(scorer, "scorer");
+        this.scorers = Objects.requireNonNull(scorers, "scorers");
         this.environments = Objects.requireNonNull(environments, "environments");
     }
 
@@ -104,14 +119,24 @@ public final class EvalRunner {
                 : runtime.projectDir();
         try (EvalExecutionEnvironment environment = environments.create(loaded)) {
             EvalRunManifest manifest = EvalRunManifestFactory.capture(
-                    projectDir, loaded, runtime, environment.trustProfile(), startedAt);
+                    projectDir,
+                    loaded,
+                    runtime,
+                    environment.trustProfile(),
+                    scorers.reproducibilityFingerprint(),
+                    startedAt);
             ConversationSession session = new ConversationSession(environment.workspace());
             session.setPermissionMode(evalCase.permissionMode());
             ModeLauncher launcher = launchers.resolve(evalCase.mode());
+            ExecutionTraceCollector traceCollector =
+                    new ExecutionTraceCollector(environment.workspace());
 
             long start = System.nanoTime();
             ModeLauncher.LaunchOutcome outcome = executeWithBudget(
-                    launcher, evalCase, session, new EvalRunContext(runtime, budget));
+                    launcher,
+                    evalCase,
+                    session,
+                    new EvalRunContext(runtime, budget, traceCollector));
             long executionDurationMs = (System.nanoTime() - start) / 1_000_000;
 
             // Harness integrity is independent of how the agent fared: a CRASHED agent
@@ -121,27 +146,28 @@ public final class EvalRunner {
             EvalResult.HarnessStatus harnessStatus = outcome.quiescent()
                     ? EvalResult.HarnessStatus.OK
                     : EvalResult.HarnessStatus.INTERNAL_ERROR;
-            Scorer.Score score;
+            List<DimensionScore> dimensions;
             long judgeStart = System.nanoTime();
             if (harnessStatus != EvalResult.HarnessStatus.OK) {
-                score = new Scorer.Score(
+                dimensions = List.of(new DimensionScore(
+                        Dimension.VERIFY,
                         EvalResult.JudgeStatus.NOT_RUN,
-                        -1,
-                        "judge skipped because eval execution did not finish in a trustworthy state");
+                        true,
+                        "judge skipped because eval execution did not finish in a trustworthy state"));
             } else {
-                try {
-                    score = scorer.score(evalCase, environment, budget);
-                } catch (RuntimeException e) {
-                    score = new Scorer.Score(
-                            EvalResult.JudgeStatus.ERROR,
-                            -1,
-                            "judge crashed: " + errorMessage(e));
-                }
+                traceCollector.recordSession(session, ToolInvocation.Phase.CONTROL);
+                ExecutionTrace trace =
+                        traceCollector.finish(outcome.finalText(), outcome.metrics());
+                dimensions = scorers.run(
+                        evalCase,
+                        new ScoringContext(environment, trace, budget));
             }
             long judgeDurationMs = (System.nanoTime() - judgeStart) / 1_000_000;
-            EvalResult.FinalVerdict verdict = verdict(harnessStatus, outcome.status(), score.status());
+            EvalResult.JudgeStatus judgeStatus = aggregateJudgeStatus(dimensions);
+            EvalResult.FinalVerdict verdict =
+                    verdict(harnessStatus, outcome.status(), judgeStatus);
             String detail = "execution: " + outcome.detail()
-                    + "\njudge: " + score.detail();
+                    + "\njudge:\n" + dimensionDetails(dimensions);
 
             return new EvalResult(
                     evalCase.id(),
@@ -150,7 +176,8 @@ public final class EvalRunner {
                     verdict,
                     harnessStatus,
                     outcome.status(),
-                    score.status(),
+                    judgeStatus,
+                    dimensions,
                     executionDurationMs,
                     judgeDurationMs,
                     outcome.metrics(),
@@ -170,6 +197,7 @@ public final class EvalRunner {
                 projectDir, loaded, runtime,
                 EvalExecutionEnvironment.TrustProfile.forIsolation(
                         EvalExecutionEnvironment.IsolationLevel.LOCAL_UNSAFE),
+                scorers.reproducibilityFingerprint(),
                 Instant.now());
         return new EvalResult(
                 evalCase.id(),
@@ -179,6 +207,11 @@ public final class EvalRunner {
                 EvalResult.HarnessStatus.INTERNAL_ERROR,
                 EvalResult.ExecutionStatus.CRASHED,
                 EvalResult.JudgeStatus.NOT_RUN,
+                List.of(new DimensionScore(
+                        Dimension.VERIFY,
+                        EvalResult.JudgeStatus.NOT_RUN,
+                        true,
+                        "harness failed before scoring")),
                 0,
                 0,
                 RunMetrics.ZERO,
@@ -236,6 +269,7 @@ public final class EvalRunner {
                         RunMetrics.fromSession(session, 0),
                         "TIMED_OUT",
                         "case exceeded hard timeout " + outerDeadline,
+                        "",
                         quiescent);
             } catch (InterruptedException e) {
                 future.cancel(true);
@@ -246,6 +280,7 @@ public final class EvalRunner {
                         RunMetrics.fromSession(session, 0),
                         "CANCELLED",
                         "eval runner interrupted",
+                        "",
                         quiescent);
             } catch (ExecutionException e) {
                 Throwable cause = e.getCause() == null ? e : e.getCause();
@@ -270,6 +305,7 @@ public final class EvalRunner {
                 outcome.metrics(),
                 "TIMED_OUT",
                 outcome.detail(),
+                outcome.finalText(),
                 outcome.quiescent());
     }
 
@@ -284,6 +320,27 @@ public final class EvalRunner {
                 && judge == EvalResult.JudgeStatus.PASS
                 ? EvalResult.FinalVerdict.PASS
                 : EvalResult.FinalVerdict.FAIL;
+    }
+
+    private static EvalResult.JudgeStatus aggregateJudgeStatus(
+            List<DimensionScore> dimensions) {
+        if (dimensions.stream().anyMatch(score -> score.status() == EvalResult.JudgeStatus.ERROR)) {
+            return EvalResult.JudgeStatus.ERROR;
+        }
+        if (dimensions.stream()
+                .filter(DimensionScore::gating)
+                .anyMatch(score -> score.status() != EvalResult.JudgeStatus.PASS)) {
+            return EvalResult.JudgeStatus.FAIL;
+        }
+        return EvalResult.JudgeStatus.PASS;
+    }
+
+    private static String dimensionDetails(List<DimensionScore> dimensions) {
+        return dimensions.stream()
+                .map(score -> score.dimension() + "=" + score.status()
+                        + (score.gating() ? " [gating]" : "")
+                        + "\n" + score.detail())
+                .collect(java.util.stream.Collectors.joining("\n"));
     }
 
     private static boolean stopExecutor(ExecutorService executor) {

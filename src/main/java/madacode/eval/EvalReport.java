@@ -89,6 +89,7 @@ public final class EvalReport {
                     .append("`, trustedMeasurement=`").append(manifest.trustedMeasurement())
                     .append("`\n");
             sb.append("- Runtime fingerprint: `").append(manifest.runtimeFingerprint()).append("`\n");
+            sb.append("- Scorer fingerprint: `").append(manifest.scorerFingerprint()).append("`\n");
             sb.append("- Git commit: `").append(manifest.gitCommit()).append("`")
                     .append(manifest.dirtyWorktree() ? " (dirty)" : "").append('\n');
             sb.append("- Started: `").append(manifest.startedAt()).append("`\n");
@@ -104,9 +105,9 @@ public final class EvalReport {
 
         // Per-case detail (one row per case; cost columns are summed across attempts)
         sb.append("## Cases\n\n");
-        sb.append("| Case | Hash | Mode | Gate | pass@k verdict | Rate | Samples "
+        sb.append("| Case | Hash | Mode | Gate | Dimensions | pass@k verdict | Rate | Samples "
                 + "| Ctrl it | Wrk it | Cycles | Tools | Tokens | Time |\n");
-        sb.append("|------|------|------|------|----------------|------|---------"
+        sb.append("|------|------|------|------|------------|----------------|------|---------"
                 + "|---------|--------|--------|-------|--------|------|\n");
         for (EvalCaseReport r : reports) {
             RunMetrics m = r.totalMetrics();
@@ -114,6 +115,7 @@ public final class EvalReport {
                     .append(" | ").append(shortHash(r.manifest().caseHash()))
                     .append(" | ").append(cell(r.mode()))
                     .append(" | ").append(r.gateVerdict())
+                    .append(" | ").append(dimensionSummary(r))
                     .append(" | ").append(r.passAtKVerdict())
                     .append(" | ").append(r.passes()).append('/').append(r.validAttempts())
                     .append(" (").append(percent(r.passes(), r.validAttempts())).append("%)")
@@ -149,6 +151,12 @@ public final class EvalReport {
                             .append(": ").append(a.verdict())
                             .append(" (execution=").append(a.executionStatus())
                             .append(", judge=").append(a.judgeStatus()).append(")\n");
+                    for (DimensionScore score : a.dimensions()) {
+                        sb.append("  - ").append(score.dimension()).append(": ")
+                                .append(score.status())
+                                .append(score.gating() ? " (gating)" : "")
+                                .append('\n');
+                    }
                     sb.append("```\n").append(truncate(a.detail(), 1500)).append("\n```\n");
                 }
                 sb.append('\n');
@@ -198,6 +206,22 @@ public final class EvalReport {
         return value.length() <= 12 ? value : value.substring(0, 12);
     }
 
+    private static String dimensionSummary(EvalCaseReport report) {
+        java.util.Map<Dimension, long[]> counts = new java.util.EnumMap<>(Dimension.class);
+        for (EvalResult attempt : report.attempts()) {
+            for (DimensionScore score : attempt.dimensions()) {
+                long[] values = counts.computeIfAbsent(score.dimension(), ignored -> new long[2]);
+                if (score.status() == EvalResult.JudgeStatus.PASS) {
+                    values[0]++;
+                }
+                values[1]++;
+            }
+        }
+        return counts.entrySet().stream()
+                .map(entry -> entry.getKey() + "=" + entry.getValue()[0] + "/" + entry.getValue()[1])
+                .collect(java.util.stream.Collectors.joining(", "));
+    }
+
     private static List<String> manifestMismatches(
             List<EvalCaseReport> reports,
             EvalRunManifest expected) {
@@ -212,6 +236,9 @@ public final class EvalReport {
             }
             if (!java.util.Objects.equals(expected.runtimeFingerprint(), actual.runtimeFingerprint())) {
                 fields.add("runtimeFingerprint");
+            }
+            if (!java.util.Objects.equals(expected.scorerFingerprint(), actual.scorerFingerprint())) {
+                fields.add("scorerFingerprint");
             }
             if (!java.util.Objects.equals(expected.isolation(), actual.isolation())) {
                 fields.add("isolation");

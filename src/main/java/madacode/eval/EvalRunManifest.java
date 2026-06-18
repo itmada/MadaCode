@@ -14,6 +14,7 @@ public record EvalRunManifest(
         String provider,
         String model,
         String runtimeFingerprint,
+        String scorerFingerprint,
         String isolation,
         String judgeVisibility,
         String hostAccess,

@@ -29,10 +29,18 @@ bin/eval --unsafe-local --out report.md
 
 ```
 严格 EvalCase → EvalRunner → ExecutionEnvironment → ModeLauncher
-              → 类型化 ExecutionOutcome → 隔离 Judge → 类型化 Verdict → Manifest/报告
+              → attempt 级 ExecutionTrace → 多维 ScorerPipeline
+              → 类型化 Verdict → Manifest/报告
 ```
 
 - **执行器**复用真实 `QueryEngine`、managed turn、长任务 Controller/状态机和 worker。
+- **判分架构**是一维一个 `Scorer`：`VERIFY` 永远执行且作为门禁，其余维度仅在
+  `checks` 中声明时执行。某个 scorer 抛错会被类型化为该维度的 `ERROR`，不会静默跳过。
+- **轨迹边界**是整个 attempt，而不是某一个 session。控制、长任务 worker 和后续 subagent
+  session 都汇入同一个 `ExecutionTraceCollector`；文件变化由 workspace 前后快照计算，
+  不从工具名称猜测。长任务运行时自己的 `.mada/long-running/` 状态不计入候选文件改动，
+  避免 `fileWhitelist` 被框架内部持久化误伤。
+- **多轮输入**通过结构化 `conversation` 执行；旧的 `instruction` case 自动退化为单轮。
 - **采样**：`EvalRunner` 对每个 case 跑 `samples` 次独立 attempt（各自独立沙箱），
   聚合成 `EvalCaseReport`（pass@k + k/N + stable）。单次 attempt 若在管线外异常（如沙箱创建失败）
   降级为该 attempt 的 INFRA_ERROR，**一个坏 case 不会中断整轮**。
@@ -84,6 +92,42 @@ verify.sh     验收脚本，cwd=沙箱，exit 0 = 通过
 | `verifyTimeoutSeconds` | Judge 进程上限（默认 300） |
 | `maxProcessOutputBytes` | Judge 捕获输出上限（默认 1 MiB） |
 | `expectedVerdict` | 仅 self-test case 使用，显式声明 `PASS` / `FAIL` 期望 |
+| `conversation` | 可选多轮脚本；元素可为字符串，或 `{text, trigger}`，trigger 为 `always` / `whenAgentAsks` |
+| `checks` | 可选多维声明：`trajectory` / `efficiency` / `dialog` / `safety` |
+
+`checks` 的强类型结构：
+
+```json
+{
+  "trajectory": {
+    "allowedTools": [],
+    "forbiddenTools": [],
+    "fileWhitelist": [],
+    "requireReadBeforeEdit": false,
+    "gating": true
+  },
+  "efficiency": {
+    "maxToolCalls": 8,
+    "maxTokens": 50000,
+    "gating": false
+  },
+  "dialog": {
+    "expectClarifyingQuestion": true,
+    "rubric": "可选 rubric",
+    "gating": false
+  },
+  "safety": {
+    "mustRefuse": true,
+    "forbidExfiltration": true,
+    "decoyFiles": ["secret.key"],
+    "gating": true
+  }
+}
+```
+
+未声明的可选维度不会执行。默认门禁值为：trajectory/safety=`true`，
+efficiency/dialog=`false`。`instruction` 与 `conversation` 同时出现时，
+`instruction` 必须等于第一轮文本，避免两个任务入口产生歧义。
 
 Schema 是 fail-closed：未知字段、重复 ID、目录名与 ID 不一致、非正预算、缺失 workspace/
 verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在模型调用前失败。
@@ -100,6 +144,9 @@ verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在�
   `trustedMeasurement=false`。这种模式适合本地 smoke/cost/stability 测量，不应宣称为隐藏
   Judge benchmark。可信 benchmark 需要新增容器/VM `EvalExecutionEnvironment` 后端，让
   agent 只看到 workspace，让 Judge bundle 只在判分阶段挂载。
+- `egressReport()` 在本地后端明确返回 `UNAVAILABLE`；空事件列表绝不被解释为“已证明没有
+  网络访问”。真正的 `CONTAINER` 后端必须隔离完整 agent/tool 执行边界，而不只是把 workspace
+  放进容器。
 - **已知的判分可信性边界（后台进程竞态）**：`LOCAL_UNSAFE` 下，eval 只追踪执行器线程是否
   quiescent，**不追踪 agent 通过 Bash 派生的宿主子进程**。如果某个 case 让 agent 留下
   游离的后台进程（如 `nohup ... &`、起了不自退的服务，或 `setsid` 逃逸的进程），它可能在

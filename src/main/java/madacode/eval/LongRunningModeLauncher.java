@@ -65,6 +65,9 @@ public final class LongRunningModeLauncher implements ModeLauncher {
                     e.quiescent());
         }
         RunMetrics planningMetrics = RunMetrics.fromSession(session, planning.iterations());
+        if (context.traceCollector() != null) {
+            context.traceCollector().recordSession(session, ToolInvocation.Phase.CONTROL);
+        }
         if (planning.finishReason() != FinishReason.COMPLETED) {
             return new LaunchOutcome(
                     executionStatus(planning.finishReason()),
@@ -107,7 +110,14 @@ public final class LongRunningModeLauncher implements ModeLauncher {
 
         // Drive the real bounded worker-cycle loop to execution.
         LongRunningLauncher launcher = new LongRunningLauncher(
-                context.runtime().newWorkerRunner(context.budget().maxWorkerIterations()));
+                context.runtime().newWorkerRunner(
+                        context.budget().maxWorkerIterations(),
+                        workerSession -> {
+                            if (context.traceCollector() != null) {
+                                context.traceCollector().recordSession(
+                                        workerSession, ToolInvocation.Phase.WORKER);
+                            }
+                        }));
         LongRunningLauncher.LaunchResult result = launcher.run(
                 task.taskId(), dir, session, context.budget().maxWorkerCycles());
 
@@ -122,6 +132,7 @@ public final class LongRunningModeLauncher implements ModeLauncher {
                 executionStatus(result.status()),
                 metrics,
                 summary,
+                result.message(),
                 result.message(),
                 result.quiescent());
     }

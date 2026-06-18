@@ -17,6 +17,7 @@ final class EvalRunManifestFactory {
             EvalCaseLoader.LoadedCase loaded,
             HeadlessAgentRuntime runtime,
             EvalExecutionEnvironment.TrustProfile trust,
+            String scorerFingerprint,
             Instant startedAt) {
         GitState git = gitState(projectDir);
         return new EvalRunManifest(
@@ -27,6 +28,7 @@ final class EvalRunManifestFactory {
                 runtime == null ? "(none)" : runtime.providerName(),
                 runtime == null ? "(none)" : runtime.modelName(),
                 runtime == null ? "(none)" : runtime.runtimeFingerprint(),
+                scorerFingerprint == null ? "(none)" : scorerFingerprint,
                 trust.isolationLevel().name(),
                 trust.judgeVisibility().name(),
                 trust.hostAccess().name(),

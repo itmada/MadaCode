@@ -34,6 +34,7 @@ public interface ModeLauncher {
             RunMetrics metrics,
             String terminalSummary,
             String detail,
+            String finalText,
             boolean quiescent) {
 
         public LaunchOutcome(
@@ -41,7 +42,16 @@ public interface ModeLauncher {
                 RunMetrics metrics,
                 String terminalSummary,
                 String detail) {
-            this(status, metrics, terminalSummary, detail, true);
+            this(status, metrics, terminalSummary, detail, detail, true);
+        }
+
+        public LaunchOutcome(
+                EvalResult.ExecutionStatus status,
+                RunMetrics metrics,
+                String terminalSummary,
+                String detail,
+                boolean quiescent) {
+            this(status, metrics, terminalSummary, detail, detail, quiescent);
         }
     }
 }
