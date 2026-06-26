@@ -22,6 +22,10 @@ public final class ToolNames {
     public static final String WORKER_REPORT = "worker_report";
     public static final String LONGRUN_TASK_UPDATE = "longrun_task_update";
     public static final String LONGRUN_PLAN_UPDATE = "longrun_plan_update";
+    public static final String LONGRUN_TASK_SUMMARY_UPDATE = "longrun_task_summary_update";
+    public static final String LONGRUN_FEATURE_LIST_REPLACE = "longrun_feature_list_replace";
+    public static final String LONGRUN_KNOWN_ISSUES_REPLACE = "longrun_known_issues_replace";
+    public static final String LONGRUN_PROGRESS_APPEND = "longrun_progress_append";
     public static final String LONGRUN_STATE_TRANSITION_REQUEST = "longrun_state_transition_request";
 
     private ToolNames() {}

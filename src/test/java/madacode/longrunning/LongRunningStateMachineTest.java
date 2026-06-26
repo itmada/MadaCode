@@ -6,6 +6,7 @@ import madacode.core.session.SessionMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -52,6 +53,47 @@ class LongRunningStateMachineTest {
         assertEquals(LongRunningStage.RUNNING, transition.targetStage());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals("RUNNING", store.loadTask(session.longRunningTaskId()).status());
+    }
+
+    @Test
+    void controllerReportsMalformedFeatureListReadinessFailure() throws Exception {
+        LongRunningController controller = new LongRunningController();
+        ConversationSession session = controlSession();
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+
+        assertThrows(IllegalStateException.class, () -> controller.requestTransition(
+                session,
+                LongRunningStage.RUNNING,
+                LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
+                "Prime task state",
+                null,
+                "tester"));
+
+        Path featureList = store.taskDirectoryPath(session.longRunningTaskId())
+                .resolve(LongRunningTaskRepository.FEATURE_LIST_FILE);
+        Files.writeString(featureList, """
+                [
+                  {
+                    "category": "implementation",
+                    "priority": "high",
+                    "description": "Finish the requested work",
+                    "depends_on": [],
+                    "verification_steps": ["run deterministic verification"],
+                    "passes": false
+                  }
+                ]
+                """);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.requestTransition(
+                session,
+                LongRunningStage.RUNNING,
+                LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
+                "Start execution",
+                null,
+                "tester"));
+
+        assertTrue(error.getMessage().contains("feature_list.json"));
+        assertTrue(error.getMessage().contains("Missing required field: id"));
     }
 
     @Test

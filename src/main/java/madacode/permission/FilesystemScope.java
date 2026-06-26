@@ -130,6 +130,21 @@ public final class FilesystemScope {
      * rather than generic write/edit tools.
      */
     public static boolean isProtectedLongRunningTaskStateTarget(String rawPath, Path workingDir) {
+        return isProtectedLongRunningTaskStateTarget(rawPath, workingDir, null);
+    }
+
+    /**
+     * Returns {@code true} when {@code rawPath} names a long-running task
+     * state file that must be updated through the dedicated task-store tools.
+     *
+     * <p>When {@code activeTaskDirectory} is non-null, only files inside that
+     * task directory match. This lets the permission policy protect the active
+     * runtime boundary without blocking unrelated task cleanup.
+     */
+    public static boolean isProtectedLongRunningTaskStateTarget(
+            String rawPath,
+            Path workingDir,
+            Path activeTaskDirectory) {
         if (rawPath == null || rawPath.isBlank()) {
             return false;
         }
@@ -137,6 +152,12 @@ public final class FilesystemScope {
         Path normalizedWorkingDir = workingDir.toAbsolutePath().normalize();
         Path taskRoot = normalizedWorkingDir.resolve(".mada/long-running").normalize();
         Path trustedTaskRoot = toTrustedPath(taskRoot);
+        Path normalizedActiveTaskDirectory = activeTaskDirectory == null
+                ? null
+                : activeTaskDirectory.toAbsolutePath().normalize();
+        Path trustedActiveTaskDirectory = normalizedActiveTaskDirectory == null
+                ? null
+                : toTrustedPath(normalizedActiveTaskDirectory);
         for (Path candidate : permissionPaths(rawPath, workingDir)) {
             String fileName = candidate.getFileName() == null
                     ? ""
@@ -144,7 +165,16 @@ public final class FilesystemScope {
             if (!PROTECTED_LONG_RUNNING_STATE_FILENAMES.contains(fileName)) {
                 continue;
             }
-            if (pathStartsWith(candidate, taskRoot) || pathStartsWith(candidate, trustedTaskRoot)) {
+            boolean insideTaskRoot = pathStartsWith(candidate, taskRoot)
+                    || pathStartsWith(candidate, trustedTaskRoot);
+            if (!insideTaskRoot) {
+                continue;
+            }
+            if (normalizedActiveTaskDirectory == null) {
+                return true;
+            }
+            if (pathStartsWith(candidate, normalizedActiveTaskDirectory)
+                    || pathStartsWith(candidate, trustedActiveTaskDirectory)) {
                 return true;
             }
         }
@@ -152,109 +182,49 @@ public final class FilesystemScope {
     }
 
     /**
-     * Returns {@code true} when a bash command directly accesses the
-     * long-running task state area and should be denied.
+     * Returns {@code true} when a bash command touches the long-running task
+     * store area.
      *
-     * <p>Shell syntax is intentionally not parsed. Generic shell access is a
-     * weak authority boundary for these source-of-truth files, so the policy is
-     * conservative: any command that references {@code .mada/long-running} (or
-     * its absolute path) is denied unless it is a plain {@code ls} directory
-     * listing with no shell operators, globbing, expansion, or protected state
-     * filenames. Reads of concrete state files should use read/search tools;
-     * writes must go through {@code longrun_task_update}.
+     * <p>Bash does not provide structured path arguments to the permission gate.
+     * The path-aware active-task check is therefore reserved for file tools; shell
+     * commands that mention the task-store root are denied and should use
+     * read/search tools for inspection or long-running task-store tools for
+     * mutation.
      */
     public static boolean isProtectedLongRunningTaskStateShellAccess(String command, Path workingDir) {
+        return isProtectedLongRunningTaskStateShellAccess(command, workingDir, null);
+    }
+
+    public static boolean isProtectedLongRunningTaskStateShellAccess(
+            String command,
+            Path workingDir,
+            Path activeTaskDirectory) {
         if (command == null || command.isBlank()) {
             return false;
         }
         String normalized = normalizeShellCommand(command);
-        String taskRoot = workingDir.toAbsolutePath()
-                .normalize()
-                .resolve(".mada/long-running")
-                .normalize()
-                .toString()
-                .replace('\\', '/')
-                .toLowerCase(Locale.ROOT);
-        if (!referencesLongRunningTaskRoot(normalized, taskRoot)) {
-            return false;
-        }
-
-        return !isAllowedLongRunningDirectoryListing(normalized, taskRoot);
+        Path workingRoot = workingDir.toAbsolutePath().normalize();
+        Path taskStoreRoot = workingRoot.resolve(".mada/long-running").normalize();
+        return referencesLongRunningTaskRoot(normalized, workingRoot, taskStoreRoot);
     }
 
     private static String normalizeShellCommand(String command) {
         return command.replace('\\', '/').strip().toLowerCase(Locale.ROOT);
     }
 
-    private static boolean referencesLongRunningTaskRoot(String command, String taskRoot) {
-        return command.contains(".mada/long-running")
-                || command.contains(taskRoot)
-                || (command.contains(".mada") && command.contains("long-running"));
+    private static String normalizeShellPath(Path path) {
+        return path.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
-    private static boolean isAllowedLongRunningDirectoryListing(String command, String taskRoot) {
-        if (containsShellOperatorOrExpansion(command)) {
-            return false;
-        }
-        String[] rawTokens = command.split("\\s+");
-        if (rawTokens.length < 2 || !"ls".equals(rawTokens[0])) {
-            return false;
-        }
-
-        boolean hasLongRunningPath = false;
-        for (int i = 1; i < rawTokens.length; i++) {
-            String token = stripMatchingQuotes(rawTokens[i]);
-            if (token.isBlank()) {
-                continue;
-            }
-            if (token.startsWith("-")) {
-                continue;
-            }
-            if (namesProtectedLongRunningStateFile(token)) {
-                return false;
-            }
-            if (!isLongRunningDirectoryReference(token, taskRoot)) {
-                return false;
-            }
-            hasLongRunningPath = true;
-        }
-        return hasLongRunningPath;
-    }
-
-    private static boolean containsShellOperatorOrExpansion(String command) {
-        for (char ch : command.toCharArray()) {
-            if (";|&<>`$*?{}[]()\n\r".indexOf(ch) >= 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String stripMatchingQuotes(String token) {
-        if (token.length() >= 2) {
-            char first = token.charAt(0);
-            char last = token.charAt(token.length() - 1);
-            if ((first == '\'' && last == '\'') || (first == '"' && last == '"')) {
-                return token.substring(1, token.length() - 1);
-            }
-        }
-        return token;
-    }
-
-    private static boolean namesProtectedLongRunningStateFile(String value) {
-        String normalized = value.replace('\\', '/').toLowerCase(Locale.ROOT);
-        return PROTECTED_LONG_RUNNING_STATE_FILENAMES.stream().anyMatch(normalized::contains);
-    }
-
-    private static boolean isLongRunningDirectoryReference(String token, String taskRoot) {
-        String normalized = token.replace('\\', '/').toLowerCase(Locale.ROOT);
-        while (normalized.endsWith("/") && normalized.length() > 1) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized.equals(".mada/long-running")
-                || normalized.startsWith(".mada/long-running/")
-                || normalized.equals(taskRoot)
-                || normalized.startsWith(taskRoot + "/");
+    private static boolean referencesLongRunningTaskRoot(String command, Path workingRoot, Path taskStoreRoot) {
+        String absoluteRoot = normalizeShellPath(taskStoreRoot);
+        String relativeRoot = normalizeShellPath(workingRoot.relativize(taskStoreRoot));
+        String dottedRelativeRoot = relativeRoot.replace(".mada/long-running", ".mada/./long-running");
+        return command.contains(absoluteRoot)
+                || command.contains(relativeRoot)
+                || command.contains(dottedRelativeRoot)
+                || command.contains(".mada")
+                        && command.contains("long-running");
     }
 
     private static boolean matchesDangerousName(Path path) {

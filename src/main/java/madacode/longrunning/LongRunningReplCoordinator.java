@@ -11,6 +11,7 @@ import madacode.core.session.SessionStorage;
 import madacode.permission.ApprovalResponse;
 import madacode.permission.DefaultPermissionGate;
 import madacode.permission.PermissionGate;
+import madacode.render.BlockSpacing;
 import madacode.tui.Screen;
 import madacode.tui.theme.Tk;
 
@@ -100,14 +101,15 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         if (taskId == null || taskId.isBlank()) {
             recordControllerEvent("worker_runtime_start_failed",
                     Map.of("reason", "no_active_task"));
-            screen.scrollback("No active long-running task.");
+            BlockSpacing.scrollbackBlock(screen, "No active long-running task.");
             markInterrupted(LongRunningTransitions.Trigger.RUNTIME_START_FAILED.wire());
             return false;
         }
         if (runtime == null) {
             recordControllerEvent("worker_runtime_start_failed",
                     Map.of("reason", "runtime_unavailable"));
-            screen.scrollback("Cannot launch long-running workers: permission gate is not configured.");
+            BlockSpacing.scrollbackBlock(screen,
+                    "Cannot launch long-running workers: permission gate is not configured.");
             markInterrupted(LongRunningTransitions.Trigger.RUNTIME_START_FAILED.wire());
             return false;
         }
@@ -119,7 +121,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     session,
                     completion -> {
                         completions.add(completion);
-                        screen.notifyAsync(java.util.List.of("", Tk.dim(completionSummary(completion))));
+                        screen.notifyAsync(java.util.List.of("", Tk.dim(completionSummary(completion)), ""));
                     });
         } catch (RuntimeException exception) {
             recordControllerEvent("worker_runtime_start_failed",
@@ -128,7 +130,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                             "detail", exception.getMessage() == null
                                     ? exception.getClass().getSimpleName()
                                     : exception.getMessage()));
-            screen.scrollback("Failed to start long-running runtime: "
+            BlockSpacing.scrollbackBlock(screen, "Failed to start long-running runtime: "
                     + (exception.getMessage() == null
                     ? exception.getClass().getSimpleName()
                     : exception.getMessage()));
@@ -137,7 +139,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         }
         if (!started) {
             recordControllerEvent("worker_runtime_already_running", Map.of());
-            screen.scrollback("Long-running workers are already running for this task.");
+            BlockSpacing.scrollbackBlock(screen, "Long-running workers are already running for this task.");
         } else {
             recordControllerEvent("worker_runtime_started", Map.of());
         }
@@ -180,7 +182,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
             session.setLongRunningStage(LongRunningStage.INTERRUPT);
             session.setLongRunningReason(interrupted.reason());
         } catch (RuntimeException exception) {
-            screen.scrollback(Tk.errorTag("long-running") + " "
+            BlockSpacing.scrollbackBlock(screen, Tk.errorTag("long-running") + " "
                     + "Failed to mark task INTERRUPT: " + exception.getMessage());
         }
     }
@@ -219,7 +221,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
     private void applyCompletion(LongRunningRuntime.Completion completion) {
         ConversationSession session = session();
         if (!Objects.equals(session.longRunningTaskId(), completion.taskId())) {
-            screen.scrollback("[stale] Ignored long-running launcher completion for task "
+            BlockSpacing.scrollbackBlock(screen, "[stale] Ignored long-running launcher completion for task "
                     + safeTaskId(completion.taskId()) + "; current task is "
                     + safeTaskId(session.longRunningTaskId()) + ".");
             return;
@@ -277,15 +279,16 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                         controller.applyPendingRequest(session(), "user", interruptControllerSupplier.get());
                 if (applied.targetStage() == LongRunningStage.RUNNING) {
                     if (startRuntime()) {
-                        screen.scrollback("");
-                        screen.scrollback("[long-running] Worker runtime started; monitor active.");
+                        BlockSpacing.scrollbackBlock(screen,
+                                "[long-running] Worker runtime started; monitor active.");
                     }
                 }
             } else {
                 controller.rejectPendingRequest(session(), "user");
             }
         } catch (RuntimeException exception) {
-            screen.scrollback("Failed to apply long-running transition: " + exception.getMessage());
+            BlockSpacing.scrollbackBlock(screen,
+                    "Failed to apply long-running transition: " + exception.getMessage());
         }
     }
 
@@ -317,7 +320,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                 store.applyLifecycleEvent(taskId, LongRunningLifecycleEvent.runtime(interruptTriggerFor(status)));
             }
         } catch (RuntimeException exception) {
-            screen.scrollback(Tk.errorTag("long-running") + " "
+            BlockSpacing.scrollbackBlock(screen, Tk.errorTag("long-running") + " "
                     + "Failed to mark task INTERRUPT: " + exception.getMessage());
         }
     }

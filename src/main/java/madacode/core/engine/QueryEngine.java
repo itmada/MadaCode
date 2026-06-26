@@ -29,6 +29,8 @@ import madacode.tool.ToolRegistry;
 import madacode.tool.access.ToolAccessResolver;
 import madacode.tool.validation.ToolInputValidator;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -46,6 +48,7 @@ public class QueryEngine {
     private final Integer maxIterations;
     private final HookManager hookManager;
     private final DiagnosticEvents diagnosticEvents;
+    private final ObjectMapper toolObjectMapper;
     private QueryEngine(Builder builder) {
         this.apiClient = Objects.requireNonNull(builder.apiClient, "apiClient");
         this.toolRegistry = Objects.requireNonNull(builder.toolRegistry, "toolRegistry");
@@ -58,6 +61,7 @@ public class QueryEngine {
         this.maxIterations = builder.maxIterations;
         this.hookManager = builder.hookManager;
         this.diagnosticEvents = Objects.requireNonNull(builder.diagnosticEvents, "diagnosticEvents");
+        this.toolObjectMapper = Objects.requireNonNull(builder.toolObjectMapper, "toolObjectMapper");
     }
 
     public QueryEngine(ApiClient apiClient,
@@ -97,7 +101,8 @@ public class QueryEngine {
         private final ToolRegistry toolRegistry;
         private final SystemPromptBuilder systemPromptBuilder;
         private final PermissionGate permissionGate;
-        private ToolInputValidator toolInputValidator = new ToolInputValidator();
+        private ObjectMapper toolObjectMapper = new ObjectMapper();
+        private ToolInputValidator toolInputValidator = new ToolInputValidator(toolObjectMapper);
         private CompactPlanner compactPlanner;
         private ApiMessageProjection apiMessageProjection = new ApiMessageProjection();
         private ToolAccessResolver toolAccessResolver = ToolAccessResolver.defaultResolver();
@@ -122,6 +127,11 @@ public class QueryEngine {
         }
         public Builder unlimitedIterations()                { this.maxIterations = null; return this; }
         public Builder toolInputValidator(ToolInputValidator v) { this.toolInputValidator = Objects.requireNonNull(v); return this; }
+        public Builder toolObjectMapper(ObjectMapper mapper) {
+            this.toolObjectMapper = Objects.requireNonNull(mapper);
+            this.toolInputValidator = new ToolInputValidator(this.toolObjectMapper);
+            return this;
+        }
         public Builder compactPlanner(CompactPlanner p)     { this.compactPlanner = p; return this; }
         public Builder apiMessageProjection(ApiMessageProjection p) { this.apiMessageProjection = Objects.requireNonNull(p); return this; }
         public Builder toolAccessResolver(ToolAccessResolver r) { this.toolAccessResolver = Objects.requireNonNull(r); return this; }
@@ -150,9 +160,9 @@ public class QueryEngine {
 
         ToolExecutor toolExecutor = new ToolExecutor(
                 toolRegistry, toolInputValidator, permissionGate, hookManager,
-                diagnosticEvents, toolAccessResolver);
+                diagnosticEvents, toolAccessResolver, toolObjectMapper);
         ToolOrchestrator toolOrchestrator = new ToolOrchestrator(
-                toolRegistry, toolExecutor, toolAccessResolver);
+                toolRegistry, toolExecutor, toolAccessResolver, toolObjectMapper);
 
         CancellationToken cancel = ctx.cancellationToken();
 

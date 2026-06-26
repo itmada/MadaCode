@@ -48,6 +48,7 @@ public final class LongRunningPromptSection implements PromptSection {
                 "RUNNING is monitor-owned: the controller input loop is suspended while workers execute.",
                 "Treat session messages prefixed with [controller-event] as trusted controller/runtime facts that happened outside the model turn.",
                 "Use update_plan only for a visible, ephemeral checklist of your current controller turn when the work is complex; it is not the durable long-running task plan.",
+                "Use longrun_task_summary_update, longrun_feature_list_replace, longrun_known_issues_replace, and longrun_progress_append for durable draft task-store changes.",
                 "Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING, CANCELLED, or FAILED; runtime asks the user before applying model-requested transitions.",
                 "Do not claim a state transition happened until runtime confirms it.",
                 "Never use CANCELLED or FAILED to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.");
@@ -56,7 +57,7 @@ public final class LongRunningPromptSection implements PromptSection {
     private static String draftPrompt(ConversationSession session) {
         List<String> items = new ArrayList<>();
         items.add("Current stage: DRAFT.");
-        items.add("Maintain the durable task-store draft with longrun_plan_update: task.json plan summary, feature_list.json, known_issues.json, and progress.txt.");
+        items.add("Maintain the durable task-store draft with longrun_task_summary_update, longrun_feature_list_replace, longrun_known_issues_replace, and longrun_progress_append.");
         items.add("Clarify requirements, refine scope, and keep the draft plan durable as it changes.");
         items.add("If the project lacks standard startup scripts, try to create an `init.sh` or document the exact build/test commands in the plan, so future workers know exactly how to test their changes quickly.");
         items.add("You may also perform ordinary controller-agent work requested by the user, including inspecting files, running commands, editing files, or deleting files with normal permission approval.");
@@ -83,7 +84,7 @@ public final class LongRunningPromptSection implements PromptSection {
         items.add("Current stage: INTERRUPT.");
         items.add("Worker execution is stopped or waiting for controller/user intervention.");
         items.add("Inspect the task store, progress.txt, known_issues.json, and logs/events.jsonl as needed before revising the plan.");
-        items.add("Use longrun_plan_update to record durable task-store corrections, added constraints, feature changes, known issues, and progress notes.");
+        items.add("Use longrun_task_summary_update, longrun_feature_list_replace, longrun_known_issues_replace, and longrun_progress_append to record durable task-store corrections, added constraints, feature changes, known issues, and progress notes.");
         items.add("When the task is ready to resume, call longrun_state_transition_request target_status=RUNNING reason=resume_after_interrupt with a concise summary; runtime will ask the user to confirm.");
         items.add("If the user wants to cancel the lifecycle, request target_status=CANCELLED with reason=user_requested_cancel.");
         items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
