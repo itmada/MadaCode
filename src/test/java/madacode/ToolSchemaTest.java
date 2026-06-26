@@ -15,8 +15,10 @@ import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.GlobTool;
 import madacode.tool.GrepTool;
+import madacode.tool.LongRunFeatureListReplaceTool;
 import madacode.tool.LongRunTaskUpdateTool;
 import madacode.tool.LongRunPlanUpdateTool;
+import madacode.tool.LongRunTaskSummaryUpdateTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.tool.WebFetchTool;
@@ -42,6 +44,8 @@ public class ToolSchemaTest {
         assertRequired(new GrepTool(), "pattern");
         assertRequired(new WebFetchTool(), "url");
         assertRequired(new LongRunTaskUpdateTool(), "action");
+        assertRequired(new LongRunTaskSummaryUpdateTool(), "plan_summary");
+        assertRequired(new LongRunFeatureListReplaceTool(), "features");
         assertRequired(agentTool(), "description");
         assertRequired(agentTool(), "prompt");
     }
@@ -74,7 +78,7 @@ public class ToolSchemaTest {
 
     @Test
     void longRunPlanUpdateSchemaUsesConcreteNestedItemContracts() {
-        JsonNode schema = new LongRunPlanUpdateTool().inputSchema(mapper);
+        JsonNode schema = new LongRunFeatureListReplaceTool().inputSchema(mapper);
 
         JsonNode featureItems = schema.path("properties").path("features").path("items");
         assertEquals("object", featureItems.path("type").asText());
@@ -88,7 +92,11 @@ public class ToolSchemaTest {
         assertFalse(featureItems.path("additionalProperties").isMissingNode());
         assertFalse(featureItems.path("additionalProperties").asBoolean(true));
 
-        JsonNode issueItems = schema.path("properties").path("issues").path("items");
+        JsonNode issueItems = new madacode.tool.LongRunKnownIssuesReplaceTool()
+                .inputSchema(mapper)
+                .path("properties")
+                .path("issues")
+                .path("items");
         assertEquals("object", issueItems.path("type").asText());
         assertTrue(issueItems.path("properties").has("severity"));
         assertTrue(issueItems.path("properties").has("verification_steps"));

@@ -101,11 +101,14 @@ class LongRunningCapabilityPolicyTest {
     @Test
     void controlSessionExposesLifecycleToolsOnlyInDraftOrInterrupt() {
         Tool<?> planUpdate = fake(ToolNames.LONGRUN_PLAN_UPDATE);
+        Tool<?> featureListReplace = fake(ToolNames.LONGRUN_FEATURE_LIST_REPLACE);
         Tool<?> transitionRequest = fake(ToolNames.LONGRUN_STATE_TRANSITION_REQUEST);
         Tool<?> taskUpdate = fake(ToolNames.LONGRUN_TASK_UPDATE);
 
         assertNull(resolver.executionDenialReason(planUpdate, controlScope(LongRunningStage.DRAFT)));
         assertNull(resolver.executionDenialReason(planUpdate, controlScope(LongRunningStage.INTERRUPT)));
+        assertNull(resolver.executionDenialReason(featureListReplace, controlScope(LongRunningStage.DRAFT)));
+        assertNull(resolver.executionDenialReason(featureListReplace, controlScope(LongRunningStage.INTERRUPT)));
         assertNull(resolver.executionDenialReason(transitionRequest, controlScope(LongRunningStage.DRAFT)));
         assertNull(resolver.executionDenialReason(transitionRequest, controlScope(LongRunningStage.INTERRUPT)));
         for (LongRunningStage stage : List.of(
@@ -115,6 +118,8 @@ class LongRunningCapabilityPolicyTest {
                 LongRunningStage.FAILED)) {
             assertNotNull(resolver.executionDenialReason(planUpdate, controlScope(stage)),
                     "plan update should be denied in " + stage);
+            assertNotNull(resolver.executionDenialReason(featureListReplace, controlScope(stage)),
+                    "feature list replace should be denied in " + stage);
             assertNotNull(resolver.executionDenialReason(transitionRequest, controlScope(stage)),
                     "transition request should be denied in " + stage);
         }
@@ -158,11 +163,13 @@ class LongRunningCapabilityPolicyTest {
 
         VisibleTools visible = resolver.visibleTools(
                 List.of(fake(ToolNames.FILE_READ), fake(ToolNames.LONGRUN_PLAN_UPDATE),
+                        fake(ToolNames.LONGRUN_FEATURE_LIST_REPLACE),
                         fake(ToolNames.LONGRUN_STATE_TRANSITION_REQUEST)),
                 scope);
 
         assertEquals(Set.of(ToolNames.FILE_READ), visible.names());
         assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_PLAN_UPDATE), scope));
+        assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_FEATURE_LIST_REPLACE), scope));
         assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_STATE_TRANSITION_REQUEST), scope));
     }
 
@@ -225,6 +232,10 @@ class LongRunningCapabilityPolicyTest {
                                 ToolNames.FILE_WRITE,
                                 ToolNames.UPDATE_PLAN,
                                 ToolNames.LONGRUN_PLAN_UPDATE,
+                                ToolNames.LONGRUN_TASK_SUMMARY_UPDATE,
+                                ToolNames.LONGRUN_FEATURE_LIST_REPLACE,
+                                ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE,
+                                ToolNames.LONGRUN_PROGRESS_APPEND,
                                 ToolNames.LONGRUN_TASK_UPDATE,
                                 ToolNames.LONGRUN_STATE_TRANSITION_REQUEST)
                         .contains(name);

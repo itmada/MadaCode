@@ -3,6 +3,7 @@ package madacode.permission;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.tool.Tool;
+import madacode.tool.ToolNames;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -59,10 +60,14 @@ public final class LongRunningTaskStatePermissionRule implements PermissionRule 
     }
 
     private static boolean isOfficialLongRunningTaskStoreTool(String toolName) {
-        return "longrun_plan_update".equals(toolName)
-                || "longrun_task_update".equals(toolName)
-                || "longrun_state_transition_request".equals(toolName)
-                || "worker_report".equals(toolName);
+        return ToolNames.LONGRUN_PLAN_UPDATE.equals(toolName)
+                || ToolNames.LONGRUN_TASK_SUMMARY_UPDATE.equals(toolName)
+                || ToolNames.LONGRUN_FEATURE_LIST_REPLACE.equals(toolName)
+                || ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE.equals(toolName)
+                || ToolNames.LONGRUN_PROGRESS_APPEND.equals(toolName)
+                || ToolNames.LONGRUN_TASK_UPDATE.equals(toolName)
+                || ToolNames.LONGRUN_STATE_TRANSITION_REQUEST.equals(toolName)
+                || ToolNames.WORKER_REPORT.equals(toolName);
     }
 
     private static PermissionDecision deny() {

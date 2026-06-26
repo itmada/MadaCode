@@ -169,6 +169,14 @@ public class ToolInputValidatorTest {
         assertTrue(result.errors().isEmpty());
     }
 
+    @Test
+    void rejectsNonIntegralSchemaIntegerKeywords() {
+        ValidationResult result = validator.validate(new InvalidIntegerKeywordTool(), mapper.createObjectNode());
+
+        assertFalse(result.valid());
+        assertTrue(result.errors().contains("tool schema for 'name' minLength must be an integer"));
+    }
+
     private final class ComplexTool implements Tool<ObjectNode> {
         @Override
         public Class<ObjectNode> inputType() { return ObjectNode.class; }
@@ -290,6 +298,46 @@ public class ToolInputValidatorTest {
 
             schema.set("properties", properties);
             schema.putArray("required").add("features");
+            return schema;
+        }
+
+        @Override
+        public ToolResult execute(ObjectNode input, ToolUseContext context) {
+            return new ToolResult(name(), true, "ok");
+        }
+    }
+
+    private final class InvalidIntegerKeywordTool implements Tool<ObjectNode> {
+        @Override
+        public Class<ObjectNode> inputType() {
+            return ObjectNode.class;
+        }
+
+        @Override
+        public String name() {
+            return "invalid_integer_keyword";
+        }
+
+        @Override
+        public String description() {
+            return "Invalid schema keyword fixture.";
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return true;
+        }
+
+        @Override
+        public ObjectNode inputSchema(ObjectMapper mapper) {
+            ObjectNode schema = mapper.createObjectNode();
+            schema.put("type", "object");
+            ObjectNode properties = mapper.createObjectNode();
+            ObjectNode name = mapper.createObjectNode();
+            name.put("type", "string");
+            name.put("minLength", 1.5);
+            properties.set("name", name);
+            schema.set("properties", properties);
             return schema;
         }
 

@@ -132,6 +132,14 @@ class PermissionEnforcementTest {
                 new BashTool(),
                 bashInput("cat " + otherTaskState),
                 context);
+        PermissionDecision normalizedRelativeBashDecision = gate.check(
+                new BashTool(),
+                bashInput("cat .mada/long-running/./task-1/task.json"),
+                context);
+        PermissionDecision cdRelativeBashDecision = gate.check(
+                new BashTool(),
+                bashInput("cd .mada/long-running && cat task-1/task.json"),
+                context);
 
         assertFalse(writeDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, writeDecision.source());
@@ -139,8 +147,12 @@ class PermissionEnforcementTest {
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, bashDecision.source());
         assertTrue(otherWriteDecision.isAllowed());
         assertEquals(LongRunningWorkspacePermissionRule.SOURCE, otherWriteDecision.source());
-        assertTrue(otherBashDecision.isAllowed());
-        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, otherBashDecision.source());
+        assertFalse(otherBashDecision.isAllowed());
+        assertEquals(LongRunningTaskStatePermissionRule.SOURCE, otherBashDecision.source());
+        assertFalse(normalizedRelativeBashDecision.isAllowed());
+        assertEquals(LongRunningTaskStatePermissionRule.SOURCE, normalizedRelativeBashDecision.source());
+        assertFalse(cdRelativeBashDecision.isAllowed());
+        assertEquals(LongRunningTaskStatePermissionRule.SOURCE, cdRelativeBashDecision.source());
         assertEquals(0, prompt.calls);
     }
 

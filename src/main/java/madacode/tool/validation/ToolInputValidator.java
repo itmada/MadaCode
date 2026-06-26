@@ -22,7 +22,7 @@ public final class ToolInputValidator {
         this(new ObjectMapper());
     }
 
-    ToolInputValidator(ObjectMapper mapper) {
+    public ToolInputValidator(ObjectMapper mapper) {
         this.mapper = Objects.requireNonNull(mapper, "mapper");
     }
 
@@ -156,7 +156,7 @@ public final class ToolInputValidator {
             String keyword,
             List<String> errors
     ) {
-        if (value != null && !value.canConvertToInt()) {
+        if (value != null && !value.isIntegralNumber()) {
             errors.add(schemaError(path, topLevel, keyword + " must be an integer"));
         }
     }
@@ -273,22 +273,22 @@ public final class ToolInputValidator {
 
     private void validateLengthBounds(String fieldPath, JsonNode propertySchema, int length, List<String> errors) {
         JsonNode minLength = propertySchema.get("minLength");
-        if (minLength != null && minLength.canConvertToInt() && length < minLength.asInt()) {
+        if (minLength != null && minLength.isIntegralNumber() && length < minLength.asInt()) {
             errors.add(fieldError(fieldPath) + " length must be >= " + minLength.asInt());
         }
         JsonNode maxLength = propertySchema.get("maxLength");
-        if (maxLength != null && maxLength.canConvertToInt() && length > maxLength.asInt()) {
+        if (maxLength != null && maxLength.isIntegralNumber() && length > maxLength.asInt()) {
             errors.add(fieldError(fieldPath) + " length must be <= " + maxLength.asInt());
         }
     }
 
     private void validateItemCountBounds(String fieldPath, JsonNode propertySchema, int size, List<String> errors) {
         JsonNode minItems = propertySchema.get("minItems");
-        if (minItems != null && minItems.canConvertToInt() && size < minItems.asInt()) {
+        if (minItems != null && minItems.isIntegralNumber() && size < minItems.asInt()) {
             errors.add(fieldError(fieldPath) + " item count must be >= " + minItems.asInt());
         }
         JsonNode maxItems = propertySchema.get("maxItems");
-        if (maxItems != null && maxItems.canConvertToInt() && size > maxItems.asInt()) {
+        if (maxItems != null && maxItems.isIntegralNumber() && size > maxItems.asInt()) {
             errors.add(fieldError(fieldPath) + " item count must be <= " + maxItems.asInt());
         }
     }

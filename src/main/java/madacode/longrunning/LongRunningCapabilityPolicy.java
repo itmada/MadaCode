@@ -21,10 +21,10 @@ import java.util.Set;
  *       for visible current-cycle progress; once it has reported (or is not in
  *       the RUNNING stage) it may use nothing.</li>
  *   <li><b>Control-session lifecycle gating</b> ({@link #lifecycleVote}): the
- *       lifecycle tools {@code longrun_plan_update} and
- *       {@code longrun_state_transition_request} are exposed to the control session
- *       only while the task is DRAFT or INTERRUPT; {@code worker_report} and
- *       {@code longrun_task_update} are worker-only.</li>
+     *       long-running draft tools and {@code longrun_state_transition_request}
+     *       are exposed to the control session only while the task is DRAFT or
+     *       INTERRUPT; {@code worker_report} and {@code longrun_task_update} are
+     *       worker-only.</li>
  * </ol>
  *
  * <p>Ordinary control-session tools are not restricted here — the control session is
@@ -90,10 +90,14 @@ public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPoli
             case ToolNames.LONGRUN_TASK_UPDATE -> WorkflowVote.deny(
                     "longrun_task_update is reserved for the worker session and is not available "
                             + "in the control session. Current stage: " + stage);
-            case ToolNames.LONGRUN_PLAN_UPDATE -> draftOrInterrupt(stage)
-                    ? WorkflowVote.expose()
-                    : WorkflowVote.deny("longrun_plan_update is only available in the control session "
-                            + "while the task is DRAFT or INTERRUPT. Current stage: " + stage);
+            case ToolNames.LONGRUN_PLAN_UPDATE,
+                    ToolNames.LONGRUN_TASK_SUMMARY_UPDATE,
+                    ToolNames.LONGRUN_FEATURE_LIST_REPLACE,
+                    ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE,
+                    ToolNames.LONGRUN_PROGRESS_APPEND -> draftOrInterrupt(stage)
+                            ? WorkflowVote.expose()
+                            : WorkflowVote.deny(tool.name() + " is only available in the control session "
+                                    + "while the task is DRAFT or INTERRUPT. Current stage: " + stage);
             case ToolNames.LONGRUN_STATE_TRANSITION_REQUEST -> draftOrInterrupt(stage)
                     ? WorkflowVote.expose()
                     : WorkflowVote.deny("longrun_state_transition_request is only available in the "
@@ -110,6 +114,10 @@ public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPoli
         return ToolNames.WORKER_REPORT.equals(name)
                 || ToolNames.LONGRUN_TASK_UPDATE.equals(name)
                 || ToolNames.LONGRUN_PLAN_UPDATE.equals(name)
+                || ToolNames.LONGRUN_TASK_SUMMARY_UPDATE.equals(name)
+                || ToolNames.LONGRUN_FEATURE_LIST_REPLACE.equals(name)
+                || ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE.equals(name)
+                || ToolNames.LONGRUN_PROGRESS_APPEND.equals(name)
                 || ToolNames.LONGRUN_STATE_TRANSITION_REQUEST.equals(name);
     }
 }
