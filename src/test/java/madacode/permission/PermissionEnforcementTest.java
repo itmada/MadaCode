@@ -114,6 +114,7 @@ class PermissionEnforcementTest {
         session.setLongRunningTaskDirectory(tempDir.resolve(".mada/long-running/task-1").toString());
         ToolUseContext context = new ToolUseContext(tempDir, session);
         Path protectedTaskState = tempDir.resolve(".mada/long-running/task-1/task.json");
+        Path otherTaskState = tempDir.resolve(".mada/long-running/task-2/task.json");
 
         PermissionDecision writeDecision = gate.check(
                 new FileWriteTool(),
@@ -123,11 +124,23 @@ class PermissionEnforcementTest {
                 new BashTool(),
                 bashInput("cat " + protectedTaskState),
                 context);
+        PermissionDecision otherWriteDecision = gate.check(
+                new FileWriteTool(),
+                writeInput(otherTaskState),
+                context);
+        PermissionDecision otherBashDecision = gate.check(
+                new BashTool(),
+                bashInput("cat " + otherTaskState),
+                context);
 
         assertFalse(writeDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, writeDecision.source());
-        assertTrue(bashDecision.isAllowed());
-        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, bashDecision.source());
+        assertFalse(bashDecision.isAllowed());
+        assertEquals(LongRunningTaskStatePermissionRule.SOURCE, bashDecision.source());
+        assertTrue(otherWriteDecision.isAllowed());
+        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, otherWriteDecision.source());
+        assertTrue(otherBashDecision.isAllowed());
+        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, otherBashDecision.source());
         assertEquals(0, prompt.calls);
     }
 

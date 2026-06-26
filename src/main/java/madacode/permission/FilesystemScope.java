@@ -194,35 +194,79 @@ public final class FilesystemScope {
      * writes must go through {@code longrun_task_update}.
      */
     public static boolean isProtectedLongRunningTaskStateShellAccess(String command, Path workingDir) {
+        return isProtectedLongRunningTaskStateShellAccess(command, workingDir, null);
+    }
+
+    public static boolean isProtectedLongRunningTaskStateShellAccess(
+            String command,
+            Path workingDir,
+            Path activeTaskDirectory) {
         if (command == null || command.isBlank()) {
             return false;
         }
         String normalized = normalizeShellCommand(command);
-        String taskRoot = workingDir.toAbsolutePath()
-                .normalize()
-                .resolve(".mada/long-running")
-                .normalize()
-                .toString()
-                .replace('\\', '/')
-                .toLowerCase(Locale.ROOT);
-        if (!referencesLongRunningTaskRoot(normalized, taskRoot)) {
+        Path workingRoot = workingDir.toAbsolutePath().normalize();
+        Path protectedRootPath = activeTaskDirectory == null
+                ? workingRoot.resolve(".mada/long-running").normalize()
+                : activeTaskDirectory.toAbsolutePath().normalize();
+        String protectedRoot = normalizeShellPath(protectedRootPath);
+        String relativeProtectedRoot = relativeShellPath(workingRoot, protectedRootPath);
+        boolean broadLongRunningRoot = activeTaskDirectory == null;
+        if (!referencesLongRunningTaskRoot(
+                normalized,
+                protectedRoot,
+                relativeProtectedRoot,
+                broadLongRunningRoot)) {
             return false;
         }
 
-        return !isAllowedLongRunningDirectoryListing(normalized, taskRoot);
+        return !isAllowedLongRunningDirectoryListing(
+                normalized,
+                protectedRoot,
+                relativeProtectedRoot,
+                broadLongRunningRoot);
     }
 
     private static String normalizeShellCommand(String command) {
         return command.replace('\\', '/').strip().toLowerCase(Locale.ROOT);
     }
 
-    private static boolean referencesLongRunningTaskRoot(String command, String taskRoot) {
-        return command.contains(".mada/long-running")
-                || command.contains(taskRoot)
-                || (command.contains(".mada") && command.contains("long-running"));
+    private static String normalizeShellPath(Path path) {
+        return path.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
-    private static boolean isAllowedLongRunningDirectoryListing(String command, String taskRoot) {
+    private static String relativeShellPath(Path workingRoot, Path protectedRootPath) {
+        if (!protectedRootPath.startsWith(workingRoot)) {
+            return null;
+        }
+        Path relative = workingRoot.relativize(protectedRootPath);
+        if (relative.toString().isBlank()) {
+            return null;
+        }
+        return normalizeShellPath(relative);
+    }
+
+    private static boolean referencesLongRunningTaskRoot(
+            String command,
+            String protectedRoot,
+            String relativeProtectedRoot,
+            boolean broadLongRunningRoot) {
+        if (command.contains(protectedRoot)) {
+            return true;
+        }
+        if (relativeProtectedRoot != null && command.contains(relativeProtectedRoot)) {
+            return true;
+        }
+        return broadLongRunningRoot
+                && (command.contains(".mada/long-running")
+                        || (command.contains(".mada") && command.contains("long-running")));
+    }
+
+    private static boolean isAllowedLongRunningDirectoryListing(
+            String command,
+            String protectedRoot,
+            String relativeProtectedRoot,
+            boolean broadLongRunningRoot) {
         if (containsShellOperatorOrExpansion(command)) {
             return false;
         }
@@ -243,7 +287,11 @@ public final class FilesystemScope {
             if (namesProtectedLongRunningStateFile(token)) {
                 return false;
             }
-            if (!isLongRunningDirectoryReference(token, taskRoot)) {
+            if (!isLongRunningDirectoryReference(
+                    token,
+                    protectedRoot,
+                    relativeProtectedRoot,
+                    broadLongRunningRoot)) {
                 return false;
             }
             hasLongRunningPath = true;
@@ -276,15 +324,29 @@ public final class FilesystemScope {
         return PROTECTED_LONG_RUNNING_STATE_FILENAMES.stream().anyMatch(normalized::contains);
     }
 
-    private static boolean isLongRunningDirectoryReference(String token, String taskRoot) {
+    private static boolean isLongRunningDirectoryReference(
+            String token,
+            String protectedRoot,
+            String relativeProtectedRoot,
+            boolean broadLongRunningRoot) {
         String normalized = token.replace('\\', '/').toLowerCase(Locale.ROOT);
         while (normalized.endsWith("/") && normalized.length() > 1) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
+        if (normalized.equals(protectedRoot) || normalized.startsWith(protectedRoot + "/")) {
+            return true;
+        }
+        if (relativeProtectedRoot != null
+                && (normalized.equals(relativeProtectedRoot)
+                        || normalized.startsWith(relativeProtectedRoot + "/"))) {
+            return true;
+        }
+        if (!broadLongRunningRoot) {
+            return false;
+        }
         return normalized.equals(".mada/long-running")
                 || normalized.startsWith(".mada/long-running/")
-                || normalized.equals(taskRoot)
-                || normalized.startsWith(taskRoot + "/");
+                || (normalized.contains(".mada") && normalized.contains("long-running"));
     }
 
     private static boolean matchesDangerousName(Path path) {

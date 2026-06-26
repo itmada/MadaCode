@@ -1,5 +1,6 @@
 package madacode.tool.schema;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -13,7 +14,6 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Minimal first-party JSON-schema generator for tool input records.
@@ -91,14 +91,6 @@ public final class RecordSchemaGenerator {
             schema.set("items", schemaFor(typeArguments[0]));
             return schema;
         }
-        if (Optional.class == rawClass) {
-            Type[] typeArguments = type.getActualTypeArguments();
-            if (typeArguments.length != 1) {
-                throw new IllegalArgumentException(
-                        "Optional schema requires exactly one type argument: " + type.getTypeName());
-            }
-            return schemaFor(typeArguments[0]);
-        }
         throw new IllegalArgumentException("Unsupported parameterized schema type: " + type.getTypeName());
     }
 
@@ -109,9 +101,10 @@ public final class RecordSchemaGenerator {
         List<String> requiredNames = new ArrayList<>();
 
         for (RecordComponent component : recordType.getRecordComponents()) {
-            properties.set(component.getName(), schemaFor(component.getGenericType()));
+            String propertyName = propertyName(component);
+            properties.set(propertyName, schemaFor(component.getGenericType()));
             if (!isOptional(component)) {
-                requiredNames.add(component.getName());
+                requiredNames.add(propertyName);
             }
         }
 
@@ -138,12 +131,19 @@ public final class RecordSchemaGenerator {
         return schema;
     }
 
-    private boolean isOptional(RecordComponent component) {
-        Type genericType = component.getGenericType();
-        if (genericType instanceof ParameterizedType parameterizedType) {
-            return parameterizedType.getRawType() == Optional.class;
+    private String propertyName(RecordComponent component) {
+        JsonProperty property = component.getAnnotation(JsonProperty.class);
+        if (property == null) {
+            property = component.getAccessor().getAnnotation(JsonProperty.class);
         }
-        return false;
+        if (property != null && !property.value().isBlank()) {
+            return property.value();
+        }
+        return component.getName();
+    }
+
+    private boolean isOptional(RecordComponent component) {
+        return component.isAnnotationPresent(OptionalSchemaProperty.class);
     }
 
     private static boolean isIntegerType(Class<?> type) {

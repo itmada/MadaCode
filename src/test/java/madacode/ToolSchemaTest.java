@@ -1,7 +1,11 @@
 package madacode;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.core.engine.ToolUseContext;
+import madacode.core.model.ToolResult;
 import madacode.agent.AgentRegistry;
 import madacode.agent.AgentRunner;
 import madacode.agent.BuiltInAgentLoader;
@@ -16,6 +20,7 @@ import madacode.tool.LongRunPlanUpdateTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.tool.WebFetchTool;
+import madacode.tool.schema.OptionalSchemaProperty;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -76,7 +81,10 @@ public class ToolSchemaTest {
         assertTrue(featureItems.path("properties").has("id"));
         assertTrue(featureItems.path("properties").has("depends_on"));
         assertTrue(requiredContains(featureItems, "id"));
-        assertTrue(requiredContains(featureItems, "passes"));
+        assertTrue(requiredContains(featureItems, "category"));
+        assertFalse(requiredContains(featureItems, "depends_on"));
+        assertFalse(requiredContains(featureItems, "verification_steps"));
+        assertFalse(requiredContains(featureItems, "passes"));
         assertFalse(featureItems.path("additionalProperties").isMissingNode());
         assertFalse(featureItems.path("additionalProperties").asBoolean(true));
 
@@ -84,7 +92,12 @@ public class ToolSchemaTest {
         assertEquals("object", issueItems.path("type").asText());
         assertTrue(issueItems.path("properties").has("severity"));
         assertTrue(issueItems.path("properties").has("verification_steps"));
-        assertTrue(requiredContains(issueItems, "status"));
+        assertTrue(requiredContains(issueItems, "id"));
+        assertTrue(requiredContains(issueItems, "description"));
+        assertTrue(requiredContains(issueItems, "severity"));
+        assertFalse(requiredContains(issueItems, "status"));
+        assertFalse(requiredContains(issueItems, "discovered_in"));
+        assertFalse(requiredContains(issueItems, "verification_steps"));
         assertFalse(issueItems.path("additionalProperties").isMissingNode());
         assertFalse(issueItems.path("additionalProperties").asBoolean(true));
     }
@@ -109,6 +122,18 @@ public class ToolSchemaTest {
             assertFalse(schema.path("additionalProperties").asBoolean(true));
             assertTrue(schema.path("properties").path("input").isMissingNode());
         }
+    }
+
+    @Test
+    void generatedRecordSchemaUsesJsonPropertyNamesAndOptionalAnnotations() {
+        JsonNode schema = new GeneratedSchemaTool().inputSchema(mapper);
+
+        assertTrue(schema.path("properties").has("required_text"));
+        assertTrue(schema.path("properties").has("optional_text"));
+        assertTrue(requiredContains(schema, "required_text"));
+        assertFalse(requiredContains(schema, "optional_text"));
+        assertFalse(schema.path("properties").has("requiredText"));
+        assertFalse(schema.path("additionalProperties").asBoolean(true));
     }
 
     private void assertRequired(Tool tool, String fieldName) {
@@ -141,5 +166,36 @@ public class ToolSchemaTest {
         return new AgentTool(
                 new AgentRunner(new ToolRegistry(), fakeApiClient, madacode.permission.PermissionGate.permissive()),
                 AgentRegistry.loaded(new BuiltInAgentLoader()));
+    }
+
+    private record GeneratedSchemaInput(
+            @JsonProperty("required_text") String requiredText,
+            @JsonProperty("optional_text") @OptionalSchemaProperty String optionalText) {}
+
+    private static final class GeneratedSchemaTool implements Tool<GeneratedSchemaInput> {
+        @Override
+        public String name() {
+            return "generated_schema";
+        }
+
+        @Override
+        public String description() {
+            return "Exercises generated record schema.";
+        }
+
+        @Override
+        public Class<GeneratedSchemaInput> inputType() {
+            return GeneratedSchemaInput.class;
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return true;
+        }
+
+        @Override
+        public ToolResult execute(GeneratedSchemaInput input, ToolUseContext context) {
+            return new ToolResult(name(), true, "ok");
+        }
     }
 }

@@ -12,6 +12,7 @@ import madacode.longrunning.KnownIssue;
 import madacode.longrunning.LongRunningTaskEvent;
 import madacode.longrunning.LongRunningTaskMetadata;
 import madacode.longrunning.LongRunningTaskStore;
+import madacode.tool.schema.OptionalSchemaProperty;
 
 import java.time.Instant;
 import java.util.List;
@@ -26,16 +27,22 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
             String category,
             String priority,
             String description,
+            @OptionalSchemaProperty
             List<String> depends_on,
+            @OptionalSchemaProperty
             List<String> verification_steps,
+            @OptionalSchemaProperty
             Boolean passes) {}
 
     public record IssueInput(
             String id,
             String description,
             String severity,
+            @OptionalSchemaProperty
             String status,
+            @OptionalSchemaProperty
             String discovered_in,
+            @OptionalSchemaProperty
             List<String> verification_steps) {}
 
     public record Input(
