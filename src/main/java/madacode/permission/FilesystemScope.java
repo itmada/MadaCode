@@ -130,6 +130,21 @@ public final class FilesystemScope {
      * rather than generic write/edit tools.
      */
     public static boolean isProtectedLongRunningTaskStateTarget(String rawPath, Path workingDir) {
+        return isProtectedLongRunningTaskStateTarget(rawPath, workingDir, null);
+    }
+
+    /**
+     * Returns {@code true} when {@code rawPath} names a long-running task
+     * state file that must be updated through the dedicated task-store tools.
+     *
+     * <p>When {@code activeTaskDirectory} is non-null, only files inside that
+     * task directory match. This lets the permission policy protect the active
+     * runtime boundary without blocking unrelated task cleanup.
+     */
+    public static boolean isProtectedLongRunningTaskStateTarget(
+            String rawPath,
+            Path workingDir,
+            Path activeTaskDirectory) {
         if (rawPath == null || rawPath.isBlank()) {
             return false;
         }
@@ -137,6 +152,12 @@ public final class FilesystemScope {
         Path normalizedWorkingDir = workingDir.toAbsolutePath().normalize();
         Path taskRoot = normalizedWorkingDir.resolve(".mada/long-running").normalize();
         Path trustedTaskRoot = toTrustedPath(taskRoot);
+        Path normalizedActiveTaskDirectory = activeTaskDirectory == null
+                ? null
+                : activeTaskDirectory.toAbsolutePath().normalize();
+        Path trustedActiveTaskDirectory = normalizedActiveTaskDirectory == null
+                ? null
+                : toTrustedPath(normalizedActiveTaskDirectory);
         for (Path candidate : permissionPaths(rawPath, workingDir)) {
             String fileName = candidate.getFileName() == null
                     ? ""
@@ -144,7 +165,16 @@ public final class FilesystemScope {
             if (!PROTECTED_LONG_RUNNING_STATE_FILENAMES.contains(fileName)) {
                 continue;
             }
-            if (pathStartsWith(candidate, taskRoot) || pathStartsWith(candidate, trustedTaskRoot)) {
+            boolean insideTaskRoot = pathStartsWith(candidate, taskRoot)
+                    || pathStartsWith(candidate, trustedTaskRoot);
+            if (!insideTaskRoot) {
+                continue;
+            }
+            if (normalizedActiveTaskDirectory == null) {
+                return true;
+            }
+            if (pathStartsWith(candidate, normalizedActiveTaskDirectory)
+                    || pathStartsWith(candidate, trustedActiveTaskDirectory)) {
                 return true;
             }
         }
