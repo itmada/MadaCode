@@ -3,6 +3,7 @@ package madacode.tool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.tool.schema.RecordSchemaGenerator;
 
 final class ToolSchemas {
 
@@ -13,6 +14,7 @@ final class ToolSchemas {
         ObjectNode schema = mapper.createObjectNode();
         schema.put("type", "object");
         schema.set("properties", properties);
+        schema.put("additionalProperties", false);
 
         ArrayNode required = mapper.createArrayNode();
         for (String requiredName : requiredNames) {
@@ -80,5 +82,9 @@ final class ToolSchemas {
         ObjectNode item = mapper.createObjectNode();
         item.put("type", "object");
         return item;
+    }
+
+    static ObjectNode schemaFromRecord(ObjectMapper mapper, Class<?> recordType) {
+        return new RecordSchemaGenerator(mapper).objectSchemaFor(recordType);
     }
 }

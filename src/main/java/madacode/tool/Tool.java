@@ -95,7 +95,13 @@ public interface Tool<I> {
         return false;
     }
 
-    ObjectNode inputSchema(ObjectMapper mapper);
+    default ObjectNode inputSchema(ObjectMapper mapper) {
+        if (ObjectNode.class.equals(inputType())) {
+            throw new UnsupportedOperationException(
+                    "Tools with ObjectNode inputType() must override inputSchema(ObjectMapper).");
+        }
+        return ToolSchemas.schemaFromRecord(mapper, inputType());
+    }
 
     ToolResult execute(I input, ToolUseContext context);
 
