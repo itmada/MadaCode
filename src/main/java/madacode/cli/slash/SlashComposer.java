@@ -172,6 +172,7 @@ public final class SlashComposer {
                 terminal.setAttributes(previous);
             }
         } finally {
+            screen.clearTransientUi();
             jlineScreen.exitComposePhase();
         }
     }
@@ -219,7 +220,7 @@ public final class SlashComposer {
         } else {
             // CMD mode: filter registry palette entries by input prefix.
             String prefix = s.input.startsWith("/") ? s.input.substring(1).toLowerCase(Locale.ROOT) : "";
-            s.candidates = registry.paletteEntries().stream()
+            s.candidates = registry.paletteEntries(slashContext.get()).stream()
                     .filter(e -> prefix.isBlank()
                             || e.command().substring(1).toLowerCase(Locale.ROOT).startsWith(prefix))
                     .map(e -> new CommandPalettePanel.PaletteCandidate(e.command(), e.description()))

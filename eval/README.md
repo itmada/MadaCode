@@ -38,10 +38,16 @@ bin/eval --unsafe-local --out report.md
   `checks` 中声明时执行。某个 scorer 抛错会被类型化为该维度的 `ERROR`，不会静默跳过。
   只有声明为 gating 的维度决定 attempt verdict；非 gating 的 FAIL/ERROR 保留在报告中，
   但不会把原本成功的执行改判为失败或基础设施错误。
-- **轨迹边界**是整个 attempt，而不是某一个 session。控制、长任务 worker 和后续 subagent
-  session 都汇入同一个 `ExecutionTraceCollector`；文件变化由 workspace 前后快照计算，
-  不从工具名称猜测。长任务运行时自己的 `.mada/long-running/` 状态不计入候选文件改动，
-  避免 `fileWhitelist` 被框架内部持久化误伤。
+- **轨迹边界**是整个 attempt，而不是某一个 session。控制、长任务 worker 和动态 spawn 的
+  subagent session（含其孙级）都汇入同一个 `ExecutionTraceCollector`：control/worker 由
+  launcher 显式 `recordSession`，subagent 因其在工具执行内部动态创建、父 session 扫描够不到，
+  改由 `ConversationSession#registerSubAgent` 在 spawn 时注册到 collector（observer 随
+  `registerSubAgent` 向下传播，覆盖整棵 agent 树），在 `finish()` 统一以 `SUBAGENT` phase 扫描。
+  因此 subagent 内部的工具白/黑名单、decoy 文件访问、read-before-edit 都纳入判分，
+  `EFFICIENCY` 的 `maxToolCalls` 也以全树 invocation 数为权威口径（与 `maxTokens` 同基准，
+  token 本就经 `ParentEventForwarder` 上浮）。文件变化由 workspace 前后快照计算，不从工具名称
+  猜测。长任务运行时自己的 `.mada/long-running/` 状态不计入候选文件改动，避免 `fileWhitelist`
+  被框架内部持久化误伤。
 - **多轮输入**通过结构化 `conversation` 执行；旧的 `instruction` case 自动退化为单轮。
 - **采样**：`EvalRunner` 对每个 case 跑 `samples` 次独立 attempt（各自独立沙箱），
   聚合成 `EvalCaseReport`（pass@k + k/N + stable）。单次 attempt 若在管线外异常（如沙箱创建失败）
@@ -163,6 +169,9 @@ verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在�
 
 ## 安全与成本
 
+- 本 eval 有意定位为本地能力 / 成本 / 稳定性测量（`LOCAL_UNSAFE`）。可信的隐藏
+  Judge benchmark 是一个已设计好接口、可选的扩展（容器/VM 后端），不在当前范围；
+  接缝保证它落地时 Runner/Scorer/case 零改动。
 - **当前隔离级别是 `LOCAL_UNSAFE`**：临时 workspace 不是操作系统安全沙箱，绝对路径、
   网络和宿主进程仍可能可达，仓库里的 `verify.sh` 对 agent 也可能是可读的。因此真实模型运行
   必须显式传 `--unsafe-local`，且只能使用可信 case；报告会标记

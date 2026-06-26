@@ -21,6 +21,14 @@ public interface Screen {
     void scrollback(List<String> lines);
 
     /**
+     * Ensure the next prompt or content block starts below a blank scrollback
+     * line. Implementations may suppress duplicate blanks.
+     */
+    default void ensureScrollbackBoundary() {
+        scrollback("");
+    }
+
+    /**
      * Thread-safe user-visible notification path for async events.
      *
      * <p>Defaults to normal scrollback so existing Screen implementations keep
@@ -68,6 +76,17 @@ public interface Screen {
     /** Clear the modal layer (restores status visibility). */
     default void clearLiveModal() {
         // no-op by default
+    }
+
+    /**
+     * Synchronously clear all transient UI layers before terminal ownership
+     * changes. This is stronger than clearing status/modal individually: live
+     * renderers may also need to reset their display diff state so no stale
+     * frame leaks into the next prompt.
+     */
+    default void clearTransientUi() {
+        clearLiveModal();
+        clearLiveStatus();
     }
 
     /** Current terminal column count, with a sane minimum. */

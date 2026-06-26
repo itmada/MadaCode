@@ -1,6 +1,5 @@
 package madacode.tui;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -21,6 +20,12 @@ public final class BlockScopedScreen implements Screen {
     public synchronized void scrollback(List<String> lines) {
         if (lines.isEmpty()) return;
         delegate.scrollback(spacedIfFirst(lines));
+    }
+
+    public synchronized void finishBlock() {
+        if (started) {
+            delegate.ensureScrollbackBoundary();
+        }
     }
 
     @Override
@@ -74,14 +79,16 @@ public final class BlockScopedScreen implements Screen {
         delegate.shutdown();
     }
 
+    @Override
+    public void ensureScrollbackBoundary() {
+        delegate.ensureScrollbackBoundary();
+    }
+
     private synchronized List<String> spacedIfFirst(List<String> lines) {
         if (lines.isEmpty()) return lines;
         if (started) return lines;
         started = true;
-        if (lines.getFirst().isEmpty()) return lines;
-        List<String> spaced = new ArrayList<>(lines.size() + 1);
-        spaced.add("");
-        spaced.addAll(lines);
-        return List.copyOf(spaced);
+        delegate.ensureScrollbackBoundary();
+        return lines;
     }
 }

@@ -43,6 +43,18 @@ public record RunMetrics(
     }
 
     /**
+     * Copy with an authoritative tool-call count. The trace collector observes every
+     * control, worker, and sub-agent session, so {@code trace.invocations().size()} is
+     * the true total across the whole agent tree — unlike a single-session count, which
+     * misses sub-agent tool calls. Reconciling here keeps the {@code maxToolCalls} and
+     * {@code maxTokens} efficiency checks on the same (full-tree) accounting basis.
+     */
+    public RunMetrics withToolCalls(int toolCalls) {
+        return new RunMetrics(
+                controlIterations, workerIterations, workerCycles, toolCalls, tokenUsage);
+    }
+
+    /**
      * Builds metrics from a single control/interactive session: {@code controlIterations}
      * are the turn's iterations, worker counters are zero, and tool calls are counted from
      * the session transcript.

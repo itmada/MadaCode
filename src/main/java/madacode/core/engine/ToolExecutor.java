@@ -114,7 +114,7 @@ public final class ToolExecutor {
                     toolCall,
                     toolCall.toolName(),
                     toolCall.input(),
-                    "Cancelled before execution: " + context.cancellationToken().reason(),
+                    ToolOrchestrator.skippedBeforeExecutionMessage(context.cancellationToken().reason()),
                     0,
                     false);
         }
@@ -190,9 +190,8 @@ public final class ToolExecutor {
                     toolCall,
                     tool.name(),
                     effectiveInput,
-                    "Plan mode active — only read tools, ask_user_question, "
-                            + "and task management tools are allowed. "
-                            + "Use exit_plan_mode to leave plan mode.",
+                    "Plan mode active — only read tools are allowed. "
+                            + "The host must exit plan mode before implementation tools are available.",
                     0,
                     false);
         }

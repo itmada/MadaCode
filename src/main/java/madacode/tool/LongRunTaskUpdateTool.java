@@ -57,7 +57,7 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
 
     @Override
     public boolean isPlanModeSafe() {
-        return true;
+        return false;
     }
 
     @Override

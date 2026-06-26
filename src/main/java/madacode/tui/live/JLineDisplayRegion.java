@@ -109,6 +109,20 @@ public final class JLineDisplayRegion {
         if (!suspended) repaint();
     }
 
+    /**
+     * Force-clear every transient layer and invalidate Display's diff state.
+     * Used at phase boundaries where terminal ownership moves between the live
+     * renderer and JLine's LineReader.
+     */
+    public synchronized void clearTransientUi() {
+        modalLines = List.of();
+        statusLines = List.of();
+        display.update(List.of(), 0);
+        display.reset();
+        currentHeight = 0;
+        writer.flush();
+    }
+
     public synchronized int currentHeight() {
         return currentHeight;
     }
@@ -124,12 +138,7 @@ public final class JLineDisplayRegion {
         // Force-clear any live content from the terminal before handing off.
         // After this, the terminal has no live region — LineReader is free to
         // paint its own prompt at the natural cursor position.
-        modalLines = List.of();
-        statusLines = List.of();
-        display.update(List.of(), 0);
-        display.reset();
-        currentHeight = 0;
-        writer.flush();
+        clearTransientUi();
     }
 
     public synchronized void resume() {

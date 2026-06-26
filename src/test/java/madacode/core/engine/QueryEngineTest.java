@@ -16,6 +16,7 @@ import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionListener;
 import madacode.core.turn.CancellationToken;
 import madacode.core.turn.TurnResult;
+import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.services.api.ApiClient;
@@ -182,9 +183,52 @@ class QueryEngineTest {
                 .runTurn(session, "hello", context(session, cancellationToken));
 
         assertEquals(FinishReason.PERMISSION_CANCELLED, result.finishReason());
-        assertEquals("(Cancelled: permission_denied)", result.finalText());
+        assertEquals("(Permission denied)", result.finalText());
         assertEquals(0, result.iterations());
         assertFalse(listener.hasError());
+    }
+
+    @Test
+    void permissionDeniedTurnSkipsRemainingToolCallsWithUserFriendlyResult() {
+        CancellationToken cancellationToken = CancellationToken.create();
+        EchoTool echoTool = new EchoTool();
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(echoTool);
+        List<ToolCall> toolCalls = List.of(
+                new ToolCall("toolu_first", "echo", input("first")),
+                new ToolCall("toolu_second", "echo", input("second")));
+        ScriptedApiClient apiClient = new ScriptedApiClient()
+                .enqueue(response("using tools", toolCalls, StopReason.TOOL_USE));
+        ConversationSession session = new ConversationSession();
+        session.loadDeferredTool(echoTool.name());
+
+        PermissionGate denyingGate = (tool, input, context) -> {
+            context.cancellationToken().cancel(CancellationToken.REASON_PERMISSION_DENIED);
+            return PermissionDecision.deny("User denied permission for tool: " + tool.name());
+        };
+
+        TurnResult result = new QueryEngine(
+                apiClient,
+                registry,
+                SystemPromptBuilder.builder().build(),
+                denyingGate).runTurn(session, "run tools", context(session, cancellationToken));
+
+        assertEquals(FinishReason.PERMISSION_CANCELLED, result.finishReason());
+        assertEquals("(Permission denied)", result.finalText());
+        assertTrue(echoTool.executedValues.isEmpty());
+
+        Message toolResultMessage = session.messages().get(3);
+        ContentBlock.ToolResultBlock firstResult =
+                assertInstanceOf(ContentBlock.ToolResultBlock.class,
+                        toolResultMessage.contentBlocks().get(0));
+        assertFalse(firstResult.success());
+        assertEquals("Permission denied: User denied permission for tool: echo", firstResult.content());
+
+        ContentBlock.ToolResultBlock secondResult =
+                assertInstanceOf(ContentBlock.ToolResultBlock.class,
+                        toolResultMessage.contentBlocks().get(1));
+        assertFalse(secondResult.success());
+        assertEquals("Tool call skipped: previous permission request was denied", secondResult.content());
     }
 
     @Test

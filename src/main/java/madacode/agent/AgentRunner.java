@@ -94,6 +94,11 @@ public class AgentRunner {
         String parentToolUseId = ToolExecutor.CURRENT_TOOL_USE_ID.get();
         childSession.addListener(new ParentEventForwarder(parentSession, parentToolUseId));
 
+        // Make the child session visible to any out-of-band observer the parent
+        // carries (e.g. the eval trace collector), propagating the observer down so
+        // the whole sub-agent tree is observed. No-op in production.
+        parentSession.registerSubAgent(childSession);
+
         Set<String> allowedTools = canonicalToolNames(definition.allowedTools());
         Set<String> disallowedTools = canonicalToolNames(definition.disallowedTools());
         ToolCapabilityProfile childProfile = !definition.allowedToolsSpecified()

@@ -53,12 +53,16 @@ public final class MetaEventRenderer implements SessionListener {
             case MetaEvent.CompactFailed f ->
                     writeStage(StageWriter.Status.FAILED, "Compact failed", List.of(f.reason()), List.of(), false);
             case MetaEvent.PlanModeEntered i ->
-                    writeStage(StageWriter.Status.INFO, "Plan mode", List.of("activated · read-only until exit_plan_mode"), List.of(), false);
+                    writeStage(StageWriter.Status.INFO, "Plan mode", List.of("activated · host-controlled read-only mode"), List.of(), false);
             case MetaEvent.PlanModeExited e ->
                     writeStage(StageWriter.Status.INFO, "Plan mode", List.of("exited"), List.of(), false);
             case MetaEvent.PlanRejected r ->
                     writeStage(StageWriter.Status.WARN, "Plan mode", List.of("rejected · staying in plan mode"),
                             r.summary() != null && !r.summary().isBlank() ? List.of(r.summary()) : List.of(), false);
+            case MetaEvent.PlanUpdated p -> {
+                // TurnRenderer owns the live, in-place plan panel during the turn
+                // and spills its one-line summary at turn end. Nothing to do here.
+            }
             case MetaEvent.ModelRequestStarted s -> {
                 // TurnRenderer owns the transient turn status row.
             }

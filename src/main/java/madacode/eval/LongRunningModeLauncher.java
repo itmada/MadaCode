@@ -117,6 +117,11 @@ public final class LongRunningModeLauncher implements ModeLauncher {
                                 context.traceCollector().recordSession(
                                         workerSession, ToolInvocation.Phase.WORKER);
                             }
+                        },
+                        subAgentSession -> {
+                            if (context.traceCollector() != null) {
+                                context.traceCollector().trackSubAgent(subAgentSession);
+                            }
                         }));
         LongRunningLauncher.LaunchResult result = launcher.run(
                 task.taskId(), dir, session, context.budget().maxWorkerCycles());

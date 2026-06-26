@@ -55,8 +55,8 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
 
     @Override
     public String description() {
-        return "Maintain the long-running task draft in DRAFT or INTERRUPT control sessions by updating plan summary, "
-                + "feature_list.json, known_issues.json, progress.txt, and events.";
+        return "Maintain the durable long-running task-store draft in DRAFT or INTERRUPT control sessions by updating "
+                + "task.json summary, feature_list.json, known_issues.json, progress.txt, and events.";
     }
 
     @Override
@@ -71,14 +71,15 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
 
     @Override
     public boolean isPlanModeSafe() {
-        return true;
+        return false;
     }
 
     @Override
     public ObjectNode inputSchema(ObjectMapper mapper) {
         ObjectNode properties = mapper.createObjectNode();
         properties.set("action", ToolSchemas.stringEnumProperty(mapper,
-                "Draft-plan update action",
+                "Durable task-store draft update action",
+                "update_task_summary",
                 "update_plan_summary",
                 "replace_feature_list",
                 "replace_known_issues",
@@ -86,11 +87,11 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
         properties.set("task_id", ToolSchemas.stringProperty(
                 mapper, "Optional task id. If present, it must match the active session task."));
         properties.set("title", ToolSchemas.stringProperty(
-                mapper, "Optional replacement task title for update_plan_summary."));
+                mapper, "Optional replacement task title for update_task_summary."));
         properties.set("reason", ToolSchemas.stringProperty(
-                mapper, "Optional draft reason such as requirements_updated for update_plan_summary."));
+                mapper, "Optional draft reason such as requirements_updated for update_task_summary."));
         properties.set("plan_summary", ToolSchemas.stringProperty(
-                mapper, "Updated structured plan summary for update_plan_summary."));
+                mapper, "Updated durable structured task summary for update_task_summary."));
         properties.set("features", ToolSchemas.arrayProperty(
                 mapper,
                 "Full replacement feature list for replace_feature_list.",
@@ -122,7 +123,7 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
             return failed("No long-running task is active for this session.");
         }
 
-        String action = input.action() == null ? "" : input.action().strip().toLowerCase(Locale.ROOT);
+        String action = normalizeAction(input.action());
         String taskId = activeTaskId(input, session);
         LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
         try {
@@ -138,7 +139,7 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
             session.setLongRunningTaskDirectory(store.taskDirectoryPath(taskId).toString());
 
             ToolResult result = switch (action) {
-                case "update_plan_summary" -> updatePlanSummary(store, taskId, input, session);
+                case "update_task_summary" -> updatePlanSummary(store, taskId, input, session);
                 case "replace_feature_list" -> replaceFeatureList(store, taskId, input);
                 case "replace_known_issues" -> replaceKnownIssues(store, taskId, input);
                 case "append_progress" -> appendProgress(store, taskId, input);
@@ -154,6 +155,13 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
             appendEvent(store, taskId, session, action, result, input);
             return result;
         }
+    }
+
+    private static String normalizeAction(String action) {
+        String normalized = action == null ? "" : action.strip().toLowerCase(Locale.ROOT);
+        // Compatibility alias for drafts or transcripts created before the
+        // global update_plan tool owned visible execution progress.
+        return "update_plan_summary".equals(normalized) ? "update_task_summary" : normalized;
     }
 
     private ToolResult updatePlanSummary(
@@ -269,7 +277,7 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
             Input input) {
         try {
             store.appendEvent(taskId, LongRunningTaskEvent.of(
-                    "plan_update",
+                    "longrun_plan_update",
                     taskId,
                     session.sessionId(),
                     session.longRunningStage() == null ? null : session.longRunningStage().name(),

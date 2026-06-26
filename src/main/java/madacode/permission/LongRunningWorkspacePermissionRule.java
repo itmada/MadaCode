@@ -3,6 +3,7 @@ package madacode.permission;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.tool.Tool;
+import madacode.tool.ToolNames;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -84,7 +85,8 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
 
     private static boolean isWorkerTaskStoreTool(Tool<?> tool) {
         return "longrun_task_update".equals(tool.name())
-                || "worker_report".equals(tool.name());
+                || "worker_report".equals(tool.name())
+                || ToolNames.UPDATE_PLAN.equals(tool.name());
     }
 
     private static PermissionDecision evaluateBash(String command, Path workingDir) {

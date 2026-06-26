@@ -1,6 +1,7 @@
 package madacode.core.model;
 
 import madacode.services.compact.CompactResult;
+import madacode.plan.CurrentPlan;
 
 /**
  * Ephemeral meta-events emitted alongside the message stream.
@@ -14,6 +15,7 @@ public sealed interface MetaEvent permits
         MetaEvent.PlanModeEntered,
         MetaEvent.PlanModeExited,
         MetaEvent.PlanRejected,
+        MetaEvent.PlanUpdated,
         MetaEvent.ModelRequestStarted,
         MetaEvent.TokenReport,
         MetaEvent.Error,
@@ -25,6 +27,7 @@ public sealed interface MetaEvent permits
     record PlanModeEntered() implements MetaEvent {}
     record PlanModeExited() implements MetaEvent {}
     record PlanRejected(String summary) implements MetaEvent {}
+    record PlanUpdated(CurrentPlan plan, String explanation) implements MetaEvent {}
     record ModelRequestStarted() implements MetaEvent {}
     record TokenReport(TokenUsage usage, long ttftMs, long totalMs) implements MetaEvent {}
     record Error(String message, FinishReason reason) implements MetaEvent {}

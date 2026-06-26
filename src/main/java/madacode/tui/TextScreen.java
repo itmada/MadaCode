@@ -14,6 +14,7 @@ public final class TextScreen implements Screen {
     private final int width;
     private final int height;
     private int cursorHideDepth = 0;
+    private boolean scrollbackAtBoundary = true;
 
     public TextScreen(PrintStream out) {
         this(out, 80, 24);
@@ -30,6 +31,19 @@ public final class TextScreen implements Screen {
         for (String line : lines) {
             out.println(line);
         }
+        if (!lines.isEmpty()) {
+            scrollbackAtBoundary = lines.getLast().isEmpty();
+        }
+        out.flush();
+    }
+
+    @Override
+    public synchronized void ensureScrollbackBoundary() {
+        if (scrollbackAtBoundary) {
+            return;
+        }
+        out.println();
+        scrollbackAtBoundary = true;
         out.flush();
     }
 

@@ -47,13 +47,7 @@ public record ToolCapabilityProfile(
             ToolNames.FILE_EDIT,
             ToolNames.GLOB,
             ToolNames.GREP,
-            ToolNames.TODO_WRITE,
-            ToolNames.PLAN_CREATE,
-            ToolNames.PLAN_GET,
-            ToolNames.PLAN_LIST,
-            ToolNames.PLAN_UPDATE,
-            ToolNames.ENTER_PLAN_MODE,
-            ToolNames.EXIT_PLAN_MODE,
+            ToolNames.UPDATE_PLAN,
             ToolNames.ASK_USER_QUESTION,
             ToolNames.TOOL_SEARCH
     );

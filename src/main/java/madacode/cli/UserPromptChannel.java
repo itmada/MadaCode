@@ -6,7 +6,7 @@ import java.util.Optional;
 /**
  * Abstraction for user interaction during tool execution.
  *
- * <p>Tools like {@code ask_user_question} and {@code exit_plan_mode} use this
+ * <p>Tools like {@code ask_user_question} use this
  * channel instead of reading directly from {@code System.in}, which would
  * conflict with the JLine terminal reader.
  */

@@ -157,7 +157,7 @@ public class SlashCommandHandler {
             return new SlashAction.Handled();
         }
 
-        Screen output = new BlockScopedScreen(screen);
+        BlockScopedScreen output = new BlockScopedScreen(screen);
         SlashContext ctx = new SlashContext(
                 current,
                 output,
@@ -173,15 +173,23 @@ public class SlashCommandHandler {
                 modeChooser,
                 permissionChooser,
                 providerChooser);
-        return command.get().execute(ctx, arg);
+        try {
+            return command.get().execute(ctx, arg);
+        } finally {
+            output.finishBlock();
+        }
     }
 
     private void notifyWarn(String message) {
-        Screen output = new BlockScopedScreen(screen);
-        if (notifications != null) {
-            new NotificationCenter(output).warn(message);
-        } else {
-            output.scrollback(message);
+        BlockScopedScreen output = new BlockScopedScreen(screen);
+        try {
+            if (notifications != null) {
+                new NotificationCenter(output).warn(message);
+            } else {
+                output.scrollback(message);
+            }
+        } finally {
+            output.finishBlock();
         }
     }
 }

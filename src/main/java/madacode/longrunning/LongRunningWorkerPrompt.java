@@ -41,12 +41,13 @@ public final class LongRunningWorkerPrompt {
                 If there is no safe bounded work item, report blocked or needs_user instead of wandering.
 
                 Do at most one bounded feature, issue, or recovery step this worker session.
+                Use update_plan for your visible current-cycle execution checklist: keep it short, mark at most one step in_progress, and update it as work finishes. update_plan is ephemeral and model-visible only; it does not write the durable task store.
                 Your tool capability set is intentionally scoped. Bash is available with full authority inside the current workspace; outside the workspace, bash is limited to simple read-only inspection commands and must not modify files.
                 Network, MCP, memory, and agent tools are unavailable.
                 If work or verification requires an unavailable capability, report needs_user instead of attempting a workaround.
 
-                Use longrun_task_update for task-store mutations such as append_progress, mark_feature_passed, record_issue, resolve_issue, and update_issue_status.
-                Record progress before you finish, including the bounded item you chose, why you chose it, what changed, and what remains.
+                Use longrun_task_update for durable task-store mutations during RUNNING, such as append_progress, mark_feature_passed, record_issue, resolve_issue, and update_issue_status.
+                Record durable task progress before you finish, including the bounded item you chose, why you chose it, what changed, and what remains.
                 Do not edit task-store source files directly; use longrun_task_update for state changes.
                 Workers never mark lifecycle terminal states directly; when completion preconditions are satisfied, call worker_report with status=task_completed and the launcher will mark the task COMPLETED.
                 Never edit logs/events.jsonl directly; the harness records structured events automatically.

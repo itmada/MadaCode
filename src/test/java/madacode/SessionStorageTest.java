@@ -24,6 +24,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
@@ -77,7 +78,7 @@ public class SessionStorageTest {
         assertEquals(session.createdAt(), restored.createdAt());
         assertEquals(session.workingDirectory(), restored.workingDirectory());
         assertEquals(session.workflowMode(), restored.workflowMode());
-        assertEquals(session.isPlanMode(), restored.isPlanMode());
+        assertFalse(restored.isPlanMode());
         assertNull(restored.longRunningTaskId());
         assertNull(restored.longRunningTaskDirectory());
         assertEquals(session.permissionMode(), restored.permissionMode());
@@ -210,7 +211,7 @@ public class SessionStorageTest {
         assertNull(restored.longRunningStage());
         assertNull(restored.longRunningTaskId());
         assertNull(restored.longRunningTaskDirectory());
-        assertTrue(restored.isPlanMode());
+        assertFalse(restored.isPlanMode());
     }
 
     @Test
@@ -436,7 +437,7 @@ public class SessionStorageTest {
     }
 
     @Test
-    void v4SessionMigrationPreservesPlanItems() throws Exception {
+    void v4SessionMigrationIgnoresLegacyTasksAndTodos() throws Exception {
         String v4json = """
                 {
                   "schemaVersion": 4,
@@ -496,21 +497,9 @@ public class SessionStorageTest {
         Files.writeString(tempDir.resolve("v4-session.json"), v4json);
 
         ConversationSession restored = storage.load("v4-session");
-        var items = restored.plan().items();
 
-        assertEquals(3, items.size());
-        assertEquals("Completed task", items.get(0).title());
-        assertEquals(madacode.plan.PlanStatus.COMPLETED, items.get(0).status());
-
-        assertEquals("Failed task - COMPLETED", items.get(1).title());
-        assertEquals(madacode.plan.PlanStatus.COMPLETED, items.get(1).status());
-        assertEquals(List.of("1"), items.get(1).blockedBy());
-
-        assertEquals("Stopped task - COMPLETED", items.get(2).title());
-        assertEquals(madacode.plan.PlanStatus.COMPLETED, items.get(2).status());
-
-        assertEquals(1, restored.plan().todos().size());
-        assertEquals("Old todo", restored.plan().todos().getFirst().content());
+        assertTrue(restored.currentPlan().isEmpty());
+        assertEquals(2, restored.messages().size());
     }
 
     @Test

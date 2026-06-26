@@ -4,9 +4,6 @@ import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
 import madacode.permission.PermissionMode;
-import madacode.plan.PlanItem;
-import madacode.plan.PlanStatus;
-import madacode.plan.TodoItem;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,8 +26,6 @@ class SessionStorageTest {
     void saveAndLoadRoundTripsTranscriptState() {
         Path workingDirectory = tempDir.resolve("workspace");
         Instant createdAt = Instant.parse("2026-06-01T12:00:00Z");
-        Instant taskCreatedAt = Instant.parse("2026-06-01T12:01:00Z");
-        Instant taskUpdatedAt = Instant.parse("2026-06-01T12:02:00Z");
         Instant requestedAt = Instant.parse("2026-06-01T12:03:00Z");
         ConversationSession session = new ConversationSession(
                 "roundtrip-session",
@@ -42,15 +37,6 @@ class SessionStorageTest {
                         Message.assistant(List.of(
                                 new ContentBlock.TextBlock("I will plan it."),
                                 new ContentBlock.ThinkingBlock("private reasoning omitted")))));
-        PlanItem planItem = new PlanItem(
-                "1",
-                "Write feature baseline",
-                "Capture current transcript behavior",
-                PlanStatus.IN_PROGRESS,
-                List.of("0"),
-                taskCreatedAt,
-                taskUpdatedAt,
-                "writing-tests");
         LongRunningTransitionRequest transitionRequest = new LongRunningTransitionRequest(
                 LongRunningStage.DRAFT,
                 LongRunningStage.RUNNING,
@@ -61,10 +47,6 @@ class SessionStorageTest {
                 "user",
                 false);
 
-        session.plan().add(planItem);
-        session.plan().replaceTodos(List.of(
-                new TodoItem("Add session tests", "in_progress"),
-                new TodoItem("Run verification", "pending")));
         session.addInput("first input");
         session.addInput("second input");
         session.setPlanMode(true);
@@ -90,11 +72,10 @@ class SessionStorageTest {
         assertEquals(createdAt, restored.createdAt());
         assertEquals(workingDirectory.toAbsolutePath().normalize(), restored.workingDirectory());
         assertMessagesEqual(session.messages(), restored.messages());
-        assertEquals(List.of(planItem), restored.plan().items());
-        assertEquals(session.plan().todos(), restored.plan().todos());
+        assertTrue(restored.currentPlan().isEmpty());
         assertEquals(List.of("first input", "second input"), restored.inputHistory());
         assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
-        assertTrue(restored.isPlanMode());
+        assertFalse(restored.isPlanMode());
         assertEquals(PermissionMode.BYPASS, restored.permissionMode());
         assertEquals(LongRunningStage.DRAFT, restored.longRunningStage());
         assertEquals("task-123", restored.longRunningTaskId());

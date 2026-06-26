@@ -12,6 +12,7 @@ import madacode.tool.FileReadTool;
 import madacode.tool.GlobTool;
 import madacode.tool.GrepTool;
 import madacode.tool.LongRunTaskUpdateTool;
+import madacode.tool.LongRunPlanUpdateTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.tool.WebFetchTool;
@@ -54,6 +55,18 @@ public class ToolSchemaTest {
     }
 
     @Test
+    void longRunPlanUpdateSchemaAcceptsLegacySummaryActionAlias() {
+        JsonNode action = new LongRunPlanUpdateTool()
+                .inputSchema(mapper)
+                .path("properties")
+                .path("action")
+                .path("enum");
+
+        assertTrue(enumContains(action, "update_task_summary"));
+        assertTrue(enumContains(action, "update_plan_summary"));
+    }
+
+    @Test
     void toolSchemasDoNotUseLegacyInputField() {
         List<Tool<?>> tools = List.of(
                 new BashTool(),
@@ -82,6 +95,15 @@ public class ToolSchemaTest {
     private boolean requiredContains(JsonNode schema, String fieldName) {
         for (JsonNode required : schema.path("required")) {
             if (fieldName.equals(required.asText())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean enumContains(JsonNode enumValues, String value) {
+        for (JsonNode enumValue : enumValues) {
+            if (value.equals(enumValue.asText())) {
                 return true;
             }
         }

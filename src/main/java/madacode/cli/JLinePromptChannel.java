@@ -150,7 +150,27 @@ public final class JLinePromptChannel implements UserPromptChannel {
         List<ChannelOption> opts = List.of(
                 new ChannelOption("Yes", ""),
                 new ChannelOption("No", ""));
-        return chooseOne(prompt, opts).map("Yes"::equals).orElse(false);
+        PromptText text = PromptText.from(prompt);
+        List<ChoicePrompt.Option<String>> choices = opts.stream()
+                .map(o -> new ChoicePrompt.Option<>(
+                        o.label(), o.label(), o.description(), ""))
+                .toList();
+        ChoicePrompt.Model<String> model = new ChoicePrompt.Model<>(
+                text.title(),
+                text.subtitle(),
+                choices,
+                "↑/↓ select   Enter confirm   Esc cancel",
+                0);
+
+        return withPausedInterrupts(() -> {
+            try {
+                return new InlineChoicePrompt<String>(
+                        screen, terminal, interrupts, onInterrupt).choose(model);
+            } catch (IOException e) {
+                fireInterrupt("eof");
+                return Optional.<String>empty();
+            }
+        }).map("Yes"::equals).orElse(false);
     }
 
     private Optional<String> readInlineText(String prompt) throws IOException {
@@ -183,5 +203,26 @@ public final class JLinePromptChannel implements UserPromptChannel {
 
     private void fireInterrupt(String reason) {
         if (onInterrupt != null) onInterrupt.accept(reason);
+    }
+
+    private record PromptText(String title, String subtitle) {
+        static PromptText from(String prompt) {
+            String text = Objects.requireNonNullElse(prompt, "").strip();
+            if (text.isBlank()) {
+                return new PromptText("Confirm?", "");
+            }
+            List<String> lines = text.lines()
+                    .map(String::strip)
+                    .filter(line -> !line.isBlank())
+                    .toList();
+            if (lines.isEmpty()) {
+                return new PromptText("Confirm?", "");
+            }
+            String title = lines.getFirst();
+            String subtitle = lines.size() == 1
+                    ? ""
+                    : String.join(" · ", lines.subList(1, lines.size()));
+            return new PromptText(title, subtitle);
+        }
     }
 }

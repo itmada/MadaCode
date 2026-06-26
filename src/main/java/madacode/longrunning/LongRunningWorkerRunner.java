@@ -40,6 +40,7 @@ public class LongRunningWorkerRunner {
     private final ToolRegistry toolRegistry;
     private final Path turnLogRoot;
     private final Consumer<ConversationSession> completedSessionObserver;
+    private final Consumer<ConversationSession> subAgentSpawnObserver;
 
     /**
      * Creates a worker runner with the given dependencies.
@@ -62,12 +63,30 @@ public class LongRunningWorkerRunner {
             ToolRegistry toolRegistry,
             Path turnLogRoot,
             Consumer<ConversationSession> completedSessionObserver) {
+        this(queryEngineFactory, sessionStorage, toolRegistry, turnLogRoot,
+                completedSessionObserver, session -> {});
+    }
+
+    /**
+     * @param subAgentSpawnObserver installed on each fresh worker session so sub-agents
+     *     spawned <em>by the worker</em> (and their descendants) are observable to an
+     *     out-of-band collector. Production passes the no-op overload.
+     */
+    public LongRunningWorkerRunner(
+            QueryEngineFactory queryEngineFactory,
+            SessionStorage sessionStorage,
+            ToolRegistry toolRegistry,
+            Path turnLogRoot,
+            Consumer<ConversationSession> completedSessionObserver,
+            Consumer<ConversationSession> subAgentSpawnObserver) {
         this.queryEngineFactory = Objects.requireNonNull(queryEngineFactory, "queryEngineFactory");
         this.sessionStorage = Objects.requireNonNull(sessionStorage, "sessionStorage");
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.turnLogRoot = Objects.requireNonNull(turnLogRoot, "turnLogRoot");
         this.completedSessionObserver =
                 Objects.requireNonNull(completedSessionObserver, "completedSessionObserver");
+        this.subAgentSpawnObserver =
+                Objects.requireNonNull(subAgentSpawnObserver, "subAgentSpawnObserver");
     }
 
     /**
@@ -100,6 +119,9 @@ public class LongRunningWorkerRunner {
         workerSession.setLongRunningTaskId(taskId);
         workerSession.setLongRunningTaskDirectory(taskDir.toString());
         workerSession.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
+        // Sub-agents spawned by the worker register with the out-of-band observer (no-op
+        // in production); propagation to descendants is handled by registerSubAgent.
+        workerSession.setSubAgentSpawnObserver(subAgentSpawnObserver);
         LongRunningWorkerMonitorBridge monitorBridge =
                 new LongRunningWorkerMonitorBridge(store, taskId, workerSession);
         workerSession.addListener(monitorBridge);

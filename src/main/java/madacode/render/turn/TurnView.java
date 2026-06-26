@@ -41,9 +41,11 @@ public final class TurnView {
             });
 
     private final List<Renderable> items = new ArrayList<>();
+    private Renderable bottomPinned;
     private ScheduledFuture<?> pendingPaint;
     private final AtomicBoolean paintScheduled = new AtomicBoolean(false);
     private volatile boolean ended;
+    private boolean scrollbackWritten;
 
     public TurnView(Screen screen) {
         this.screen = Objects.requireNonNull(screen, "screen");
@@ -53,6 +55,22 @@ public final class TurnView {
 
     public synchronized void add(Renderable r) {
         items.add(r);
+        markDirty();
+    }
+
+    /**
+     * Pin a renderable to the bottom of the live region, below all items. It
+     * never spills to scrollback through the item flow and never pins items
+     * above it (it is outside the ordering invariant). Used by the live plan
+     * panel; the caller owns its finalize/summary spill on turn end.
+     */
+    public synchronized void setBottomPinned(Renderable r) {
+        bottomPinned = r;
+        markDirty();
+    }
+
+    public synchronized void clearBottomPinned() {
+        bottomPinned = null;
         markDirty();
     }
 
@@ -82,8 +100,15 @@ public final class TurnView {
     public synchronized void endTurn() {
         cancelPendingPaint();
         int width = screen.width();
-        apply(layoutForceAllPermanent(width));
+        List<OutputEntry> entries = layoutForceAllPermanent(width);
+        boolean hadVisibleScrollback = scrollbackWritten || !entries.isEmpty();
+        apply(entries, false);
+        if (hadVisibleScrollback) {
+            screen.ensureScrollbackBoundary();
+        }
         items.clear();
+        bottomPinned = null;
+        scrollbackWritten = false;
     }
 
     // ---- query API --------------------------------------------------------
@@ -225,6 +250,10 @@ public final class TurnView {
      * items, and updates per-item marginIssued state.
      */
     private void apply(List<OutputEntry> entries) {
+        apply(entries, true);
+    }
+
+    private void apply(List<OutputEntry> entries, boolean includePinned) {
         // 1. Find split: last index where permanent == true
         int splitIndex = -1;
         for (int i = 0; i < entries.size(); i++) {
@@ -258,8 +287,20 @@ public final class TurnView {
                 && consumedItems.contains(item)
                 && allEntriesInScrollback(item, finalEntries, finalSplit));
 
+        // 3.5 Append the bottom-pinned panel below all live items. It is not
+        //     part of the item flow, so it never spills here and never pins
+        //     items above it; the turn-end summary is the caller's job.
+        if (includePinned && bottomPinned != null) {
+            List<String> pinned = bottomPinned.render(screen.width());
+            if (!pinned.isEmpty()) {
+                if (!liveLines.isEmpty()) liveLines.add("");
+                liveLines.addAll(pinned);
+            }
+        }
+
         // 4. Atomic I/O
         if (!scrollbackLines.isEmpty()) {
+            scrollbackWritten = true;
             screen.commitScrollbackAndSetStatus(scrollbackLines, liveLines);
         } else {
             screen.setLiveStatus(liveLines);

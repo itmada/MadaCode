@@ -288,7 +288,9 @@ public class QueryEngine {
             FinishReason finishReason = fromPermission
                     ? FinishReason.PERMISSION_CANCELLED
                     : FinishReason.CANCELLED;
-            String message = "(Cancelled" + (reason == null ? "" : ": " + reason) + ")";
+            String message = fromPermission
+                    ? "(Permission denied)"
+                    : "(Cancelled" + (reason == null ? "" : ": " + reason) + ")";
             return new TerminalOutcome(message, finishReason, !fromPermission);
         }
     }

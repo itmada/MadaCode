@@ -82,7 +82,7 @@ public interface Tool<I> {
      * should opt in.
      *
      * <p>Note that {@link #isReadOnly()} is <em>not</em> equivalent: tools
-     * like AgentTool, ask_user_question, or enter_plan_mode are "read-only"
+     * like AgentTool or ask_user_question are "read-only"
      * w.r.t. the filesystem but mutate session state or block on I/O, and
      * therefore must run serially.
      *

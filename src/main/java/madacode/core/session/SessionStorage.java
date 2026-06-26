@@ -7,9 +7,6 @@ import madacode.core.model.MessageRole;
 import madacode.logging.DefaultDiagnosticEvents;
 import madacode.logging.DiagnosticEvents;
 import madacode.permission.PermissionMode;
-import madacode.plan.PlanItem;
-import madacode.plan.PlanStatus;
-import madacode.plan.TodoItem;
 import madacode.util.AtomicFiles;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -232,8 +229,6 @@ public final class SessionStorage {
                 transcript.createdAt(),
                 transcript.workingDirectory(),
                 transcript.messages(),
-                List.of(),
-                List.of(),
                 List.of());
         applyState(session, loadStateOrDefault(transcript.sessionId()));
         session.markMessagesPersisted(transcript.messages().size());
@@ -315,29 +310,9 @@ public final class SessionStorage {
         ObjectNode state = stateNode.orElseGet(this::defaultStateNode);
         SessionMode workflowMode = readWorkflowMode(state);
         session.setWorkflowMode(workflowMode);
-        session.setPlanMode(state.path("planMode").asBoolean(false));
+        session.setPlanMode(false);
         session.setPermissionMode(PermissionMode.parse(
                 state.path("permissionMode").asText(null)).orElse(PermissionMode.DEFAULT));
-
-        List<PlanItem> tasks = new ArrayList<>();
-        JsonNode tasksNode = state.path("tasks");
-        if (tasksNode.isArray()) {
-            for (JsonNode taskNode : tasksNode) {
-                tasks.add(deserializeTask(taskNode));
-            }
-        }
-        session.plan().replaceItems(tasks);
-
-        List<TodoItem> todos = new ArrayList<>();
-        JsonNode todosNode = state.path("todos");
-        if (todosNode.isArray()) {
-            for (JsonNode todoNode : todosNode) {
-                todos.add(new TodoItem(
-                        todoNode.path("content").asText(""),
-                        todoNode.path("status").asText("pending")));
-            }
-        }
-        session.plan().replaceTodos(todos);
 
         List<String> history = new ArrayList<>();
         JsonNode historyNode = state.path("history");
@@ -379,8 +354,6 @@ public final class SessionStorage {
         ObjectNode node = mapper.createObjectNode();
         node.put("workflowMode", SessionMode.COMMON.id());
         node.put("permissionMode", PermissionMode.DEFAULT.id());
-        node.putArray("tasks");
-        node.putArray("todos");
         node.putArray("history");
         node.putArray("loadedDeferredTools");
         return node;
@@ -409,7 +382,6 @@ public final class SessionStorage {
         root.put("schemaVersion", SchemaMigrator.CURRENT);
         root.put("sessionId", session.sessionId());
         root.put("workflowMode", session.workflowMode().id());
-        root.put("planMode", session.isPlanMode());
         root.put("permissionMode", session.permissionMode().id());
         root.put("persistedMessageCount", session.messages().size());
         if (session.longRunningStage() != null) {
@@ -437,21 +409,6 @@ public final class SessionStorage {
                 .ifPresent(request -> root.set(
                         "pendingLongRunningTransitionRequest",
                         serializeTransitionRequest(request)));
-
-        ArrayNode tasksNode = mapper.createArrayNode();
-        for (PlanItem task : session.plan().items()) {
-            tasksNode.add(serializeTask(task));
-        }
-        root.set("tasks", tasksNode);
-
-        ArrayNode todosNode = mapper.createArrayNode();
-        for (TodoItem todo : session.plan().todos()) {
-            ObjectNode todoNode = mapper.createObjectNode();
-            todoNode.put("content", todo.content());
-            todoNode.put("status", todo.status());
-            todosNode.add(todoNode);
-        }
-        root.set("todos", todosNode);
 
         ArrayNode historyNode = mapper.createArrayNode();
         for (String input : session.inputHistory()) {
@@ -680,11 +637,9 @@ public final class SessionStorage {
                 createdAt,
                 workingDirectory,
                 messages,
-                deserializeTasks(migrated.path("tasks")),
-                deserializeTodos(migrated.path("todos")),
                 deserializeHistory(migrated.path("history")));
         session.setWorkflowMode(readWorkflowMode(migrated));
-        session.setPlanMode(migrated.path("planMode").asBoolean(false));
+        session.setPlanMode(false);
         session.setPermissionMode(PermissionMode.parse(
                 migrated.path("permissionMode").asText(null)).orElse(PermissionMode.DEFAULT));
         if (session.workflowMode() == SessionMode.LONG_RUNNING) {
@@ -714,28 +669,6 @@ public final class SessionStorage {
         return session;
     }
 
-    private List<PlanItem> deserializeTasks(JsonNode tasksNode) {
-        List<PlanItem> tasks = new ArrayList<>();
-        if (tasksNode.isArray()) {
-            for (JsonNode taskNode : tasksNode) {
-                tasks.add(deserializeTask(taskNode));
-            }
-        }
-        return tasks;
-    }
-
-    private List<TodoItem> deserializeTodos(JsonNode todosNode) {
-        List<TodoItem> todos = new ArrayList<>();
-        if (todosNode.isArray()) {
-            for (JsonNode todoNode : todosNode) {
-                todos.add(new TodoItem(
-                        todoNode.path("content").asText(""),
-                        todoNode.path("status").asText("pending")));
-            }
-        }
-        return todos;
-    }
-
     private List<String> deserializeHistory(JsonNode historyNode) {
         List<String> history = new ArrayList<>();
         if (historyNode.isArray()) {
@@ -744,25 +677,6 @@ public final class SessionStorage {
             }
         }
         return history;
-    }
-
-    private ObjectNode serializeTask(PlanItem item) {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("id", item.id());
-        node.put("title", item.title());
-        node.put("description", item.description());
-        node.put("status", item.status().name());
-        ArrayNode blockedBy = mapper.createArrayNode();
-        for (String dep : item.blockedBy()) {
-            blockedBy.add(dep);
-        }
-        node.set("blockedBy", blockedBy);
-        node.put("createdAt", item.createdAt().toString());
-        node.put("updatedAt", item.updatedAt().toString());
-        if (!item.activeForm().isEmpty()) {
-            node.put("activeForm", item.activeForm());
-        }
-        return node;
     }
 
     private ObjectNode serializeTransitionRequest(LongRunningTransitionRequest request) {
@@ -880,33 +794,6 @@ public final class SessionStorage {
                 node.has("requestedAt") ? Instant.parse(node.path("requestedAt").asText()) : Instant.now(),
                 optionalText(node, "requestedBy"),
                 node.path("userConfirmationRequired").asBoolean(true));
-    }
-
-    private PlanItem deserializeTask(JsonNode node) {
-        List<String> blockedBy = new ArrayList<>();
-        JsonNode blockedByNode = node.path("blockedBy");
-        if (blockedByNode.isArray()) {
-            for (JsonNode dep : blockedByNode) {
-                blockedBy.add(dep.asText());
-            }
-        }
-
-        PlanStatus status;
-        try {
-            status = PlanStatus.valueOf(requiredText(node, "status"));
-        } catch (IllegalArgumentException e) {
-            status = PlanStatus.COMPLETED;
-        }
-
-        return new PlanItem(
-                requiredText(node, "id"),
-                requiredText(node, "title"),
-                node.path("description").asText(""),
-                status,
-                blockedBy,
-                node.has("createdAt") ? Instant.parse(node.path("createdAt").asText()) : Instant.now(),
-                node.has("updatedAt") ? Instant.parse(node.path("updatedAt").asText()) : Instant.now(),
-                node.has("activeForm") ? node.path("activeForm").asText() : "");
     }
 
     private int optionalSchemaVersion(JsonNode root) {

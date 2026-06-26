@@ -41,8 +41,7 @@ public interface ToolDisplayAdapter {
 
     default ToolDisplay renderDenied(ObjectNode input, String reason, long durationMs) {
         ToolDisplay display = renderStart(input);
-        String detail = ToolDisplaySupport.firstNonBlank(reason, "User denied permission");
-        return ToolDisplay.denied(display.title(), "Permission denied", List.of(ToolDisplaySupport.fitEnd(detail, 120)));
+        return ToolDisplay.denied(display.title(), "Permission denied", List.of());
     }
 
     default ToolDisplay renderError(ObjectNode input, String output, long durationMs) {

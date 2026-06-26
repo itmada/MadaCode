@@ -11,6 +11,7 @@ import madacode.events.EventContext;
 import madacode.events.UserVisibleEvent;
 import madacode.longrunning.LongRunningControlSessionFactory;
 import madacode.longrunning.LongRunningSessionRecovery;
+import madacode.render.BlockSpacing;
 import madacode.tui.WelcomeCard;
 import madacode.tui.inline.InlineChoicePrompt;
 
@@ -114,8 +115,7 @@ final class SessionAssembly {
         String provider = active.provider().name();
         String model = active.currentModel().name();
         Path cwd = environment.projectDir();
-        terminal.screen().scrollback("");
-        terminal.screen().scrollback(
+        BlockSpacing.scrollbackBlock(terminal.screen(),
                 WelcomeCard.render(provider, model, cwd, terminal.screen().width()));
         StartupSessionLauncher launcher = new StartupSessionLauncher(
                 storage,

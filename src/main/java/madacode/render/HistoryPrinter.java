@@ -91,6 +91,7 @@ public final class HistoryPrinter {
         } else {
             screen.scrollback(errorTag("error") + " " + message);
         }
+        screen.ensureScrollbackBoundary();
     }
 
     private void renderText(MessageRole role, String text) {
@@ -98,6 +99,7 @@ public final class HistoryPrinter {
             case USER -> {
                 BlockSpacing.begin(screen);
                 screen.scrollback(UserInputRenderer.lines(text));
+                screen.ensureScrollbackBoundary();
             }
             case ASSISTANT -> {
                 BlockSpacing.begin(screen);
@@ -112,6 +114,7 @@ public final class HistoryPrinter {
                 if (tail != null && !tail.isEmpty()) {
                     screen.scrollback(tail);
                 }
+                screen.ensureScrollbackBoundary();
             }
             case SYSTEM -> BlockSpacing.scrollbackBlock(screen, dim(text));
         }

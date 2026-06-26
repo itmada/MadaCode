@@ -20,6 +20,11 @@ public final class ToolActivitySkip {
         if (line == null) {
             return null;
         }
+        if (line.startsWith(CANCELLED_BEFORE_EXECUTION)
+                && line.substring(CANCELLED_BEFORE_EXECUTION.length()).strip().equals("permission_denied")) {
+            return new Classification("Skipped", List.of(Tk.dim(
+                    "Tool call skipped: previous permission request was denied")));
+        }
         String summary = line.startsWith(TOOL_CALL_SKIPPED) ? "Skipped" : "Cancelled";
         return new Classification(summary, List.of(Tk.dim(line)));
     }

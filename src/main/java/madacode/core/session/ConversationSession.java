@@ -7,9 +7,7 @@ import madacode.core.model.MetaEvent;
 import madacode.core.model.TokenUsage;
 
 import madacode.permission.PermissionMode;
-import madacode.plan.PlanItem;
-import madacode.plan.PlanStatus;
-import madacode.plan.TodoItem;
+import madacode.plan.CurrentPlan;
 import madacode.tool.ReadFileState;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -29,6 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Conversation state — messages, plan, history, mode, token usage.
@@ -63,7 +62,8 @@ public class ConversationSession {
             new AtomicReference<>(List.of());
     private final AtomicReference<List<Message>> pendingControllerEventsRef =
             new AtomicReference<>(List.of());
-    private final PlanStore planStore;
+    private final AtomicReference<CurrentPlan> currentPlanRef =
+            new AtomicReference<>(CurrentPlan.EMPTY);
     private final AtomicReference<List<String>> inputHistoryRef =
             new AtomicReference<>(List.of());
     private volatile SessionMode workflowMode = SessionMode.COMMON;
@@ -80,18 +80,23 @@ public class ConversationSession {
     private final ReadFileState readFileState = new ReadFileState();
     private final AtomicReference<Set<String>> loadedDeferredToolsRef =
             new AtomicReference<>(Set.of());
+    // Notified when this session spawns a sub-agent child session. Defaults to a
+    // no-op so production paths are unaffected; an observer (e.g. the eval trace
+    // collector) propagates to descendants via registerSubAgent so the whole
+    // agent tree is observable, not just the root turn.
+    private volatile Consumer<ConversationSession> subAgentSpawnObserver = child -> {};
 
     public ConversationSession() {
         this(UUID.randomUUID().toString(), Instant.now(),
                 Path.of(System.getProperty("user.dir")),
                 List.of(Message.system("Session initialized.")),
-                List.of(), List.of(), List.of());
+                List.of());
     }
 
     public ConversationSession(Path workingDirectory) {
         this(UUID.randomUUID().toString(), Instant.now(), workingDirectory,
                 List.of(Message.system("Session initialized.")),
-                List.of(), List.of(), List.of());
+                List.of());
     }
 
     public ConversationSession(
@@ -100,7 +105,7 @@ public class ConversationSession {
             Path workingDirectory,
             List<Message> initialMessages) {
         this(sessionId, createdAt, workingDirectory, initialMessages,
-                List.of(), List.of(), List.of());
+                List.of());
     }
 
     public ConversationSession(
@@ -108,8 +113,6 @@ public class ConversationSession {
             Instant createdAt,
             Path workingDirectory,
             List<Message> initialMessages,
-            List<PlanItem> tasks,
-            List<TodoItem> todos,
             List<String> inputHistory) {
         this.sessionId = Objects.requireNonNull(sessionId, "sessionId");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
@@ -120,7 +123,6 @@ public class ConversationSession {
             initial = List.of(Message.system("Session initialized."));
         }
         this.messagesRef.set(initial);
-        this.planStore = new PlanStore(tasks, todos);
         this.inputHistoryRef.set(List.copyOf(Objects.requireNonNull(inputHistory, "inputHistory")));
     }
 
@@ -229,6 +231,31 @@ public class ConversationSession {
     @Deprecated
     public void removeListener(SessionListener listener) {
         eventBus.removeListener(listener);
+    }
+
+    /**
+     * Installs an observer notified whenever this session spawns a sub-agent child
+     * session (see {@link #registerSubAgent}). Used by out-of-band observers such as
+     * the eval trace collector to reach dynamically-spawned sub-agent sessions that
+     * are otherwise invisible to a parent-session-only scan. Production leaves the
+     * default no-op, so this has no effect on the interactive runtime.
+     */
+    public void setSubAgentSpawnObserver(Consumer<ConversationSession> observer) {
+        this.subAgentSpawnObserver = Objects.requireNonNull(observer, "observer");
+    }
+
+    /**
+     * Records that {@code child} was spawned as a sub-agent of this session. The
+     * spawn observer is both notified of the child and propagated onto it, so a
+     * grandchild spawned by the child is observed too — the whole agent tree, not
+     * just one level. Called by {@code AgentRunner} right after a child session is
+     * created; a no-op observer (the production default) makes this a cheap notify.
+     */
+    public void registerSubAgent(ConversationSession child) {
+        Objects.requireNonNull(child, "child");
+        Consumer<ConversationSession> observer = this.subAgentSpawnObserver;
+        child.setSubAgentSpawnObserver(observer);
+        observer.accept(child);
     }
 
     /** Replay all current messages into a listener without firing transient events. */
@@ -674,117 +701,18 @@ public class ConversationSession {
         tokenUsageRef.set(TokenUsage.ZERO);
     }
 
-    // ---- Plan & Todo support ------------------------------------------------
+    // ---- Current task progress ---------------------------------------------
 
-    public PlanStore plan() {
-        return planStore;
+    public CurrentPlan currentPlan() {
+        return currentPlanRef.get();
     }
 
-    /**
-     * Encapsulates plan item and todo state with atomic snapshot semantics.
-     */
-    public static final class PlanStore {
-        private final AtomicReference<List<PlanItem>> itemsRef;
-        private final AtomicReference<List<TodoItem>> todosRef;
+    public void updateCurrentPlan(CurrentPlan plan) {
+        currentPlanRef.set(plan == null ? CurrentPlan.EMPTY : plan);
+    }
 
-        PlanStore(List<PlanItem> items, List<TodoItem> todos) {
-            this.itemsRef = new AtomicReference<>(List.copyOf(Objects.requireNonNull(items, "items")));
-            this.todosRef = new AtomicReference<>(List.copyOf(Objects.requireNonNull(todos, "todos")));
-        }
-
-        public List<PlanItem> items() {
-            return itemsRef.get();
-        }
-
-        public List<TodoItem> todos() {
-            return todosRef.get();
-        }
-
-        public void add(PlanItem item) {
-            itemsRef.set(append(itemsRef.get(), item));
-        }
-
-        public void update(PlanItem updated) {
-            List<PlanItem> snapshot = itemsRef.get();
-            for (int i = 0; i < snapshot.size(); i++) {
-                if (snapshot.get(i).id().equals(updated.id())) {
-                    List<PlanItem> next = new ArrayList<>(snapshot);
-                    next.set(i, updated);
-                    itemsRef.set(List.copyOf(next));
-                    return;
-                }
-            }
-            throw new IllegalArgumentException("Plan item not found: " + updated.id());
-        }
-
-        public Optional<PlanItem> find(String id) {
-            return itemsRef.get().stream().filter(t -> t.id().equals(id)).findFirst();
-        }
-
-        public void replaceTodos(List<TodoItem> newTodos) {
-            todosRef.set(List.copyOf(newTodos));
-        }
-
-        public void replaceItems(List<PlanItem> newItems) {
-            itemsRef.set(List.copyOf(newItems));
-        }
-
-        public void clearAll() {
-            itemsRef.set(List.of());
-            todosRef.set(List.of());
-        }
-
-        public String nextId() {
-            return String.valueOf(itemsRef.get().size() + 1);
-        }
-
-        /** Returns IDs of all items whose {@code blockedBy} includes {@code itemId}. */
-        public Set<String> findBlockedItems(String itemId) {
-            return itemsRef.get().stream()
-                    .filter(p -> p.blockedBy().contains(itemId))
-                    .map(PlanItem::id)
-                    .collect(java.util.stream.Collectors.toSet());
-        }
-
-        /** Returns the set of incomplete dependency IDs blocking the given item. */
-        public Set<String> validateCanStart(PlanItem item) {
-            if (item.blockedBy().isEmpty()) {
-                return Set.of();
-            }
-            Set<String> blockers = new HashSet<>();
-            for (String depId : item.blockedBy()) {
-                Optional<PlanItem> dep = find(depId);
-                if (dep.isEmpty() || dep.get().status() != PlanStatus.COMPLETED) {
-                    blockers.add(depId);
-                }
-            }
-            return blockers;
-        }
-
-        /** DFS check for cycles. */
-        public boolean hasCyclicDependency(PlanItem item, String targetId) {
-            Set<String> visited = new HashSet<>();
-            return dfsCycle(item.id(), targetId, visited);
-        }
-
-        private boolean dfsCycle(String fromId, String targetId, Set<String> visited) {
-            if (targetId.equals(fromId)) {
-                return true;
-            }
-            if (!visited.add(targetId)) {
-                return false;
-            }
-            Optional<PlanItem> target = find(targetId);
-            if (target.isEmpty()) {
-                return false;
-            }
-            for (String depId : target.get().blockedBy()) {
-                if (dfsCycle(fromId, depId, visited)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+    public void clearCurrentPlan() {
+        currentPlanRef.set(CurrentPlan.EMPTY);
     }
 
     private static String truncateTitle(String s) {

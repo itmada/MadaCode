@@ -171,7 +171,7 @@ public final class HeadlessAgentRuntime implements AutoCloseable {
 
     /** Creates a worker runner whose model loop is explicitly bounded for an eval case. */
     public LongRunningWorkerRunner newWorkerRunner(int maxIterations) {
-        return newWorkerRunner(maxIterations, session -> {});
+        return newWorkerRunner(maxIterations, session -> {}, session -> {});
     }
 
     /**
@@ -181,6 +181,19 @@ public final class HeadlessAgentRuntime implements AutoCloseable {
     public LongRunningWorkerRunner newWorkerRunner(
             int maxIterations,
             Consumer<ConversationSession> completedSessionObserver) {
+        return newWorkerRunner(maxIterations, completedSessionObserver, session -> {});
+    }
+
+    /**
+     * Creates a bounded worker runner that reports each completed worker session and
+     * installs {@code subAgentSpawnObserver} on every worker session, so sub-agents
+     * spawned by a worker (and their descendants) are observable to an attempt-scoped
+     * collector. Production callers use a no-op overload.
+     */
+    public LongRunningWorkerRunner newWorkerRunner(
+            int maxIterations,
+            Consumer<ConversationSession> completedSessionObserver,
+            Consumer<ConversationSession> subAgentSpawnObserver) {
         LongRunningWorkerRunner.QueryEngineFactory workerFactory = (registry, promptBuilder) ->
                 QueryEngine.builder(
                                 env.api(), registry, promptBuilder,
@@ -193,7 +206,8 @@ public final class HeadlessAgentRuntime implements AutoCloseable {
                 sessionStorage,
                 tools.registry(),
                 turnLogRoot,
-                completedSessionObserver);
+                completedSessionObserver,
+                subAgentSpawnObserver);
     }
 
     /**

@@ -130,6 +130,10 @@ public final class EvalRunner {
             ModeLauncher launcher = launchers.resolve(evalCase.mode());
             ExecutionTraceCollector traceCollector =
                     new ExecutionTraceCollector(environment.workspace());
+            // Sub-agents spawned from this control session (and their descendants) register
+            // themselves with the collector at spawn time, so trajectory/safety/efficiency
+            // checks see the whole agent tree rather than only the control transcript.
+            session.setSubAgentSpawnObserver(traceCollector::trackSubAgent);
 
             long start = System.nanoTime();
             ModeLauncher.LaunchOutcome outcome = executeWithBudget(

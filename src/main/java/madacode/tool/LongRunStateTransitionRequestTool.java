@@ -54,7 +54,7 @@ public final class LongRunStateTransitionRequestTool
 
     @Override
     public boolean isPlanModeSafe() {
-        return true;
+        return false;
     }
 
     @Override

@@ -66,6 +66,11 @@ public class BashTool implements Tool<BashTool.Input> {
     }
 
     @Override
+    public boolean isPlanModeSafe() {
+        return true;
+    }
+
+    @Override
     public String approvalSignature(ObjectNode input) {
         // Approval semantics depend only on the actual command — description
         // and timeoutSeconds don't change what runs.

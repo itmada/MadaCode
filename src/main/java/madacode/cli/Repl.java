@@ -10,6 +10,7 @@ import madacode.cli.slash.SlashAction;
 import madacode.cli.slash.SlashCommandRegistry;
 import madacode.cli.slash.SlashContext;
 import madacode.core.model.Message;
+import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.ConversationSession;
 import madacode.core.engine.QueryEngine;
@@ -47,6 +48,19 @@ import java.util.Objects;
 import java.util.Optional;
 
 public abstract class Repl {
+
+    private static final String PROPOSED_PLAN_OPEN_TAG = "<proposed_plan>";
+    private static final String PROPOSED_PLAN_CLOSE_TAG = "</proposed_plan>";
+    private static final String PLAN_IMPLEMENTATION_TITLE = "Implement this plan?";
+    private static final String PLAN_IMPLEMENTATION_YES = "Yes, implement this plan";
+    private static final String PLAN_IMPLEMENTATION_CLEAR_CONTEXT = "Yes, clear context and implement";
+    private static final String PLAN_IMPLEMENTATION_NO = "No, stay in Plan Mode";
+    private static final String PLAN_IMPLEMENTATION_CODING_MESSAGE = "Implement the plan.";
+    private static final String PLAN_IMPLEMENTATION_CLEAR_CONTEXT_PREFIX =
+            "A previous agent produced the plan below to accomplish the user's task. "
+                    + "Implement the plan in a fresh context. Treat the plan as the source of "
+                    + "user intent, re-read files as needed, and carry the work through "
+                    + "implementation and verification.";
 
     final QueryEngine queryEngine;
     volatile ConversationSession session;
@@ -221,12 +235,16 @@ public abstract class Repl {
         } catch (java.util.concurrent.CompletionException ce) {
             renderTurnCrash(ce.getCause() != null ? ce.getCause() : ce);
         } finally {
-            screen.setCursorVisible(true);
-            if (interruptController != null) {
-                interruptController.endTurn();
+            try {
+                session.fireTurnEnd();
+                screen.clearTransientUi();
+            } finally {
+                if (interruptController != null) {
+                    interruptController.endTurn();
+                }
+                screen.setCursorVisible(true);
             }
         }
-        session.fireTurnEnd();
         processPendingLongRunningTransitionRequest();
         persistSession();
     }
@@ -254,6 +272,9 @@ public abstract class Repl {
         while (current != null) {
             runManagedTurn(current.handle());
             Optional<ModeExecution> next = runAfterTurnHook(current.afterTurn());
+            if (next.isEmpty()) {
+                next = maybePromptForPlanImplementation();
+            }
             persistSession();
             if (next.isEmpty()) {
                 break;
@@ -263,6 +284,112 @@ public abstract class Repl {
             }
             current = next.get();
         }
+    }
+
+    private Optional<ModeExecution> maybePromptForPlanImplementation() {
+        if (!session.isPlanMode() || !promptChannel.isAvailable()) {
+            return Optional.empty();
+        }
+        Optional<String> planText = latestProposedPlanText();
+        if (planText.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Optional<String> choice = promptChannel.chooseOne(
+                PLAN_IMPLEMENTATION_TITLE,
+                List.of(
+                        new UserPromptChannel.ChannelOption(
+                                PLAN_IMPLEMENTATION_YES,
+                                "Switch to Default and start coding."),
+                        new UserPromptChannel.ChannelOption(
+                                PLAN_IMPLEMENTATION_CLEAR_CONTEXT,
+                                "Fresh session with this plan."),
+                        new UserPromptChannel.ChannelOption(
+                                PLAN_IMPLEMENTATION_NO,
+                                "Continue planning with the model.")));
+        if (choice.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return switch (choice.get()) {
+            case PLAN_IMPLEMENTATION_YES -> {
+                exitPlanModeFromHost("approved");
+                yield Optional.of(ModeExecution.managedTurn(
+                        turnExecutor.submit(session, PLAN_IMPLEMENTATION_CODING_MESSAGE)));
+            }
+            case PLAN_IMPLEMENTATION_CLEAR_CONTEXT -> {
+                ConversationSession fresh = new ConversationSession(session.workingDirectory());
+                replaceSession(fresh, true);
+                yield Optional.of(ModeExecution.managedTurn(
+                        turnExecutor.submit(session,
+                                PLAN_IMPLEMENTATION_CLEAR_CONTEXT_PREFIX
+                                        + System.lineSeparator()
+                                        + System.lineSeparator()
+                                        + planText.get())));
+            }
+            case PLAN_IMPLEMENTATION_NO -> {
+                session.fireMetaEvent(new MetaEvent.PlanRejected("User chose to stay in Plan Mode."));
+                session.addControllerEvent("plan-mode", Map.of(
+                        "event", "implementation_rejected",
+                        "status", "active",
+                        "owner", "host"));
+                yield Optional.empty();
+            }
+            default -> Optional.empty();
+        };
+    }
+
+    private void exitPlanModeFromHost(String reason) {
+        session.setPlanMode(false);
+        if (sessionContext != null) {
+            sessionContext.setPlanMode(false);
+        }
+        session.fireMetaEvent(new MetaEvent.PlanModeExited());
+        session.addControllerEvent("plan-mode", Map.of(
+                "event", "exited",
+                "status", "inactive",
+                "owner", "host",
+                "reason", reason));
+    }
+
+    private Optional<String> latestProposedPlanText() {
+        List<Message> messages = session.messages();
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message message = messages.get(i);
+            if (message.role() == MessageRole.ASSISTANT) {
+                return extractProposedPlanText(message.content())
+                        .filter(plan -> !plan.isBlank());
+            }
+        }
+        return Optional.empty();
+    }
+
+    static Optional<String> extractProposedPlanText(String text) {
+        if (text == null || text.isEmpty()) {
+            return Optional.empty();
+        }
+
+        int openStart = -1;
+        int searchFrom = 0;
+        while (searchFrom < text.length()) {
+            int lineEnd = text.indexOf('\n', searchFrom);
+            int end = lineEnd < 0 ? text.length() : lineEnd;
+            String line = text.substring(searchFrom, end).strip();
+            if (PROPOSED_PLAN_OPEN_TAG.equals(line)) {
+                openStart = lineEnd < 0 ? end : lineEnd + 1;
+                break;
+            }
+            searchFrom = lineEnd < 0 ? text.length() : lineEnd + 1;
+        }
+        if (openStart < 0) {
+            return Optional.empty();
+        }
+
+        int closeStart = text.indexOf(PROPOSED_PLAN_CLOSE_TAG, openStart);
+        if (closeStart < 0) {
+            return Optional.empty();
+        }
+        return Optional.of(text.substring(openStart, closeStart).strip());
     }
 
     /** Surface a supervised turn crash to the user. Best-effort: appending a

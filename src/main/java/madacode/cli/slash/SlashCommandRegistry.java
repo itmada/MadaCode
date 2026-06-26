@@ -26,6 +26,7 @@ public final class SlashCommandRegistry {
         commands.add(new ExitCommand());
         commands.add(new ModelCommand());
         commands.add(new ModeCommand());
+        commands.add(new PlanCommand());
         commands.add(new PermissionCommand());
         commands.add(new CompactCommand());
         commands.add(new CostCommand());
@@ -43,6 +44,12 @@ public final class SlashCommandRegistry {
         return commands;
     }
 
+    public List<SlashCommand> visibleCommands(SlashContext ctx) {
+        return commands.stream()
+                .filter(command -> command.isVisible(ctx))
+                .toList();
+    }
+
     public Optional<SlashCommand> find(String command) {
         if (command == null || command.isBlank()) {
             return Optional.empty();
@@ -53,9 +60,14 @@ public final class SlashCommandRegistry {
     }
 
     public List<PaletteEntry> paletteEntries() {
+        return paletteEntries(null);
+    }
+
+    public List<PaletteEntry> paletteEntries(SlashContext ctx) {
         List<PaletteEntry> entries = new ArrayList<>();
-        for (SlashCommand command : commands) {
-            entries.add(new PaletteEntry("/" + command.name(), command.description()));
+        List<SlashCommand> source = ctx == null ? commands : visibleCommands(ctx);
+        for (SlashCommand command : source) {
+            entries.add(new PaletteEntry("/" + command.name(), command.description(ctx)));
         }
         entries.sort(Comparator.comparing(PaletteEntry::command));
         return List.copyOf(entries);

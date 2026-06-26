@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -19,11 +20,21 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * Attempt-scoped trace boundary. It aggregates completed control/worker/subagent sessions
- * and derives authoritative file effects from workspace snapshots.
+ * Attempt-scoped trace boundary. It aggregates completed control, worker, and
+ * <em>sub-agent</em> sessions and derives authoritative file effects from workspace
+ * snapshots.
+ *
+ * <p>Control and worker sessions are recorded explicitly by the launchers. Sub-agent
+ * sessions are spawned dynamically inside tool execution and are not reachable by a
+ * parent-session scan, so they are instead registered via {@link #trackSubAgent} at
+ * spawn time (wired through {@code ConversationSession#registerSubAgent}) and scanned
+ * at {@link #finish}. Without this, tool/decoy/read-before-edit checks would silently
+ * miss everything a sub-agent did — and read-before-edit would even raise a false
+ * violation, seeing a file modified with no corresponding edit invocation.
  */
 public final class ExecutionTraceCollector {
 
@@ -33,11 +44,26 @@ public final class ExecutionTraceCollector {
     private final List<String> userTurns = new ArrayList<>();
     private final List<String> assistantTurns = new ArrayList<>();
     private final Map<ConversationSession, Integer> sessionCursors = new IdentityHashMap<>();
+    // Sub-agent sessions captured at spawn time; their messages are still empty then,
+    // so we hold the references and scan them at finish() once the tree has quiesced.
+    private final Set<ConversationSession> subAgentSessions =
+            Collections.newSetFromMap(new IdentityHashMap<>());
     private int nextOrdinal;
 
     public ExecutionTraceCollector(Path workspace) {
         this.workspace = workspace.toAbsolutePath().normalize();
         this.initialFiles = snapshot(this.workspace);
+    }
+
+    /**
+     * Registers a sub-agent session spawned during this attempt. Safe to call from the
+     * tool-worker threads that spawn sub-agents (the collector is synchronized). The
+     * session is scanned at {@link #finish}, by which point its transcript is complete.
+     */
+    public synchronized void trackSubAgent(ConversationSession session) {
+        if (session != null) {
+            subAgentSessions.add(session);
+        }
     }
 
     public synchronized void recordSession(
@@ -76,13 +102,24 @@ public final class ExecutionTraceCollector {
     }
 
     public synchronized ExecutionTrace finish(String finalText, RunMetrics metrics) {
+        // Scan sub-agent sessions last: their transcripts are complete by now, and
+        // recordSession is idempotent (cursor-guarded), so re-scanning is harmless.
+        for (ConversationSession subAgent : subAgentSessions) {
+            recordSession(subAgent, ToolInvocation.Phase.SUBAGENT);
+        }
+        // invocations now span control + worker + sub-agent, making its size the
+        // authoritative tool-call total for the whole tree (the per-session count in
+        // RunMetrics misses sub-agent calls).
+        RunMetrics reconciledMetrics = metrics == null
+                ? null
+                : metrics.withToolCalls(invocations.size());
         return new ExecutionTrace(
                 invocations,
                 diff(initialFiles, snapshot(workspace)),
                 userTurns,
                 assistantTurns,
                 finalText,
-                metrics);
+                reconciledMetrics);
     }
 
     private static Map<String, String> toolResults(List<Message> messages) {

@@ -10,12 +10,14 @@ import madacode.render.BlockSpacing;
 import madacode.render.ThinkingVerbs;
 import madacode.render.tool.ToolProgressLine;
 import madacode.render.tool.ToolDisplayRegistry;
+import madacode.tool.ToolNames;
 import madacode.tui.JLineScreen;
 import madacode.tui.Screen;
 import madacode.tui.theme.Tk;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -38,6 +40,7 @@ public final class TurnRenderer implements SessionListener {
 
     private AssistantTextRenderable currentText;
     private TurnStatusRenderable statusLine;
+    private PlanPanelRenderable planPanel;
     private int activeStreamIndex = -1;
     private boolean aborted;
 
@@ -156,10 +159,15 @@ public final class TurnRenderer implements SessionListener {
                 currentText.finalizeText();
                 currentText = null;
             }
-            ToolCardRenderable card = new ToolCardRenderable(
-                    tu.id(), tu.name(), tu.input(), toolDisplays);
-            toolCards.put(tu.id(), card);
-            turnView.add(card);
+            // update_plan has no generic tool card: the live plan panel is its
+            // sole, in-place visual. Skipping the card also keeps it out of
+            // scrollback so the panel never reprints per update.
+            if (!ToolNames.UPDATE_PLAN.equals(tu.name())) {
+                ToolCardRenderable card = new ToolCardRenderable(
+                        tu.id(), tu.name(), tu.input(), toolDisplays);
+                toolCards.put(tu.id(), card);
+                turnView.add(card);
+            }
             // The card is pure-queued and renders empty until execution starts.
             // Keep a spinner running (below the card) so the gap between block
             // arrival and onToolExecutionStarted (permission gate, hook I/O) is
@@ -275,14 +283,37 @@ public final class TurnRenderer implements SessionListener {
                 turnView.markDirty();
             }
             case MetaEvent.Error e -> abortTurn(e.message(), e.reason());
-            case MetaEvent.PlanModeEntered i ->
-                    screen.scrollback(Tk.dim("[plan mode entered]"));
-            case MetaEvent.PlanModeExited e ->
-                    screen.scrollback(Tk.dim("[plan mode exited]"));
-            case MetaEvent.PlanRejected r ->
-                    screen.scrollback(Tk.dim("[plan rejected — staying in plan mode]"));
+            case MetaEvent.PlanUpdated p -> handlePlanUpdated(p);
             default -> { /* other events handled by MetaEventRenderer */ }
         }
+    }
+
+    /**
+     * Route a plan update into the live, bottom-pinned plan panel. The first
+     * update creates the panel; later updates mutate it in place so it redraws
+     * instead of reprinting.
+     */
+    private synchronized void handlePlanUpdated(MetaEvent.PlanUpdated event) {
+        if (planPanel == null) {
+            planPanel = new PlanPanelRenderable(turnView::markDirty);
+            turnView.setBottomPinned(planPanel);
+        }
+        planPanel.update(event.plan(), event.explanation());
+        turnView.markDirty();
+    }
+
+    /**
+     * Stop the panel's animation and hand back its one-line summary for
+     * scrollback. Returns empty when there is no panel.
+     */
+    private synchronized List<String> finalizePlanPanel() {
+        if (planPanel == null) {
+            return List.of();
+        }
+        planPanel.markFinalized();
+        List<String> summary = planPanel.render(screen.width());
+        planPanel = null;
+        return summary;
     }
 
     @Override
@@ -316,6 +347,10 @@ public final class TurnRenderer implements SessionListener {
                 card.finalizeTool(false, 0);
             }
         }
+        if (planPanel != null) {
+            planPanel.markFinalized();
+            planPanel = null;
+        }
         turnView.endTurn();
         toolCards.clear();
         activeToolDescriptions.clear();
@@ -338,7 +373,11 @@ public final class TurnRenderer implements SessionListener {
         if (currentText != null && !currentText.isFinalized()) {
             currentText.finalizeText();
         }
+        List<String> planSummary = finalizePlanPanel();
         turnView.endTurn();
+        if (!planSummary.isEmpty()) {
+            BlockSpacing.scrollbackBlock(screen, planSummary);
+        }
         toolCards.clear();
         activeToolDescriptions.clear();
         currentText = null;
@@ -352,6 +391,10 @@ public final class TurnRenderer implements SessionListener {
 
     public synchronized void shutdown() {
         dismissStatusLine();
+        if (planPanel != null) {
+            planPanel.markFinalized();
+            planPanel = null;
+        }
         turnView.shutdown();
         toolCards.clear();
         activeToolDescriptions.clear();
@@ -381,8 +424,9 @@ public final class TurnRenderer implements SessionListener {
         ToolCardRenderable card = toolCards.get(toolUseId);
         if (card != null) {
             card.resolvePermission();
+            dismissStatusLine();
             if (screen instanceof JLineScreen jls) jls.unlockModal();
-            turnView.markDirty();
+            turnView.flushNow();
         }
     }
 
@@ -394,8 +438,9 @@ public final class TurnRenderer implements SessionListener {
             } else {
                 card.resolvePermission();
             }
+            dismissStatusLine();
             if (screen instanceof JLineScreen jls) jls.unlockModal();
-            turnView.markDirty();
+            turnView.flushNow();
         }
     }
 
@@ -403,8 +448,9 @@ public final class TurnRenderer implements SessionListener {
         ToolCardRenderable card = toolCards.get(toolUseId);
         if (card != null) {
             card.markDenied("User denied permission");
+            dismissStatusLine();
             if (screen instanceof JLineScreen jls) jls.unlockModal();
-            turnView.markDirty();
+            turnView.flushNow();
         }
     }
 

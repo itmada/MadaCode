@@ -3,8 +3,6 @@ package madacode.prompt;
 import madacode.core.session.ConversationSession;
 import madacode.longrunning.LongRunningPromptSection;
 import madacode.memory.MemoryLoader;
-import madacode.plan.PlanItem;
-import madacode.plan.PlanStatus;
 import madacode.skill.Skill;
 import madacode.skill.SkillRegistry;
 import madacode.tool.Tool;
@@ -128,8 +126,6 @@ public class SystemPromptBuilder {
             String workingDirectory,
             String sessionId,
             int messageCount,
-            int planItemCount,
-            int todoCount,
             boolean planMode,
             String permissionMode,
             String workflowMode,
@@ -151,8 +147,6 @@ public class SystemPromptBuilder {
                     cwd == null ? null : cwd.toAbsolutePath().normalize().toString(),
                     null,
                     0,
-                    0,
-                    0,
                     false,
                     null,
                     null,
@@ -170,8 +164,6 @@ public class SystemPromptBuilder {
                 cwd == null ? null : cwd.toAbsolutePath().normalize().toString(),
                 session.sessionId(),
                 session.messages().size(),
-                session.plan().items().size(),
-                session.plan().todos().size(),
                 session.isPlanMode(),
                 session.permissionMode().name(),
                 session.workflowMode().name(),
@@ -228,6 +220,8 @@ public class SystemPromptBuilder {
             return List.of(
                     new PromptSectionEntry("Identity", new IdentitySection()),
                     new PromptSectionEntry("System", new SystemSection()),
+                    new PromptSectionEntry("Runtime Mode", new RuntimeModeSection()),
+                    new PromptSectionEntry("Plan Mode", new PlanModeSection()),
                     new PromptSectionEntry("Environment", new EnvironmentSection()),
                     new PromptSectionEntry("Working In Codebases", new CodebaseSection()),
                     new PromptSectionEntry("Tools", new ToolsSection()),
@@ -237,7 +231,6 @@ public class SystemPromptBuilder {
                     new PromptSectionEntry("Skills", new SkillsSection()),
                     new PromptSectionEntry("Project & user context", new ProjectContextSection()),
                     new PromptSectionEntry("Long-Running Workflow", new LongRunningPromptSection()),
-                    new PromptSectionEntry("Active Tasks", new ActiveTasksSection()),
                     new PromptSectionEntry(null, new AgentContextSection()));
         }
     }
@@ -253,6 +246,39 @@ public class SystemPromptBuilder {
         @Override
         public Optional<String> render(PromptContext ctx) {
             return Optional.of(PROMPT_TEXT.bullets("system"));
+        }
+    }
+
+    private static final class RuntimeModeSection implements PromptSection {
+        @Override
+        public Optional<String> render(PromptContext ctx) {
+            ConversationSession session = ctx.session();
+            if (session == null) {
+                return Optional.empty();
+            }
+            List<String> items = new ArrayList<>();
+            if (session.isPlanMode()) {
+                items.add(PROMPT_TEXT.text("runtime_mode.plan"));
+            } else if (session.workflowMode() == madacode.core.session.SessionMode.LONG_RUNNING) {
+                items.add(PROMPT_TEXT.text("runtime_mode.long_running"));
+                if (session.longRunningStage() != null) {
+                    items.add("Long-running stage: " + session.longRunningStage().name() + ".");
+                }
+            } else {
+                items.add(PROMPT_TEXT.text("runtime_mode.default"));
+            }
+            return Optional.of(bullets(items));
+        }
+    }
+
+    private static final class PlanModeSection implements PromptSection {
+        @Override
+        public Optional<String> render(PromptContext ctx) {
+            ConversationSession session = ctx.session();
+            if (session == null || !session.isPlanMode()) {
+                return Optional.empty();
+            }
+            return Optional.of(PROMPT_TEXT.bullets("plan_mode"));
         }
     }
 
@@ -298,8 +324,8 @@ public class SystemPromptBuilder {
             if (toolNames.contains("grep")) {
                 items.add(PROMPT_TEXT.text("tools.grep"));
             }
-            if (toolNames.contains("plan_create")) {
-                items.add(PROMPT_TEXT.text("tools.plan_create"));
+            if (toolNames.contains("update_plan")) {
+                items.add(PROMPT_TEXT.text("tools.update_plan"));
             }
             if (toolNames.contains("ask_user_question")) {
                 items.add(PROMPT_TEXT.text("tools.ask_user_question"));
@@ -373,37 +399,6 @@ public class SystemPromptBuilder {
                 return Optional.empty();
             }
             return ctx.memoryLoader().renderForSystemPrompt(ctx.workingDirectory());
-        }
-    }
-
-    private static final class ActiveTasksSection implements PromptSection {
-        @Override
-        public Optional<String> render(PromptContext ctx) {
-            ConversationSession session = ctx.session();
-            if (session == null) {
-                return Optional.empty();
-            }
-            List<PlanItem> active = session.plan().items().stream()
-                    .filter(task -> task.status() == PlanStatus.IN_PROGRESS
-                            || task.status() == PlanStatus.PENDING)
-                    .toList();
-            if (active.isEmpty()) {
-                return Optional.empty();
-            }
-            StringBuilder sb = new StringBuilder();
-            for (PlanItem task : active) {
-                sb.append("- [").append(task.status()).append("] ");
-                if (task.status() == PlanStatus.IN_PROGRESS) {
-                    sb.append("▶ ");
-                }
-                sb.append(task.id()).append("  ").append(task.title());
-                Set<String> blockers = session.plan().validateCanStart(task);
-                if (!blockers.isEmpty()) {
-                    sb.append(" (blocked by: ").append(String.join(", ", blockers)).append(")");
-                }
-                sb.append("\n");
-            }
-            return Optional.of(sb.toString().stripTrailing());
         }
     }
 

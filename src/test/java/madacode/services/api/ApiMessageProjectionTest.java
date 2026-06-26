@@ -19,7 +19,7 @@ class ApiMessageProjectionTest {
         List<Message> input = List.of(
                 Message.assistant(List.of(new ContentBlock.ToolUseBlock(
                         "u1", "bash", com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()))),
-                Message.controllerEvent("[controller-event] EnterPlanModeTool"),
+                Message.controllerEvent("[controller-event] plan-mode event"),
                 Message.user(List.of(
                         new ContentBlock.ToolResultBlock("u1", "ok", true, 100),
                         new ContentBlock.ToolResultBlock("u2", "done", true, 50))));
@@ -36,7 +36,7 @@ class ApiMessageProjectionTest {
         assertEquals(ContentBlock.ToolResultBlock.class, blocks.get(1).getClass());
         assertEquals("u2", ((ContentBlock.ToolResultBlock) blocks.get(1)).toolUseId());
         assertEquals(ContentBlock.TextBlock.class, blocks.get(2).getClass());
-        assertEquals("[controller-event] EnterPlanModeTool",
+        assertEquals("[controller-event] plan-mode event",
                 ((ContentBlock.TextBlock) blocks.get(2)).text());
     }
 

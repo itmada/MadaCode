@@ -7,7 +7,7 @@ import java.util.Optional;
 /**
  * User-facing workflow modes for the REPL.
  *
- * <p>Workflow mode is independent from plan-mode tools and the permission
+ * <p>Workflow mode is independent from Plan Mode and the permission
  * policy. The runtime keeps those axes separate so /mode can express the
  * user's working style without implicitly re-encoding every permission state.
  */

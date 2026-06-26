@@ -12,6 +12,14 @@ public interface SlashCommand {
         return true;
     }
 
+    default boolean isVisible(SlashContext ctx) {
+        return true;
+    }
+
+    default String description(SlashContext ctx) {
+        return description();
+    }
+
     default boolean matches(String command) {
         return name().equalsIgnoreCase(command);
     }

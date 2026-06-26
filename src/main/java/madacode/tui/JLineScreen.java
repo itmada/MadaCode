@@ -41,6 +41,7 @@ public final class JLineScreen implements Screen {
     private volatile Phase phase = Phase.TURN;
     private volatile boolean composing;
     private int cursorHideDepth = 0;
+    private boolean scrollbackAtBoundary = true;
 
     public JLineScreen(Terminal terminal) {
         this.terminal = terminal;
@@ -85,6 +86,7 @@ public final class JLineScreen implements Screen {
             for (String line : lines) {
                 lr.printAbove(line);
             }
+            rememberScrollbackBoundary(lines);
             return;
         }
         liveRegion.withLock(() -> {
@@ -97,6 +99,17 @@ public final class JLineScreen implements Screen {
                 writer.flush();
             }
         });
+        rememberScrollbackBoundary(lines);
+    }
+
+    @Override
+    public void ensureScrollbackBoundary() {
+        synchronized (this) {
+            if (scrollbackAtBoundary) {
+                return;
+            }
+        }
+        scrollback("");
     }
 
     @Override
@@ -137,11 +150,13 @@ public final class JLineScreen implements Screen {
             for (String line : scrollbackLines) {
                 lr.printAbove(line);
             }
+            rememberScrollbackBoundary(scrollbackLines);
             setLiveStatus(newLiveStatus);
             return;
         }
         liveRegion.withLock(() ->
                 liveRegion.commitScrollbackAndSetStatus(scrollbackLines, newLiveStatus));
+        rememberScrollbackBoundary(scrollbackLines);
     }
 
     @Override
@@ -154,6 +169,11 @@ public final class JLineScreen implements Screen {
     public synchronized void clearLiveModal() {
         if (phase == Phase.IDLE && !composing) return;
         liveRegion.clearModal();
+    }
+
+    @Override
+    public synchronized void clearTransientUi() {
+        liveRegion.clearTransientUi();
     }
 
     // ---- pinned bottom status footer --------------------------------------
@@ -253,6 +273,13 @@ public final class JLineScreen implements Screen {
             }
             cursorHideDepth++;
         }
+    }
+
+    private synchronized void rememberScrollbackBoundary(List<String> lines) {
+        if (lines.isEmpty()) {
+            return;
+        }
+        scrollbackAtBoundary = lines.getLast().isEmpty();
     }
 
     @Override

@@ -24,8 +24,7 @@ public final class EventFallback {
         String message = switch (event) {
             case UserVisibleEvent u -> u.message();
             case DiagnosticEvent d -> "[" + d.severity() + "] [" + d.context().source() + "] " + d.message();
-            case AuditEvent a -> "[AUDIT] tool=" + a.tool() + " allowed=" + a.allowed()
-                    + " reason=" + a.reason();
+            case AuditEvent a -> null;
             case FatalEvent f -> f.message();
         };
         if (message != null && !message.isBlank()) {

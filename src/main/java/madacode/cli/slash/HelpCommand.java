@@ -22,9 +22,9 @@ final class HelpCommand implements SlashCommand {
             return new SlashAction.Handled();
         }
         ctx.screen().scrollback("Commands:");
-        for (SlashCommand command : registry.commands()) {
+        for (SlashCommand command : registry.visibleCommands(ctx)) {
             ctx.screen().scrollback(String.format("  %-20s %s",
-                    command.displayNames(), command.description()));
+                    command.displayNames(), command.description(ctx)));
         }
         return new SlashAction.Handled();
     }

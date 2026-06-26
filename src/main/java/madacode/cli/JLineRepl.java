@@ -210,7 +210,6 @@ public final class JLineRepl extends Repl {
                     continue;
                 }
                 jlineScreen.enterIdlePhase();
-                screen.scrollback(""); // blank separator above the idle prompt
                 String line;
                 jlineScreen.setActiveLineReader(lineReader);
                 // Refresh the pinned footer with the latest workspace/model/ctx. It is
@@ -220,8 +219,7 @@ public final class JLineRepl extends Repl {
                 try {
                     line = lineReader.readLine(buildPrompt());
                 } catch (UserInterruptException e) {
-                    screen.scrollback("");
-                    screen.scrollback(Tk.dim("(type 'exit' to quit)"));
+                    BlockSpacing.scrollbackBlock(screen, Tk.dim("(type 'exit' to quit)"));
                     continue;
                 } catch (EndOfFileException e) {
                     screen.scrollback("");
@@ -240,7 +238,8 @@ public final class JLineRepl extends Repl {
                         if (composed.isEmpty()) continue; // user cancelled
                         line = composed.get();
                     } catch (IOException e) {
-                        screen.scrollback(Tk.errorTag("compose") + " " + e.getMessage());
+                        BlockSpacing.scrollbackBlock(screen,
+                                Tk.errorTag("compose") + " " + e.getMessage());
                         continue;
                     }
                 }
@@ -249,8 +248,6 @@ public final class JLineRepl extends Repl {
 
                 // Echo user input into scrollback (matches HistoryPrinter USER format).
                 // JLine erases its own input line via ERASE_LINE_ON_FINISH; we own the scrollback record.
-                // No top margin here: the idle separator printed before readLine (see
-                // enterIdlePhase above) already provides the single blank line above this echo.
                 screen.scrollback(UserInputRenderer.lines(line));
 
                 String stripped = line.stripLeading();
@@ -258,7 +255,8 @@ public final class JLineRepl extends Repl {
                     try {
                         runInlineBash(stripped.substring(1).stripLeading(), screen, session.workingDirectory());
                     } catch (IOException e) {
-                        screen.scrollback(Tk.errorTag("bash") + " " + e.getMessage());
+                        BlockSpacing.scrollbackBlock(screen,
+                                Tk.errorTag("bash") + " " + e.getMessage());
                     }
                     loadHistory();
                     continue;
@@ -267,7 +265,8 @@ public final class JLineRepl extends Repl {
                     try {
                         appendInlineMemory(stripped.substring(1).stripLeading(), screen, inlineMemoryFile);
                     } catch (IOException e) {
-                        screen.scrollback(Tk.errorTag("memory") + " " + e.getMessage());
+                        BlockSpacing.scrollbackBlock(screen,
+                                Tk.errorTag("memory") + " " + e.getMessage());
                     }
                     loadHistory();
                     continue;

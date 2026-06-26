@@ -17,8 +17,9 @@ import java.util.Set;
  * <p>It contributes exactly two things and nothing else:
  * <ol>
  *   <li><b>Worker capability</b> ({@link #sessionProfile}): a long-running worker
- *       session may use only {@link #WORKER_TOOLS}; once it has reported (or is not
- *       in the RUNNING stage) it may use nothing.</li>
+ *       session may use only {@link #WORKER_TOOLS}, including {@code update_plan}
+ *       for visible current-cycle progress; once it has reported (or is not in
+ *       the RUNNING stage) it may use nothing.</li>
  *   <li><b>Control-session lifecycle gating</b> ({@link #lifecycleVote}): the
  *       lifecycle tools {@code longrun_plan_update} and
  *       {@code longrun_state_transition_request} are exposed to the control session
@@ -33,8 +34,11 @@ import java.util.Set;
 public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPolicy {
 
     /**
-     * The complete set of tools a long-running worker session may use. This is the
-     * single source of truth for worker capability; it is pinned by
+     * The complete set of tools a long-running worker session may use. The
+     * worker uses {@code update_plan} only for the visible current execution
+     * checklist; durable task-store progress is written through
+     * {@code longrun_task_update}. This set is the single source of truth for
+     * worker capability and is pinned by
      * {@code LongRunningCapabilityPolicyTest}. Keep it code-defined unless there is
      * an explicit security review for configurable worker capabilities.
      */
@@ -45,7 +49,7 @@ public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPoli
             ToolNames.FILE_WRITE,
             ToolNames.FILE_EDIT,
             ToolNames.BASH,
-            ToolNames.TODO_WRITE,
+            ToolNames.UPDATE_PLAN,
             ToolNames.WORKER_REPORT,
             ToolNames.LONGRUN_TASK_UPDATE);
 

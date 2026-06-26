@@ -70,9 +70,6 @@ public final class LongRunningModeHandler implements ModeHandler {
     LongRunningStage stage(ConversationSession session) {
         LongRunningStage explicit = session.longRunningStage();
         if (explicit != null) return explicit;
-        if (session.isPlanMode()) {
-            return LongRunningStage.DRAFT;
-        }
         return LongRunningStage.DRAFT;
     }
 

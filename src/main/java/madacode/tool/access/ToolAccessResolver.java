@@ -65,6 +65,12 @@ public final class ToolAccessResolver {
         if (!profile.allows(name)) {
             return ToolAccessDecision.denied(name, "Tool is not part of the current agent capability set.");
         }
+        if (session != null && session.isPlanMode() && !tool.isPlanModeSafe()) {
+            return ToolAccessDecision.denied(
+                    name,
+                    "Plan mode active — only read tools are available. "
+                            + "The host must exit plan mode before implementation tools are available.");
+        }
         // Capability floor: a sub-agent's explicit profile narrows, never widens, the
         // session's workflow restriction. When both are present the effective
         // capability is their intersection — a child of a restricted session can use

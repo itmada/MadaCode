@@ -9,6 +9,7 @@ import madacode.core.session.SessionMode;
 import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.FileWriteTool;
+import madacode.tool.UpdatePlanTool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -127,6 +128,56 @@ class PermissionEnforcementTest {
         assertEquals(0, prompt.calls);
     }
 
+    @Test
+    void updatePlanIsSessionProgressAndDoesNotPromptForPermission() {
+        PromptStub prompt = new PromptStub(ApprovalResponse.DENY);
+        DefaultPermissionGate gate = new DefaultPermissionGate(prompt);
+        ConversationSession session = session(PermissionMode.DEFAULT);
+        ToolUseContext context = new ToolUseContext(tempDir, session);
+
+        PermissionDecision decision = gate.check(new UpdatePlanTool(), updatePlanInput(), context);
+
+        assertTrue(decision.isAllowed());
+        assertEquals(SessionProgressPermissionRule.SOURCE, decision.source());
+        assertEquals(0, prompt.calls);
+    }
+
+    @Test
+    void longRunningWorkerMayUpdateVisiblePlanWithoutInteractiveApproval() {
+        PromptStub prompt = new PromptStub(ApprovalResponse.DENY);
+        DefaultPermissionGate gate = new DefaultPermissionGate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
+        session.setLongRunningStage(LongRunningStage.RUNNING);
+        session.setLongRunningWorkerSession(true);
+        ToolUseContext context = new ToolUseContext(tempDir, session);
+
+        PermissionDecision decision = gate.check(new UpdatePlanTool(), updatePlanInput(), context);
+
+        assertTrue(decision.isAllowed());
+        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, decision.source());
+        assertEquals(0, prompt.calls);
+    }
+
+    @Test
+    void planModeAllowsInspectionBashButDeniesMutatingBashWithoutPrompt() {
+        PromptStub prompt = new PromptStub(ApprovalResponse.ALLOW_ONCE);
+        DefaultPermissionGate gate = new DefaultPermissionGate(prompt);
+        ConversationSession session = session(PermissionMode.DEFAULT);
+        session.setPlanMode(true);
+        ToolUseContext context = new ToolUseContext(tempDir, session);
+
+        PermissionDecision inspect = gate.check(new BashTool(), bashInput("rg -n \"PlanMode\" src"), context);
+        PermissionDecision mutate = gate.check(new BashTool(), bashInput("git add ."), context);
+
+        assertTrue(inspect.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, inspect.source());
+        assertFalse(mutate.isAllowed());
+        assertEquals(PlanModePermissionRule.SOURCE, mutate.source());
+        assertEquals(1, prompt.calls);
+    }
+
     private ConversationSession session(PermissionMode mode) {
         ConversationSession session = new ConversationSession(tempDir);
         session.setPermissionMode(mode);
@@ -149,6 +200,15 @@ class PermissionEnforcementTest {
     private ObjectNode bashInput(String command) {
         ObjectNode input = mapper.createObjectNode();
         input.put("command", command);
+        return input;
+    }
+
+    private ObjectNode updatePlanInput() {
+        ObjectNode input = mapper.createObjectNode();
+        input.putArray("plan")
+                .addObject()
+                .put("step", "Review")
+                .put("status", "in_progress");
         return input;
     }
 

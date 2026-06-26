@@ -100,7 +100,7 @@ public final class ToolOrchestrator {
                 String reason = reasonOrDefault(context);
                 for (int k = i; k < toolCalls.size(); k++) {
                     results.set(k, errorResult(resolvedCalls.get(k).toolCall(),
-                            "Cancelled before execution: " + reason, context));
+                            skippedBeforeExecutionMessage(reason), context));
                 }
                 return results;
             }
@@ -184,6 +184,13 @@ public final class ToolOrchestrator {
     private static String reasonOrDefault(ToolUseContext context) {
         String r = context.cancellationToken().reason();
         return r == null ? "interrupted" : r;
+    }
+
+    static String skippedBeforeExecutionMessage(String reason) {
+        if (CancellationToken.REASON_PERMISSION_DENIED.equals(reason)) {
+            return "Tool call skipped: previous permission request was denied";
+        }
+        return "Cancelled before execution: " + (reason == null ? "interrupted" : reason);
     }
 
     private ResolvedToolCall resolve(ToolCall call, ToolAccessScope accessScope) {
