@@ -8,6 +8,7 @@ import madacode.core.session.SessionMode;
 import madacode.longrunning.FeatureItem;
 import madacode.longrunning.KnownIssue;
 import madacode.longrunning.LongRunningTaskEvent;
+import madacode.longrunning.LongRunningTaskInitializer;
 import madacode.longrunning.LongRunningTaskMetadata;
 import madacode.longrunning.LongRunningTaskStore;
 import madacode.tool.schema.OptionalSchemaProperty;
@@ -66,12 +67,9 @@ abstract class LongRunPlanUpdateSupport<I> implements Tool<I> {
             return failed(name() + " is only available while the task is in DRAFT or INTERRUPT. Current stage: "
                     + session.longRunningStage());
         }
-        if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
-            return failed("No long-running task is active for this session.");
-        }
-
-        String taskId = activeTaskId(taskId(input), session);
         LongRunningTaskStore store = new LongRunningTaskStore(context.workingDirectory());
+        ensurePlanningTaskIfNeeded(store, session);
+        String taskId = activeTaskId(taskId(input), session);
         try {
             store.validateTaskDirectory(taskId);
             LongRunningTaskMetadata currentTask = store.loadTask(taskId);
@@ -108,6 +106,16 @@ abstract class LongRunPlanUpdateSupport<I> implements Tool<I> {
 
     protected Map<String, String> eventDetails(I input) {
         return Map.of();
+    }
+
+    private static void ensurePlanningTaskIfNeeded(LongRunningTaskStore store, ConversationSession session) {
+        if (session.longRunningTaskId() != null && !session.longRunningTaskId().isBlank()) {
+            return;
+        }
+        LongRunningTaskInitializer initializer = new LongRunningTaskInitializer(
+                store,
+                LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId);
+        initializer.ensurePlanningTask(session, "");
     }
 
     protected final ToolResult updatePlanSummary(

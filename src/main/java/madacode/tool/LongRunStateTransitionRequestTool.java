@@ -38,8 +38,11 @@ public final class LongRunStateTransitionRequestTool
 
     @Override
     public String description() {
-        return "Request a long-running state transition for the control session. "
-                + "This does not change state directly; runtime will ask the user to confirm first.";
+        return "Controller: propose a long-running state transition — start the run, resume after interrupt, or cancel. "
+                + "Call this only after the long-running environment files are fully initialized from the agreed task plan. "
+                + "This tool must be called alone, with no other tools in the same assistant message. "
+                + "After calling it, stop; the runtime asks the user for approval. "
+                + "This does not change state directly, so do not claim a transition happened until it is confirmed.";
     }
 
     @Override

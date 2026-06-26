@@ -42,8 +42,9 @@ public final class WorkerReportTool implements Tool<WorkerReportTool.Input> {
 
     @Override
     public String description() {
-        return "Report the outcome of a bounded worker cycle. Must be called exactly once before the worker session ends. "
-                + "Allowed statuses: progress_made, task_completed, blocked, failed, needs_user.";
+        return "Worker: close out the current cycle with its outcome. "
+                + "Call exactly once before the worker session ends. "
+                + "status is one of: progress_made, task_completed, blocked, failed, needs_user.";
     }
 
     @Override

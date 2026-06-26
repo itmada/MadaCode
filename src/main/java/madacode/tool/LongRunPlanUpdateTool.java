@@ -40,8 +40,9 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
 
     @Override
     public String description() {
-        return "Legacy compatibility facade for long-running draft task-store updates. "
-                + "Prefer the single-action long-running draft tools.";
+        return "Legacy combined long-running plan update — kept for back-compat only. "
+                + "Prefer the single-action tools: longrun_task_summary_update, longrun_feature_list_replace, "
+                + "longrun_known_issues_replace, longrun_progress_append.";
     }
 
     @Override

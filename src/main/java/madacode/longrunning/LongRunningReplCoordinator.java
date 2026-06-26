@@ -121,7 +121,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     session,
                     completion -> {
                         completions.add(completion);
-                        screen.notifyAsync(java.util.List.of("", Tk.dim(completionSummary(completion)), ""));
+                        screen.notifyAsync(Tk.dim(completionSummary(completion)));
                     });
         } catch (RuntimeException exception) {
             recordControllerEvent("worker_runtime_start_failed",
@@ -380,7 +380,7 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
     private static String longRunningTransitionPrompt(LongRunningTransitionRequest request) {
         LongRunningStage source = request.sourceStage().normalized();
         LongRunningStage target = request.targetStage().normalized();
-        String suffix = request.summary() == null ? "" : "\n\n" + request.summary();
+        String suffix = request.summary() == null ? "" : "\n" + request.summary();
         if (source == LongRunningStage.DRAFT && target == LongRunningStage.RUNNING) {
             return "Start this long-running task now?" + suffix;
         }

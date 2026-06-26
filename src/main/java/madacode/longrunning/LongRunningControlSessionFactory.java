@@ -7,22 +7,14 @@ import madacode.core.session.SessionMode;
 import madacode.permission.PermissionMode;
 
 import java.nio.file.Path;
-import java.util.Objects;
-
 public final class LongRunningControlSessionFactory {
 
-    private final LongRunningController.TaskStoreFactory taskStoreFactory;
-    private final LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator;
-
     public LongRunningControlSessionFactory() {
-        this(LongRunningTaskStore::new, LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId);
     }
 
     public LongRunningControlSessionFactory(
             LongRunningController.TaskStoreFactory taskStoreFactory,
             LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
-        this.taskStoreFactory = Objects.requireNonNull(taskStoreFactory, "taskStoreFactory");
-        this.taskIdGenerator = Objects.requireNonNull(taskIdGenerator, "taskIdGenerator");
     }
 
     public ConversationSession create(Path workingDirectory) {
@@ -33,10 +25,6 @@ public final class LongRunningControlSessionFactory {
         session.setPlanMode(false);
         session.setPermissionMode(PermissionMode.BYPASS);
         session.setLongRunningStage(LongRunningStage.DRAFT);
-
-        LongRunningTaskInitializer initializer =
-                new LongRunningTaskInitializer(taskStoreFactory.create(session.workingDirectory()), taskIdGenerator);
-        initializer.ensurePlanningTask(session, "");
         return session;
     }
 }

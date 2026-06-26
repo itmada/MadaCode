@@ -27,9 +27,9 @@ public final class UpdatePlanTool implements Tool<UpdatePlanTool.Input> {
 
     @Override
     public String description() {
-        return "Replace the current task progress table. "
-                + "Use for non-trivial multi-step execution progress, not durable project planning. "
-                + "Keep steps short and actionable, with at most one in_progress step.";
+        return "Maintain a short, visible checklist for multi-step work in the current turn. "
+                + "Call it to replace the whole checklist; keep steps short and actionable, "
+                + "with at most one step in_progress at a time.";
     }
 
     @Override

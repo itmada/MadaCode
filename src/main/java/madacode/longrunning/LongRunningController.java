@@ -70,8 +70,11 @@ public final class LongRunningController {
                 summary,
                 planDelta,
                 requestedBy);
-        if (session.longRunningTaskId() == null) {
-            ensureDraftTask(session, firstNonBlank(summary, session.longRunningTaskTitle(), ""));
+        if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
+            throw new IllegalStateException(
+                    "Long-running environment files are not initialized. "
+                            + "Initialize the task summary, feature list, known issues, and progress before "
+                            + "requesting a state transition.");
         }
         validateRequest(session, request);
         session.setPendingLongRunningTransitionRequest(request);
@@ -219,13 +222,6 @@ public final class LongRunningController {
         }
     }
 
-    private void ensureDraftTask(ConversationSession session, String expandedInput) {
-        LongRunningTaskInitializer initializer =
-                new LongRunningTaskInitializer(taskStore(session), taskIdGenerator);
-        initializer.ensurePlanningTask(session, expandedInput);
-        session.setLongRunningStage(LongRunningStage.DRAFT);
-    }
-
     private void ensureExecutionTask(ConversationSession session, String expandedInput) {
         LongRunningTaskInitializer initializer =
                 new LongRunningTaskInitializer(taskStore(session), taskIdGenerator);
@@ -353,15 +349,6 @@ public final class LongRunningController {
             throw new IllegalStateException("No active long-running task on session.");
         }
         return taskId;
-    }
-
-    private static String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.strip();
-            }
-        }
-        return "";
     }
 
     private static String safe(String value) {

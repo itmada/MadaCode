@@ -5,10 +5,6 @@ import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
 import madacode.core.turn.TurnExecutor;
-import madacode.longrunning.LongRunningController;
-import madacode.longrunning.LongRunningTaskInitializer;
-import madacode.longrunning.LongRunningTaskStore;
-
 import java.util.Objects;
 
 /**
@@ -22,33 +18,28 @@ import java.util.Objects;
 public final class LongRunningModeHandler implements ModeHandler {
 
     private final TurnExecutor turnExecutor;
-    private final LongRunningController.TaskStoreFactory taskStoreFactory;
-    private final LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator;
 
     public LongRunningModeHandler(TurnExecutor turnExecutor) {
-        this(turnExecutor, LongRunningTaskStore::new);
+        this.turnExecutor = Objects.requireNonNull(turnExecutor, "turnExecutor");
     }
 
-    public LongRunningModeHandler(TurnExecutor turnExecutor, LongRunningController.TaskStoreFactory taskStoreFactory) {
-        this(turnExecutor, taskStoreFactory, LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId);
+    public LongRunningModeHandler(
+            TurnExecutor turnExecutor,
+            madacode.longrunning.LongRunningController.TaskStoreFactory taskStoreFactory) {
+        this(turnExecutor);
     }
 
     LongRunningModeHandler(
             TurnExecutor turnExecutor,
-            LongRunningController.TaskStoreFactory taskStoreFactory,
-            LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
-        this.turnExecutor = Objects.requireNonNull(turnExecutor, "turnExecutor");
-        this.taskStoreFactory = Objects.requireNonNull(taskStoreFactory, "taskStoreFactory");
-        this.taskIdGenerator = Objects.requireNonNull(taskIdGenerator, "taskIdGenerator");
+            madacode.longrunning.LongRunningController.TaskStoreFactory taskStoreFactory,
+            madacode.longrunning.LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
+        this(turnExecutor);
     }
 
     @Override
     public ModeExecution handle(String line, ConversationSession session) {
         ensureLongRunningSession(session);
         LongRunningStage stage = stage(session);
-        if (stage == LongRunningStage.DRAFT && session.longRunningTaskId() == null) {
-            initializePlanningTask(session, "");
-        }
         if (stage == LongRunningStage.RUNNING) {
             return ModeExecution.managedTurn(turnExecutor.submitLocal(session,
                     "long-running monitor active",
@@ -71,13 +62,6 @@ public final class LongRunningModeHandler implements ModeHandler {
         LongRunningStage explicit = session.longRunningStage();
         if (explicit != null) return explicit;
         return LongRunningStage.DRAFT;
-    }
-
-    private void initializePlanningTask(ConversationSession session, String expandedInput) {
-        LongRunningTaskStore store = taskStoreFactory.create(session.workingDirectory());
-        LongRunningTaskInitializer initializer =
-                new LongRunningTaskInitializer(store, taskIdGenerator);
-        initializer.ensurePlanningTask(session, expandedInput);
     }
 
     private static void ensureLongRunningSession(ConversationSession session) {

@@ -40,9 +40,9 @@ public final class LongRunTaskUpdateTool implements Tool<LongRunTaskUpdateTool.I
 
     @Override
     public String description() {
-        return "Safely update the current long-running task store during worker execution: "
-                + "mark one feature passed, record or resolve a known issue, "
-                + "update issue status, and append progress.";
+        return "Worker: record durable task-store changes during a cycle. "
+                + "Single-action interface — mark a feature passed, record/resolve/update a known issue, or append progress. "
+                + "Do not edit task-store files directly.";
     }
 
     @Override

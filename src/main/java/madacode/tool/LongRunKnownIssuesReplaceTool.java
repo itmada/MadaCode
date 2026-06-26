@@ -24,7 +24,9 @@ public final class LongRunKnownIssuesReplaceTool
 
     @Override
     public String description() {
-        return "Replace the durable long-running draft known_issues.json.";
+        return "Controller: replace the long-running known-issues list. "
+                + "Pass the full known_issues.json (each issue with id, description, severity, status); "
+                + "the previous version is overwritten.";
     }
 
     @Override

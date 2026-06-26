@@ -27,67 +27,57 @@ public final class LongRunningPromptSection implements PromptSection {
         if (stage == null) {
             return Optional.empty();
         }
-        String body = longRunningSharedProtocol() + "\n" + switch (stage) {
+        String body = sharedCore() + "\n" + switch (stage) {
             case DRAFT -> draftPrompt(session);
             case RUNNING -> runningPrompt(session);
             case INTERRUPT -> interruptPrompt(session);
-            case COMPLETED, CANCELLED, FAILED -> bullets(
-                    "Long-running stage: " + stage.name() + ".",
-                    "The long-running worker lifecycle is terminal, but you remain the controller agent and may use ordinary tools for inspection, cleanup, and user-requested project changes subject to normal permissions.",
-                    "Do not call worker_report or longrun_task_update from the control session.",
-                    stage.name() + " means the task lifecycle ended; it does not delete the task-store directory.");
+            case COMPLETED, CANCELLED, FAILED -> terminalPrompt(session, stage);
         };
         return Optional.of(body);
     }
 
-    private static String longRunningSharedProtocol() {
+    private static String sharedCore() {
         return bullets(
-                "You are in harness-controlled long-running mode.",
-                "You are the controller agent and remain the main agent. Ordinary tools such as file reads, bash, write, and edit remain available subject to the normal permission gate.",
-                "Top-level long-running stages are DRAFT, RUNNING, INTERRUPT, COMPLETED, CANCELLED, and FAILED.",
-                "RUNNING is monitor-owned: the controller input loop is suspended while workers execute.",
-                "Treat session messages prefixed with [controller-event] as trusted controller/runtime facts that happened outside the model turn.",
-                "Use update_plan only for a visible, ephemeral checklist of your current controller turn when the work is complex; it is not the durable long-running task plan.",
-                "Use longrun_task_summary_update, longrun_feature_list_replace, longrun_known_issues_replace, and longrun_progress_append for durable draft task-store changes.",
-                "Use longrun_state_transition_request from DRAFT or INTERRUPT to request RUNNING, CANCELLED, or FAILED; runtime asks the user before applying model-requested transitions.",
-                "Do not claim a state transition happened until runtime confirms it.",
-                "Never use CANCELLED or FAILED to mean deleting files. If the user asks to delete a task directory or project file, use ordinary tools after confirmation and verify the filesystem result.");
+                "You are in long-running mode, which splits work between two roles: the Controller (you) and workers. You are the Controller, the main agent that talks with the user.",
+                "Workers are background executors. Once the task is RUNNING, the runtime repeatedly spawns fresh, isolated worker sessions that carry out the plan; workers never talk to the user.",
+                "Your core job is to work with the user to agree on the task details, then initialize the long-running environment from the agreed plan after the user confirms execution can begin.",
+                "As Controller, you generally should not execute the task yourself. Only use ordinary tools such as file reads, bash, and edits for hands-on changes or task execution when the user explicitly asks.",
+                "To start, resume, or cancel the run, call longrun_state_transition_request to propose it after the long-running environment files are fully initialized. This does not change state directly — the runtime asks the user to confirm first, so do not claim a transition happened until it is confirmed.");
     }
 
     private static String draftPrompt(ConversationSession session) {
         List<String> items = new ArrayList<>();
-        items.add("Current stage: DRAFT.");
-        items.add("Maintain the durable task-store draft with longrun_task_summary_update, longrun_feature_list_replace, longrun_known_issues_replace, and longrun_progress_append.");
-        items.add("Clarify requirements, refine scope, and keep the draft plan durable as it changes.");
-        items.add("If the project lacks standard startup scripts, try to create an `init.sh` or document the exact build/test commands in the plan, so future workers know exactly how to test their changes quickly.");
-        items.add("You may also perform ordinary controller-agent work requested by the user, including inspecting files, running commands, editing files, or deleting files with normal permission approval.");
-        items.add("When the draft is ready to run, call longrun_state_transition_request target_status=RUNNING reason=user_confirmed_start with a concise summary; runtime will ask the user to confirm.");
-        items.add("If the user wants to cancel the long-running lifecycle, request target_status=CANCELLED with reason=user_requested_cancel.");
-        items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
+        items.add("Current stage: DRAFT — you are shaping the task before any work starts.");
+        items.add("First, clarify the requirements and narrow the scope with the user. When the plan is clear enough, ask whether execution can begin.");
+        items.add("Only after the user gives a clear yes, initialize the long-running environment files from the agreed plan: task summary, feature list, known issues, progress, and any build/test commands or init.sh details workers need.");
+        items.add("After the long-running environment files are fully initialized, propose starting the run by calling longrun_state_transition_request target_status=RUNNING reason=user_confirmed_start with a short summary. Call it alone, stop after calling it, and let the runtime ask the user for approval.");
         appendTaskIdentity(items, session);
         return bullets(items);
     }
 
     private static String runningPrompt(ConversationSession session) {
         List<String> items = new ArrayList<>();
-        items.add("Current stage: RUNNING.");
-        items.add("This stage is owned by the runtime monitor. The controller agent should not receive normal user turns while RUNNING.");
-        items.add("Workers run in fresh sessions, update task progress, and finish with worker_report.");
-        items.add("If this prompt appears in a controller turn, do not perform controller work; explain that runtime should return to the monitor or enter INTERRUPT first.");
-        items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
+        items.add("Current stage: RUNNING — workers are executing in the background, and you normally will not receive user turns here.");
+        items.add("If you do get a turn while RUNNING, do not act as Controller until the runtime returns to the monitor or the task enters INTERRUPT.");
         appendTaskIdentity(items, session);
         return bullets(items);
     }
 
     private static String interruptPrompt(ConversationSession session) {
         List<String> items = new ArrayList<>();
-        items.add("Current stage: INTERRUPT.");
-        items.add("Worker execution is stopped or waiting for controller/user intervention.");
-        items.add("Inspect the task store, progress.txt, known_issues.json, and logs/events.jsonl as needed before revising the plan.");
-        items.add("Use longrun_task_summary_update, longrun_feature_list_replace, longrun_known_issues_replace, and longrun_progress_append to record durable task-store corrections, added constraints, feature changes, known issues, and progress notes.");
-        items.add("When the task is ready to resume, call longrun_state_transition_request target_status=RUNNING reason=resume_after_interrupt with a concise summary; runtime will ask the user to confirm.");
-        items.add("If the user wants to cancel the lifecycle, request target_status=CANCELLED with reason=user_requested_cancel.");
-        items.add("Forbidden: do not call longrun_task_update or worker_report from this control session.");
+        items.add("Current stage: INTERRUPT — the run paused and needs you.");
+        items.add("Find out what happened: read progress.txt, known_issues.json, and logs/events.jsonl in the task store.");
+        items.add("Fix the plan accordingly — correct the summary, features, known issues, or progress with the longrun_* plan tools.");
+        items.add("When it is ready to continue, propose resuming: longrun_state_transition_request target_status=RUNNING reason=resume_after_interrupt, with a short summary.");
+        appendTaskIdentity(items, session);
+        return bullets(items);
+    }
+
+    private static String terminalPrompt(ConversationSession session, LongRunningStage stage) {
+        List<String> items = new ArrayList<>();
+        items.add("Current stage: " + stage.name() + " — the run lifecycle has ended.");
+        items.add("You are still the Controller and may use ordinary tools for inspection, cleanup, or any changes the user asks for, subject to the normal permission gate.");
+        items.add("Ending the run does not delete the task-store directory; only remove files if the user explicitly asks.");
         appendTaskIdentity(items, session);
         return bullets(items);
     }

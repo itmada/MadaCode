@@ -20,7 +20,8 @@ public final class LongRunProgressAppendTool
 
     @Override
     public String description() {
-        return "Append durable progress text to the long-running draft progress.txt.";
+        return "Controller: append a note to the long-running progress.txt log. "
+                + "Use for milestones, decisions, or context the next worker cycle should know about.";
     }
 
     @Override

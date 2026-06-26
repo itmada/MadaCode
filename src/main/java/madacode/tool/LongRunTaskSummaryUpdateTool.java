@@ -27,7 +27,8 @@ public final class LongRunTaskSummaryUpdateTool
 
     @Override
     public String description() {
-        return "Update the durable long-running draft task summary in task.json.";
+        return "Controller: rewrite the long-running task summary (goal, scope, constraints) in task.json. "
+                + "Use while shaping or revising the plan.";
     }
 
     @Override

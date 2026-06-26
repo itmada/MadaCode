@@ -24,7 +24,9 @@ public final class LongRunFeatureListReplaceTool
 
     @Override
     public String description() {
-        return "Replace the durable long-running draft feature_list.json.";
+        return "Controller: replace the long-running feature list. "
+                + "Pass the full feature_list.json (each feature with id, description, dependencies, priority, pass status); "
+                + "the previous version is overwritten.";
     }
 
     @Override
