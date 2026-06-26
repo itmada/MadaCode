@@ -20,20 +20,37 @@ public final class LongRunningController {
 
     private final TaskStoreFactory taskStoreFactory;
     private final LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator;
+    private final ExecutionReadinessFactory executionReadinessFactory;
 
     public LongRunningController() {
-        this(LongRunningTaskStore::new, LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId);
+        this(
+                LongRunningTaskStore::new,
+                LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId,
+                LongRunningExecutionReadiness::new);
     }
 
     public LongRunningController(TaskStoreFactory taskStoreFactory) {
-        this(taskStoreFactory, LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId);
+        this(
+                taskStoreFactory,
+                LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId,
+                LongRunningExecutionReadiness::new);
     }
 
     public LongRunningController(
             TaskStoreFactory taskStoreFactory,
             LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
+        this(taskStoreFactory, taskIdGenerator, LongRunningExecutionReadiness::new);
+    }
+
+    LongRunningController(
+            TaskStoreFactory taskStoreFactory,
+            LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator,
+            ExecutionReadinessFactory executionReadinessFactory) {
         this.taskStoreFactory = Objects.requireNonNull(taskStoreFactory, "taskStoreFactory");
         this.taskIdGenerator = Objects.requireNonNull(taskIdGenerator, "taskIdGenerator");
+        this.executionReadinessFactory = Objects.requireNonNull(
+                executionReadinessFactory,
+                "executionReadinessFactory");
     }
 
     public LongRunningTransitionRequest requestTransition(
@@ -194,9 +211,10 @@ public final class LongRunningController {
                 && target == LongRunningStage.RUNNING) {
             LongRunningTaskStore store = taskStore(session);
             String taskId = requireTaskId(session);
-            if (store.readFeatureList(taskId).isEmpty()) {
-                throw new IllegalStateException(
-                        "Cannot start long-running workers until feature_list.json is non-empty.");
+            LongRunningExecutionReadiness.Result readiness =
+                    executionReadinessFactory.create(store).evaluate(taskId);
+            if (!readiness.isReady()) {
+                throw new IllegalStateException(readiness.summary());
             }
         }
     }
@@ -359,5 +377,10 @@ public final class LongRunningController {
     @FunctionalInterface
     public interface TaskStoreFactory {
         LongRunningTaskStore create(Path projectDir);
+    }
+
+    @FunctionalInterface
+    interface ExecutionReadinessFactory {
+        LongRunningExecutionReadiness create(LongRunningTaskStore store);
     }
 }

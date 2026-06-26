@@ -9,6 +9,7 @@ import madacode.core.session.SessionMode;
 import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.FileWriteTool;
+import madacode.tool.LongRunPlanUpdateTool;
 import madacode.tool.UpdatePlanTool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -109,6 +110,8 @@ class PermissionEnforcementTest {
         session.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
         session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningWorkerSession(true);
+        session.setLongRunningTaskId("task-1");
+        session.setLongRunningTaskDirectory(tempDir.resolve(".mada/long-running/task-1").toString());
         ToolUseContext context = new ToolUseContext(tempDir, session);
         Path protectedTaskState = tempDir.resolve(".mada/long-running/task-1/task.json");
 
@@ -123,9 +126,37 @@ class PermissionEnforcementTest {
 
         assertFalse(writeDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, writeDecision.source());
-        assertFalse(bashDecision.isAllowed());
-        assertEquals(LongRunningTaskStatePermissionRule.SOURCE, bashDecision.source());
+        assertTrue(bashDecision.isAllowed());
+        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, bashDecision.source());
         assertEquals(0, prompt.calls);
+    }
+
+    @Test
+    void longRunningControlSessionCannotMutateActiveProtectedTaskStateWithGenericTools() {
+        PromptStub prompt = new PromptStub(ApprovalResponse.DENY);
+        DefaultPermissionGate gate = new DefaultPermissionGate(prompt);
+        ConversationSession session = new ConversationSession(tempDir);
+        session.setWorkflowMode(SessionMode.LONG_RUNNING);
+        session.setLongRunningStage(LongRunningStage.DRAFT);
+        session.setLongRunningTaskId("task-1");
+        session.setLongRunningTaskDirectory(tempDir.resolve(".mada/long-running/task-1").toString());
+        ToolUseContext context = new ToolUseContext(tempDir, session);
+        Path protectedTaskState = tempDir.resolve(".mada/long-running/task-1/feature_list.json");
+
+        PermissionDecision writeDecision = gate.check(
+                new FileWriteTool(),
+                writeInput(protectedTaskState),
+                context);
+        PermissionDecision officialToolDecision = gate.check(
+                new LongRunPlanUpdateTool(),
+                longRunPlanUpdateInput(),
+                context);
+
+        assertFalse(writeDecision.isAllowed());
+        assertEquals(LongRunningTaskStatePermissionRule.SOURCE, writeDecision.source());
+        assertFalse(officialToolDecision.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, officialToolDecision.source());
+        assertEquals(1, prompt.calls);
     }
 
     @Test
@@ -209,6 +240,13 @@ class PermissionEnforcementTest {
                 .addObject()
                 .put("step", "Review")
                 .put("status", "in_progress");
+        return input;
+    }
+
+    private ObjectNode longRunPlanUpdateInput() {
+        ObjectNode input = mapper.createObjectNode();
+        input.put("action", "append_progress");
+        input.put("text", "note");
         return input;
     }
 
