@@ -95,11 +95,11 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
         properties.set("features", ToolSchemas.arrayProperty(
                 mapper,
                 "Full replacement feature list for replace_feature_list.",
-                featureItem(mapper)));
+                ToolSchemas.schemaFromRecord(mapper, FeatureInput.class)));
         properties.set("issues", ToolSchemas.arrayProperty(
                 mapper,
                 "Full replacement known issue list for replace_known_issues.",
-                issueItem(mapper)));
+                ToolSchemas.schemaFromRecord(mapper, IssueInput.class)));
         properties.set("text", ToolSchemas.stringProperty(
                 mapper, "Progress text to append for append_progress."));
         return ToolSchemas.objectSchema(mapper, properties, "action");
@@ -320,18 +320,6 @@ public final class LongRunPlanUpdateTool implements Tool<LongRunPlanUpdateTool.I
             throw new IllegalArgumentException("task_id does not match the active long-running task.");
         }
         return active;
-    }
-
-    private static ObjectNode featureItem(ObjectMapper mapper) {
-        ObjectNode item = mapper.createObjectNode();
-        item.put("type", "object");
-        return item;
-    }
-
-    private static ObjectNode issueItem(ObjectMapper mapper) {
-        ObjectNode item = mapper.createObjectNode();
-        item.put("type", "object");
-        return item;
     }
 
     private static ToolResult succeeded(String output) {

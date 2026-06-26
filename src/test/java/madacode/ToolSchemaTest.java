@@ -22,6 +22,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ToolSchemaTest {
@@ -67,6 +68,28 @@ public class ToolSchemaTest {
     }
 
     @Test
+    void longRunPlanUpdateSchemaUsesConcreteNestedItemContracts() {
+        JsonNode schema = new LongRunPlanUpdateTool().inputSchema(mapper);
+
+        JsonNode featureItems = schema.path("properties").path("features").path("items");
+        assertEquals("object", featureItems.path("type").asText());
+        assertTrue(featureItems.path("properties").has("id"));
+        assertTrue(featureItems.path("properties").has("depends_on"));
+        assertTrue(requiredContains(featureItems, "id"));
+        assertTrue(requiredContains(featureItems, "passes"));
+        assertFalse(featureItems.path("additionalProperties").isMissingNode());
+        assertFalse(featureItems.path("additionalProperties").asBoolean(true));
+
+        JsonNode issueItems = schema.path("properties").path("issues").path("items");
+        assertEquals("object", issueItems.path("type").asText());
+        assertTrue(issueItems.path("properties").has("severity"));
+        assertTrue(issueItems.path("properties").has("verification_steps"));
+        assertTrue(requiredContains(issueItems, "status"));
+        assertFalse(issueItems.path("additionalProperties").isMissingNode());
+        assertFalse(issueItems.path("additionalProperties").asBoolean(true));
+    }
+
+    @Test
     void toolSchemasDoNotUseLegacyInputField() {
         List<Tool<?>> tools = List.of(
                 new BashTool(),
@@ -82,6 +105,8 @@ public class ToolSchemaTest {
             assertEquals("object", schema.path("type").asText());
             assertTrue(schema.path("properties").isObject());
             assertTrue(schema.path("required").isArray());
+            assertNotNull(schema.get("additionalProperties"));
+            assertFalse(schema.path("additionalProperties").asBoolean(true));
             assertTrue(schema.path("properties").path("input").isMissingNode());
         }
     }
