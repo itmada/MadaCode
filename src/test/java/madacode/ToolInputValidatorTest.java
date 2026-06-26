@@ -102,7 +102,47 @@ public class ToolInputValidatorTest {
         ValidationResult result = validator.validate(new ComplexTool(), input);
 
         assertFalse(result.valid());
-        assertTrue(result.errors().contains("field 'tags' item 1 must be string"));
+        assertTrue(result.errors().contains("field 'tags[1]' must be string"));
+    }
+
+    @Test
+    void rejectsMissingNestedRequiredFieldInObjectArray() {
+        ObjectNode input = mapper.createObjectNode();
+        ObjectNode feature = input.putArray("features").addObject();
+        feature.put("name", "Search");
+
+        ValidationResult result = validator.validate(new NestedArrayTool(), input);
+
+        assertFalse(result.valid());
+        assertTrue(result.errors().contains("missing required field 'features[0].id'"));
+    }
+
+    @Test
+    void rejectsUnknownNestedFieldWhenAdditionalPropertiesFalse() {
+        ObjectNode input = mapper.createObjectNode();
+        ObjectNode feature = input.putArray("features").addObject();
+        feature.put("id", "search");
+        feature.put("name", "Search");
+        feature.put("extra", "nope");
+
+        ValidationResult result = validator.validate(new NestedArrayTool(), input);
+
+        assertFalse(result.valid());
+        assertTrue(result.errors().contains("unknown field 'features[0].extra'"));
+    }
+
+    @Test
+    void rejectsWrongNestedArrayItemType() {
+        ObjectNode input = mapper.createObjectNode();
+        ObjectNode feature = input.putArray("features").addObject();
+        feature.put("id", "search");
+        feature.put("name", "Search");
+        feature.putArray("depends_on").add("core").add(7);
+
+        ValidationResult result = validator.validate(new NestedArrayTool(), input);
+
+        assertFalse(result.valid());
+        assertTrue(result.errors().contains("field 'features[0].depends_on[1]' must be string"));
     }
 
     @Test
@@ -130,8 +170,8 @@ public class ToolInputValidatorTest {
     }
 
     private final class ComplexTool implements Tool<ObjectNode> {
-            @Override
-            public Class<ObjectNode> inputType() { return ObjectNode.class; }
+        @Override
+        public Class<ObjectNode> inputType() { return ObjectNode.class; }
 
         @Override
         public String name() {
@@ -196,5 +236,73 @@ public class ToolInputValidatorTest {
         public ToolResult execute(ObjectNode input, ToolUseContext context) {
             return new ToolResult(name(), true, "ok");
         }
+    }
+
+    private final class NestedArrayTool implements Tool<ObjectNode> {
+        @Override
+        public Class<ObjectNode> inputType() {
+            return ObjectNode.class;
+        }
+
+        @Override
+        public String name() {
+            return "nested_array";
+        }
+
+        @Override
+        public String description() {
+            return "Exercises nested array/object validation.";
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return true;
+        }
+
+        @Override
+        public ObjectNode inputSchema(ObjectMapper mapper) {
+            ObjectNode featureSchema = mapper.createObjectNode();
+            featureSchema.put("type", "object");
+            featureSchema.put("additionalProperties", false);
+
+            ObjectNode featureProperties = mapper.createObjectNode();
+            featureProperties.set("id", stringProperty("Feature id"));
+            featureProperties.set("name", stringProperty("Feature name"));
+
+            ObjectNode dependsOn = mapper.createObjectNode();
+            dependsOn.put("type", "array");
+            ObjectNode dependsOnItem = mapper.createObjectNode();
+            dependsOnItem.put("type", "string");
+            dependsOn.set("items", dependsOnItem);
+            featureProperties.set("depends_on", dependsOn);
+
+            featureSchema.set("properties", featureProperties);
+            featureSchema.putArray("required").add("id").add("name");
+
+            ObjectNode schema = mapper.createObjectNode();
+            schema.put("type", "object");
+
+            ObjectNode properties = mapper.createObjectNode();
+            ObjectNode features = mapper.createObjectNode();
+            features.put("type", "array");
+            features.set("items", featureSchema);
+            properties.set("features", features);
+
+            schema.set("properties", properties);
+            schema.putArray("required").add("features");
+            return schema;
+        }
+
+        @Override
+        public ToolResult execute(ObjectNode input, ToolUseContext context) {
+            return new ToolResult(name(), true, "ok");
+        }
+    }
+
+    private ObjectNode stringProperty(String description) {
+        ObjectNode property = mapper.createObjectNode();
+        property.put("type", "string");
+        property.put("description", description);
+        return property;
     }
 }
