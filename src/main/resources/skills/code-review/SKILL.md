@@ -5,7 +5,7 @@ when_to_use: User asks for code review, quality check, or to review staged/unsta
 tags: [code, review, quality]
 mode: inline
 allowed_tools: [file_read, grep, glob, bash]
-disallowed_tools: [write, edit]
+disallowed_tools: [file_write, file_edit]
 ---
 
 # Code Review

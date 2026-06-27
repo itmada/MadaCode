@@ -139,21 +139,11 @@ public record EvalCase(
         return maxProcessOutputBytes == null ? 1024 * 1024 : maxProcessOutputBytes;
     }
 
-    /**
-     * Resolves the declared permission policy, accepting both the user-facing names
-     * ({@code default}, {@code accept-edits}, {@code bypass}) and the internal ids
-     * ({@code strict}, {@code normal}, {@code all-pass}).
-     */
     public PermissionMode permissionMode() {
         String n = permissionModeId.strip().toLowerCase(Locale.ROOT).replace('_', '-');
-        return switch (n) {
-            case "default", "strict" -> PermissionMode.DEFAULT;
-            case "accept-edits", "normal" -> PermissionMode.ACCEPT_EDITS;
-            case "bypass", "all-pass" -> PermissionMode.BYPASS;
-            default -> PermissionMode.parse(n)
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "case " + id + ": unknown permissionMode '" + permissionModeId + "'"));
-        };
+        return PermissionMode.parse(n)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "case " + id + ": unknown permissionMode '" + permissionModeId + "'"));
     }
 
     private static void requirePositive(String id, String field, Integer value) {

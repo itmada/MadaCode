@@ -10,7 +10,7 @@ final class PermissionCommand implements SlashCommand {
 
     @Override public String name() { return "permission"; }
     @Override public String description() { return "Show or switch the active permission mode"; }
-    @Override public String usage() { return "/permission [strict|normal|all-pass]"; }
+    @Override public String usage() { return "/permission [default|edit|all-pass]"; }
 
     @Override
     public Optional<ArgumentProvider> argumentProvider(SlashContext ctx) {

@@ -8,24 +8,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Auto-allows file-edit tools in {@link PermissionMode#ACCEPT_EDITS} mode
- * when all targets are inside the working directory and none are dangerous.
- *
- * <p>Dangerous targets (shell config files, {@code .git} directories, etc.)
- * are never auto-allowed even inside the working directory — they fall
- * through to the interactive prompt so the user can decide.
- *
- * <p>Sub-agents that inherit the parent's gate are automatically subject
- * to the same restrictions.
- */
-public final class AcceptEditsPermissionRule implements PermissionRule {
+public final class EditModePermissionRule implements PermissionRule {
 
-    public static final String SOURCE = "accept_edits";
+    public static final String SOURCE = "edit_mode";
 
     @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
-        if (context.session().permissionMode() != PermissionMode.ACCEPT_EDITS) {
+        if (context.session().permissionMode() != PermissionMode.EDIT) {
             return Optional.empty();
         }
         if (!tool.isFileEdit()) {
@@ -38,7 +27,6 @@ public final class AcceptEditsPermissionRule implements PermissionRule {
         }
 
         Path workingDir = context.workingDirectory();
-
         for (String target : targets) {
             if (!FilesystemScope.withinRoots(target, workingDir, List.of())) {
                 return Optional.empty();

@@ -80,7 +80,7 @@ public final class AgentDefinitionParser {
             return Optional.of(new AgentDefinition(
                     name, desc, when, body,
                     Set.copyOf(allowed), Set.copyOf(disallowed),
-                    allowedToolsSpecified, maxIter, PermissionMode.ACCEPT_EDITS));
+                    allowedToolsSpecified, maxIter, PermissionMode.EDIT));
         } catch (IllegalArgumentException e) {
             publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("AgentDefinitionParser"),

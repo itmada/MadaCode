@@ -111,7 +111,7 @@ final class SchemaMigrator {
             root.put("workflowMode", "common");
         }
         if (!root.has("permissionMode")) {
-            root.put("permissionMode", "strict");
+            root.put("permissionMode", "default");
         }
         return root;
     }

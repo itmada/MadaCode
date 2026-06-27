@@ -31,7 +31,7 @@ public final class BuiltInAgents {
                 Set.of("file_read", "glob", "grep"),
                 Set.of("agent", "bash"),
                 null,
-                PermissionMode.ACCEPT_EDITS
+                PermissionMode.EDIT
         );
     }
 
@@ -59,7 +59,7 @@ public final class BuiltInAgents {
                 Set.of("file_read", "glob", "grep"),
                 Set.of("agent", "bash"),
                 null,
-                PermissionMode.ACCEPT_EDITS
+                PermissionMode.EDIT
         );
     }
 
@@ -72,7 +72,7 @@ public final class BuiltInAgents {
                 Set.of("file_read", "glob", "grep", "bash"),
                 Set.of("agent"),
                 null,
-                PermissionMode.ACCEPT_EDITS
+                PermissionMode.EDIT
         );
     }
 
@@ -105,7 +105,7 @@ public final class BuiltInAgents {
                 Set.of("file_read", "glob", "grep", "bash"),
                 Set.of("agent"),
                 null,
-                PermissionMode.ACCEPT_EDITS
+                PermissionMode.EDIT
         );
     }
 

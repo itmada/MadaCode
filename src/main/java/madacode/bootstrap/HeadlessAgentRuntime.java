@@ -51,7 +51,8 @@ import java.util.function.Consumer;
  *
  * <p>Permission behavior is driven entirely by each session's {@code PermissionMode}: the
  * gate uses an auto-DENY approval prompt, so BYPASS auto-allows everything (full autonomy),
- * ACCEPT_EDITS allows only edits, and DEFAULT effectively runs read-only.
+ * EDIT allows built-in file edits, and DEFAULT allows built-in non-edit tools plus basic
+ * read/search bash.
  *
  * <p>Requires {@code ~/.mada/providers.json} to be configured (eval connects a real model).
  */

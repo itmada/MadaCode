@@ -24,7 +24,7 @@ public class FileEditTool implements Tool<FileEditTool.Input> {
 
     @Override
     public String name() {
-        return "edit";
+        return ToolNames.FILE_EDIT;
     }
 
     @Override

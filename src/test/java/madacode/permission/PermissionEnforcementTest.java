@@ -29,31 +29,43 @@ class PermissionEnforcementTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void defaultModeAllowsWorkspaceReadsButPromptsForWrites() throws Exception {
+    void defaultModeAllowsBuiltInReadsAndBasicBashButPromptsForFileEdits() throws Exception {
         Files.writeString(tempDir.resolve("README.md"), "hello");
-        PromptStub prompt = new PromptStub(ApprovalResponse.DENY);
+        PromptStub prompt = new PromptStub(ApprovalResponse.ALLOW_SESSION);
         DefaultPermissionGate gate = new DefaultPermissionGate(prompt);
         ConversationSession session = session(PermissionMode.DEFAULT);
         ToolUseContext context = new ToolUseContext(tempDir, session);
 
         PermissionDecision readDecision = gate.check(new FileReadTool(), readInput("README.md"), context);
+        PermissionDecision safeBash = gate.check(new BashTool(), bashInput("rg -n hello README.md"), context);
         PermissionDecision writeDecision = gate.check(
                 new FileWriteTool(),
                 writeInput(tempDir.resolve("notes.txt")),
                 context);
+        PermissionDecision rememberedWriteDecision = gate.check(
+                new FileWriteTool(),
+                writeInput(tempDir.resolve("notes.txt")),
+                context);
+        PermissionDecision mutatingBash = gate.check(new BashTool(), bashInput("touch notes.txt"), context);
 
         assertTrue(readDecision.isAllowed());
         assertEquals(ReadOnlyPermissionRule.SOURCE, readDecision.source());
-        assertFalse(writeDecision.isAllowed());
+        assertTrue(safeBash.isAllowed());
+        assertEquals(DefaultModePermissionRule.SOURCE, safeBash.source());
+        assertTrue(writeDecision.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, writeDecision.source());
-        assertEquals(1, prompt.calls);
+        assertTrue(rememberedWriteDecision.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_SESSION_MEMORY, rememberedWriteDecision.source());
+        assertTrue(mutatingBash.isAllowed());
+        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, mutatingBash.source());
+        assertEquals(2, prompt.calls);
     }
 
     @Test
-    void acceptEditsAutoAllowsWorkspaceWritesButStillPromptsForDangerousMetadata() {
+    void editModeAutoAllowsWorkspaceWritesButStillPromptsForDangerousMetadata() {
         PromptStub prompt = new PromptStub(ApprovalResponse.DENY);
         DefaultPermissionGate gate = new DefaultPermissionGate(prompt);
-        ConversationSession session = session(PermissionMode.ACCEPT_EDITS);
+        ConversationSession session = session(PermissionMode.EDIT);
         ToolUseContext context = new ToolUseContext(tempDir, session);
 
         PermissionDecision safeWrite = gate.check(
@@ -66,7 +78,7 @@ class PermissionEnforcementTest {
                 context);
 
         assertTrue(safeWrite.isAllowed());
-        assertEquals(AcceptEditsPermissionRule.SOURCE, safeWrite.source());
+        assertEquals(EditModePermissionRule.SOURCE, safeWrite.source());
         assertFalse(dangerousWrite.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, dangerousWrite.source());
         assertEquals(1, prompt.calls);
@@ -179,9 +191,9 @@ class PermissionEnforcementTest {
 
         assertFalse(writeDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, writeDecision.source());
-        assertFalse(officialToolDecision.isAllowed());
-        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, officialToolDecision.source());
-        assertEquals(1, prompt.calls);
+        assertTrue(officialToolDecision.isAllowed());
+        assertEquals(DefaultModePermissionRule.SOURCE, officialToolDecision.source());
+        assertEquals(0, prompt.calls);
     }
 
     @Test
@@ -228,10 +240,10 @@ class PermissionEnforcementTest {
         PermissionDecision mutate = gate.check(new BashTool(), bashInput("git add ."), context);
 
         assertTrue(inspect.isAllowed());
-        assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, inspect.source());
+        assertEquals(DefaultModePermissionRule.SOURCE, inspect.source());
         assertFalse(mutate.isAllowed());
         assertEquals(PlanModePermissionRule.SOURCE, mutate.source());
-        assertEquals(1, prompt.calls);
+        assertEquals(0, prompt.calls);
     }
 
     private ConversationSession session(PermissionMode mode) {

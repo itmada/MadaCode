@@ -20,7 +20,7 @@ public final class AgentDefinition {
     /** Convenience constructor for simple definitions with no turn limit. */
     public AgentDefinition(String name, String description, Set<String> allowedTools) {
         this(name, description, "", "", allowedTools, Set.of(),
-                true, null, PermissionMode.ACCEPT_EDITS);
+                true, null, PermissionMode.EDIT);
     }
 
     public AgentDefinition(String agentType, String description, String whenToUse,
@@ -42,7 +42,7 @@ public final class AgentDefinition {
         this.disallowedTools = Set.copyOf(disallowedTools == null ? Set.of() : disallowedTools);
         this.allowedToolsSpecified = allowedToolsSpecified;
         this.maxIterations = requirePositiveOrNull(maxIterations, "maxIterations");
-        this.permissionMode = permissionMode == null ? PermissionMode.ACCEPT_EDITS : permissionMode;
+        this.permissionMode = permissionMode == null ? PermissionMode.EDIT : permissionMode;
     }
 
     private static Integer requirePositiveOrNull(Integer value, String fieldName) {

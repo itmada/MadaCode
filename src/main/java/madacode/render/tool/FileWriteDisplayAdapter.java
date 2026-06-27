@@ -1,12 +1,13 @@
 package madacode.render.tool;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.tool.ToolNames;
 
 public final class FileWriteDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public String toolName() {
-        return "write";
+        return ToolNames.FILE_WRITE;
     }
 
     @Override

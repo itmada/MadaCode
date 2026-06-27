@@ -33,8 +33,7 @@ public final class TurnRenderer implements SessionListener {
     private final TurnView turnView;
     private final Screen screen;
     private final ToolDisplayRegistry toolDisplays = ToolDisplayRegistry.defaults();
-
-    private final Map<String, ToolCardRenderable> toolCards = new LinkedHashMap<>();
+    private final ToolActivityController toolActivities;
     private final Map<String, String> activeToolDescriptions = new LinkedHashMap<>();
 
     private AssistantTextRenderable currentText;
@@ -46,6 +45,8 @@ public final class TurnRenderer implements SessionListener {
     public TurnRenderer(TurnView turnView, Screen screen) {
         this.turnView = Objects.requireNonNull(turnView, "turnView");
         this.screen = Objects.requireNonNull(screen, "screen");
+        this.toolActivities = new ToolActivityController(
+                this.turnView, toolDisplays, new ToolGroupingPolicy());
     }
 
     // ---- streaming text ---------------------------------------------------
@@ -126,24 +127,13 @@ public final class TurnRenderer implements SessionListener {
         // tool has executed yet (execution starts only after the stream
         // commits), so any un-finalized card belongs to this attempt and is
         // safe to discard; finalized cards from earlier iterations are kept.
-        toolCards.values().removeIf(card -> {
-            if (!card.isFinalized()) {
-                turnView.remove(card);
-                return true;
-            }
-            return false;
-        });
+        toolActivities.removeUnfinalized();
         activeStreamIndex = -1;
         turnView.markDirty();
     }
 
     private synchronized boolean hasPendingToolCard() {
-        for (ToolCardRenderable card : toolCards.values()) {
-            if (!card.isFinalized()) {
-                return true;
-            }
-        }
-        return false;
+        return toolActivities.hasPendingActivity();
     }
 
     // ---- tool blocks ------------------------------------------------------
@@ -151,7 +141,7 @@ public final class TurnRenderer implements SessionListener {
     @Override
     public synchronized void onAssistantBlockAppended(int index, ContentBlock block) {
         if (block instanceof ContentBlock.ToolUseBlock tu) {
-            if (toolCards.containsKey(tu.id())) return;
+            if (toolActivities.contains(tu.id())) return;
             // Drop the thinking spinner so it is rebuilt below the card, not above it.
             dismissStatusLine();
             if (currentText != null) {
@@ -162,10 +152,7 @@ public final class TurnRenderer implements SessionListener {
             // sole, in-place visual. Skipping the card also keeps it out of
             // scrollback so the panel never reprints per update.
             if (!ToolNames.UPDATE_PLAN.equals(tu.name())) {
-                ToolCardRenderable card = new ToolCardRenderable(
-                        tu.id(), tu.name(), tu.input(), toolDisplays);
-                toolCards.put(tu.id(), card);
-                turnView.add(card);
+                toolActivities.registerTool(tu.id(), tu.name(), tu.input());
             }
             // The card is pure-queued and renders empty until execution starts.
             // Keep a spinner running (below the card) so the gap between block
@@ -187,9 +174,7 @@ public final class TurnRenderer implements SessionListener {
         if (message.role() != MessageRole.USER) return;
         for (ContentBlock block : message.contentBlocks()) {
             if (block instanceof ContentBlock.ToolResultBlock tr) {
-                ToolCardRenderable card = toolCards.get(tr.toolUseId());
-                if (card != null) {
-                    card.setResultOutput(tr.success(), tr.content());
+                if (toolActivities.setResultOutput(tr.toolUseId(), tr.success(), tr.content())) {
                     turnView.markDirty();
                 }
             }
@@ -212,10 +197,7 @@ public final class TurnRenderer implements SessionListener {
 
     @Override
     public synchronized void onToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.markStarted();
-        }
+        toolActivities.markStarted(toolUseId);
         String activity = toolDisplays.activityDescription(toolName, input);
         activeToolDescriptions.put(toolUseId, activity);
         // Card now animates its own spinner; status line yields to it.
@@ -225,9 +207,7 @@ public final class TurnRenderer implements SessionListener {
 
     @Override
     public synchronized void onToolResultAvailable(String toolUseId, boolean success, String output) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.setResultOutput(success, output);
+        if (toolActivities.setResultOutput(toolUseId, success, output)) {
             turnView.markDirty();
         }
     }
@@ -235,37 +215,28 @@ public final class TurnRenderer implements SessionListener {
     @Override
     public synchronized void onToolExecutionCompleted(String toolUseId, boolean success, long durationMs) {
         activeToolDescriptions.remove(toolUseId);
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.finalizeTool(success, durationMs);
-        }
+        toolActivities.finalizeTool(toolUseId, success, durationMs);
         maybeRestoreToolStatus();
         turnView.markDirty();
     }
 
     @Override
     public synchronized void onToolExecutionProgress(String toolUseId, String progressText) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.appendProgress(ToolProgressLine.output(progressText));
+        if (toolActivities.appendProgress(toolUseId, ToolProgressLine.output(progressText))) {
             turnView.markDirty();
         }
     }
 
     @Override
     public synchronized void onToolExecutionActivity(String toolUseId, String activityText) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.appendProgress(ToolProgressLine.activity(activityText));
+        if (toolActivities.appendProgress(toolUseId, ToolProgressLine.activity(activityText))) {
             turnView.markDirty();
         }
     }
 
     @Override
     public synchronized void onToolExecutionMetric(String toolUseId, String metricText) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.appendProgress(ToolProgressLine.metric(metricText));
+        if (toolActivities.appendProgress(toolUseId, ToolProgressLine.metric(metricText))) {
             turnView.markDirty();
         }
     }
@@ -341,17 +312,13 @@ public final class TurnRenderer implements SessionListener {
         if (currentText != null && !currentText.isFinalized()) {
             currentText.finalizeText();
         }
-        for (ToolCardRenderable card : toolCards.values()) {
-            if (!card.isFinalized()) {
-                card.finalizeTool(false, 0);
-            }
-        }
+        toolActivities.finalizeUnfinishedAsFailed();
         if (planPanel != null) {
             planPanel.markFinalized();
             planPanel = null;
         }
         turnView.endTurn();
-        toolCards.clear();
+        toolActivities.clear();
         activeToolDescriptions.clear();
         currentText = null;
         statusLine = null;
@@ -377,7 +344,7 @@ public final class TurnRenderer implements SessionListener {
         if (!planSummary.isEmpty()) {
             screen.commitBlock(planSummary);
         }
-        toolCards.clear();
+        toolActivities.clear();
         activeToolDescriptions.clear();
         currentText = null;
         statusLine = null;
@@ -395,7 +362,7 @@ public final class TurnRenderer implements SessionListener {
             planPanel = null;
         }
         turnView.shutdown();
-        toolCards.clear();
+        toolActivities.clear();
         activeToolDescriptions.clear();
         currentText = null;
         statusLine = null;
@@ -405,10 +372,8 @@ public final class TurnRenderer implements SessionListener {
     // ---- permission support -----------------------------------------------
 
     public synchronized void beginPermission(String toolUseId) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
+        if (toolActivities.enterPermissionPhase(toolUseId)) {
             if (screen instanceof JLineScreen jls) jls.lockModal();
-            card.enterPermissionPhase();
             // The card is now started and animates its own spinner while the
             // approval prompt is up; yield the status line so the two braille
             // spinners don't run side by side during the permission wait.
@@ -420,9 +385,7 @@ public final class TurnRenderer implements SessionListener {
     }
 
     public synchronized void resolvePermission(String toolUseId) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.resolvePermission();
+        if (toolActivities.resolvePermission(toolUseId)) {
             dismissStatusLine();
             if (screen instanceof JLineScreen jls) jls.unlockModal();
             turnView.flushNow();
@@ -430,13 +393,10 @@ public final class TurnRenderer implements SessionListener {
     }
 
     public synchronized void resolvePermission(String toolUseId, boolean denied) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            if (denied) {
-                card.markDenied("User denied permission");
-            } else {
-                card.resolvePermission();
-            }
+        boolean updated = denied
+                ? toolActivities.markDenied(toolUseId, "User denied permission")
+                : toolActivities.resolvePermission(toolUseId);
+        if (updated) {
             dismissStatusLine();
             if (screen instanceof JLineScreen jls) jls.unlockModal();
             turnView.flushNow();
@@ -444,9 +404,7 @@ public final class TurnRenderer implements SessionListener {
     }
 
     public synchronized void cancelPermission(String toolUseId) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.markDenied("User denied permission");
+        if (toolActivities.markDenied(toolUseId, "User denied permission")) {
             dismissStatusLine();
             if (screen instanceof JLineScreen jls) jls.unlockModal();
             turnView.flushNow();
@@ -454,9 +412,7 @@ public final class TurnRenderer implements SessionListener {
     }
 
     public synchronized void setPermissionSelected(String toolUseId, int idx) {
-        ToolCardRenderable card = toolCards.get(toolUseId);
-        if (card != null) {
-            card.setPermissionSelected(idx);
+        if (toolActivities.setPermissionSelected(toolUseId, idx)) {
             turnView.markDirty();
         }
     }

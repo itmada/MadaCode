@@ -28,7 +28,7 @@ class ExecutionTraceCollectorTest {
 
         // Wire the control session exactly as EvalRunner does.
         ConversationSession control = sessionWith(workspace, "control",
-                toolUse("toolu_c", "edit", input("file_path", "App.java")));
+                toolUse("toolu_c", "file_edit", input("file_path", "App.java")));
         control.setSubAgentSpawnObserver(collector::trackSubAgent);
 
         // A sub-agent spawned by the control session, and a grandchild spawned by it.

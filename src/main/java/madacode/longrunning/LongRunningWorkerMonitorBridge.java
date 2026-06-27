@@ -3,6 +3,7 @@ package madacode.longrunning;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.SessionListener;
+import madacode.tool.ToolNames;
 import madacode.tui.TerminalText;
 
 import java.nio.file.Path;
@@ -20,8 +21,8 @@ import java.util.concurrent.ConcurrentMap;
 public final class LongRunningWorkerMonitorBridge implements SessionListener {
 
     private static final int MAX_SUMMARY_COLUMNS = 120;
-    private static final int MAX_PROGRESS_COLUMNS = 120;
-    private static final long MIN_PROGRESS_INTERVAL_NANOS = 400_000_000L;
+    private static final int MAX_OUTPUT_COLUMNS = 120;
+    private static final long MIN_OUTPUT_INTERVAL_NANOS = 400_000_000L;
 
     private final LongRunningTaskStore store;
     private final String taskId;
@@ -57,21 +58,22 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
         if (state == null || !"bash".equals(state.category())) {
             return;
         }
-        String summary = summarizeImportantProgress(progressText);
+        String summary = summarizeImportantOutput(progressText);
         if (summary.isBlank()) {
             return;
         }
         long now = System.nanoTime();
-        if (now - state.lastProgressNanos() < MIN_PROGRESS_INTERVAL_NANOS) {
+        if (now - state.lastOutputNanos() < MIN_OUTPUT_INTERVAL_NANOS) {
             return;
         }
-        tools.put(toolUseId, state.withLastProgressNanos(now));
-        append("worker_tool_progress", state.category(), true, summary, Map.of(
+        tools.put(toolUseId, state.withLastOutputNanos(now));
+        append("worker_tool_output", state.category(), null, summary, Map.of(
                 "workerSessionId", workerSession.sessionId(),
                 "toolUseId", safe(toolUseId),
                 "toolName", state.toolName(),
                 "category", state.category(),
-                "summary", summary));
+                "summary", summary,
+                "source", "progress"));
     }
 
     @Override
@@ -83,21 +85,22 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
         if (!"bash".equals(state.category())) {
             return;
         }
-        String summary = summarizeImportantProgress(activityText);
+        String summary = summarizeImportantOutput(activityText);
         if (summary.isBlank()) {
             return;
         }
         long now = System.nanoTime();
-        if (now - state.lastProgressNanos() < MIN_PROGRESS_INTERVAL_NANOS) {
+        if (now - state.lastOutputNanos() < MIN_OUTPUT_INTERVAL_NANOS) {
             return;
         }
-        tools.put(toolUseId, state.withLastProgressNanos(now));
-        append("worker_tool_progress", state.category(), true, summary, Map.of(
+        tools.put(toolUseId, state.withLastOutputNanos(now));
+        append("worker_tool_output", state.category(), null, summary, Map.of(
                 "workerSessionId", workerSession.sessionId(),
                 "toolUseId", safe(toolUseId),
                 "toolName", state.toolName(),
                 "category", state.category(),
-                "summary", summary));
+                "summary", summary,
+                "source", "activity"));
     }
 
     @Override
@@ -140,7 +143,7 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
     private void append(
             String type,
             String action,
-            boolean success,
+            Boolean success,
             String message,
             Map<String, String> details) {
         try {
@@ -161,9 +164,9 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
 
     private static String summarizeStarted(String toolName, ObjectNode input) {
         return switch (toolName) {
-            case "file_read", "read", "grep", "glob" -> "Inspect project files";
-            case "edit", "file_edit" -> "Edit " + fileName(field(input, "file_path"));
-            case "write", "file_write" -> "Write " + fileName(field(input, "file_path"));
+            case ToolNames.FILE_READ, ToolNames.GREP, ToolNames.GLOB -> "Inspect project files";
+            case ToolNames.FILE_EDIT -> "Edit " + fileName(field(input, "file_path"));
+            case ToolNames.FILE_WRITE -> "Write " + fileName(field(input, "file_path"));
             case "bash" -> "Run " + firstNonBlank(field(input, "description"), field(input, "command"));
             case "longrun_environment_read" -> "Read long-running environment";
             case "longrun_environment_update" -> "Update long-running environment";
@@ -171,12 +174,12 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
         };
     }
 
-    private static String summarizeImportantProgress(String progressText) {
-        String cleaned = clean(progressText);
+    private static String summarizeImportantOutput(String outputText) {
+        String cleaned = clean(outputText);
         if (cleaned.isBlank()) {
             return "";
         }
-        return looksLikeImportantProgress(cleaned) ? fit(cleaned, MAX_PROGRESS_COLUMNS) : "";
+        return looksLikeImportantOutput(cleaned) ? fit(cleaned, MAX_OUTPUT_COLUMNS) : "";
     }
 
     private static String summarizeFailure(ToolState state, String output) {
@@ -218,7 +221,7 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
                 || lower.contains("not found");
     }
 
-    private static boolean looksLikeImportantProgress(String value) {
+    private static boolean looksLikeImportantOutput(String value) {
         String lower = value.toLowerCase();
         return looksLikeFailure(value)
                 || lower.contains("tests run:")
@@ -231,8 +234,8 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
 
     private static String category(String toolName) {
         return switch (toolName) {
-            case "file_read", "read", "grep", "glob" -> "inspect";
-            case "edit", "file_edit", "write", "file_write" -> "edit";
+            case ToolNames.FILE_READ, ToolNames.GREP, ToolNames.GLOB -> "inspect";
+            case ToolNames.FILE_EDIT, ToolNames.FILE_WRITE -> "edit";
             case "bash" -> "bash";
             case "longrun_environment_read" -> "inspect";
             case "longrun_environment_update" -> "task_update";
@@ -294,14 +297,14 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
             String toolName,
             String category,
             String summary,
-            long lastProgressNanos,
+            long lastOutputNanos,
             boolean resultRecorded) {
-        ToolState withLastProgressNanos(long value) {
+        ToolState withLastOutputNanos(long value) {
             return new ToolState(toolName, category, summary, value, resultRecorded);
         }
 
         ToolState withResultRecorded(boolean value) {
-            return new ToolState(toolName, category, summary, lastProgressNanos, value);
+            return new ToolState(toolName, category, summary, lastOutputNanos, value);
         }
     }
 }

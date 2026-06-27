@@ -13,17 +13,15 @@ import java.util.Optional;
  * while PermissionMode controls how their approval flow runs.
  *
  * <p>Hierarchy of permissiveness (least → most):
- * DEFAULT < ACCEPT_EDITS < LONG_RUNNING_WORKSPACE < BYPASS.
+ * DEFAULT < EDIT < LONG_RUNNING_WORKSPACE < BYPASS.
  */
 public enum PermissionMode {
-    /** Every non-readonly tool requires explicit user approval. */
-    DEFAULT("strict", "Prompt before any non-read-only tool", 0),
+    /** Built-in non-edit tools and basic read/search bash commands auto-pass. */
+    DEFAULT("default", "Auto-allow built-in non-edit tools and read/search bash", 0),
 
-    /** File edit/write tools auto-pass; other writes still prompt.
-     *  Default mode for sub-agents — they edit freely but bash/web calls
-     *  still surface to the user. */
-    ACCEPT_EDITS("normal",
-            "Auto-allow file edits in the workspace; prompt for other writes", 1),
+    /** Built-in file edit/write tools auto-pass; mutating bash still prompts. */
+    EDIT("edit",
+            "Auto-allow built-in file edits; prompt for mutating bash", 1),
 
     /** Skip all interactive approval. Safety rules (e.g. dangerous bash)
      *  still apply — BYPASS only suppresses prompting, never overrides
@@ -67,7 +65,7 @@ public enum PermissionMode {
 
     /**
      * Returns true if this mode is at least as permissive as {@code other}.
-     * Ordering: DEFAULT &lt; ACCEPT_EDITS &lt; BYPASS.
+     * Ordering: DEFAULT &lt; EDIT &lt; BYPASS.
      *
      * <p>Used by sub-agent inheritance: a sub-agent never gets a stricter
      * mode than its parent.

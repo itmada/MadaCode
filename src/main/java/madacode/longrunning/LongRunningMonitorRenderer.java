@@ -55,11 +55,11 @@ public final class LongRunningMonitorRenderer {
 
         // Activity stream — drop the entry the Now card already headlines.
         lines.add(sectionRule("Activity"));
-        List<String> events = activityEvents(snapshot);
+        List<LongRunningMonitorActivity> events = activityEvents(snapshot);
         if (events.isEmpty()) {
             lines.add(Tk.dim("   Waiting for worker events..."));
         } else {
-            for (String event : events) {
+            for (LongRunningMonitorActivity event : events) {
                 lines.add(eventLine(event));
             }
         }
@@ -173,16 +173,20 @@ public final class LongRunningMonitorRenderer {
             return "  " + Tk.failure("✗ Stopping current worker safely…");
         }
         String action = snapshot.currentAction() == null ? "Working…" : snapshot.currentAction();
-        boolean failed = looksLikeFailure(action.toLowerCase(Locale.ROOT));
-        String glyph = failed ? Tk.failure("✗") : Tk.thinking(spin);
-        String text = failed ? Tk.failure(action) : action;
-        String left = "  " + glyph + " " + text;
+        LongRunningMonitorActivityStatus status = snapshot.currentActionStatus();
+        boolean failed = status == LongRunningMonitorActivityStatus.FAILURE;
+        String glyph = nowGlyph(status, spin);
+        String prefix = "  " + glyph + " ";
         String ago = agoShort(snapshot.secondsSinceLastEvent());
         if (ago == null) {
-            return left;
+            String text = fit(action, Math.max(1, WIDTH - Tk.displayWidth(prefix)));
+            return prefix + (failed ? Tk.failure(text) : text);
         }
         String label = ago + " ago";
         String agoStyled = snapshot.secondsSinceLastEvent() >= 300 ? Tk.warn(label) : Tk.dim(label);
+        int textWidth = Math.max(1, WIDTH - Tk.displayWidth(prefix) - Tk.displayWidth(agoStyled) - 1);
+        String text = fit(action, textWidth);
+        String left = prefix + (failed ? Tk.failure(text) : text);
         return rightAlign(left, agoStyled);
     }
 
@@ -199,34 +203,19 @@ public final class LongRunningMonitorRenderer {
      * live focus line and the log don't show the same text back to back. Falls
      * back to the full list if every entry matches (keeps the log non-empty).
      */
-    private static List<String> activityEvents(LongRunningMonitorSnapshot snapshot) {
-        List<String> events = snapshot.recentEvents();
+    private static List<LongRunningMonitorActivity> activityEvents(LongRunningMonitorSnapshot snapshot) {
+        List<LongRunningMonitorActivity> events = snapshot.recentEvents();
         String current = snapshot.currentAction();
         if (current == null || events.isEmpty()) {
             return events;
         }
-        List<String> filtered = new ArrayList<>(events.size());
-        for (String event : events) {
-            if (!current.equals(baseBody(event))) {
+        List<LongRunningMonitorActivity> filtered = new ArrayList<>(events.size());
+        for (LongRunningMonitorActivity event : events) {
+            if (!current.equals(event.body())) {
                 filtered.add(event);
             }
         }
         return filtered.isEmpty() ? events : filtered;
-    }
-
-    /** Event text without the {@code HH:mm } prefix or a trailing {@code ×N}. */
-    private static String baseBody(String line) {
-        String body = line;
-        if (line.length() > 6 && line.charAt(2) == ':' && line.charAt(5) == ' '
-                && Character.isDigit(line.charAt(0)) && Character.isDigit(line.charAt(1))
-                && Character.isDigit(line.charAt(3)) && Character.isDigit(line.charAt(4))) {
-            body = line.substring(6);
-        }
-        int x = body.lastIndexOf(" ×");
-        if (x > 0 && body.substring(x + 2).chars().allMatch(Character::isDigit)) {
-            body = body.substring(0, x);
-        }
-        return body;
     }
 
     private static String agoShort(long seconds) {
@@ -248,52 +237,55 @@ public final class LongRunningMonitorRenderer {
         return head + Tk.dim("─".repeat(dashes));
     }
 
-    static String eventLine(String line) {
-        if (line == null || line.isBlank()) {
+    static String eventLine(LongRunningMonitorActivity event) {
+        if (event == null || event.body().isBlank()) {
             return "";
         }
-        String time = null;
-        String body = line;
-        if (line.length() > 6 && line.charAt(2) == ':' && line.charAt(5) == ' '
-                && Character.isDigit(line.charAt(0)) && Character.isDigit(line.charAt(1))
-                && Character.isDigit(line.charAt(3)) && Character.isDigit(line.charAt(4))) {
-            time = line.substring(0, 5);
-            body = line.substring(6);
-        }
-        String glyph = eventGlyph(body);
+        String glyph = eventGlyph(event);
         StringBuilder b = new StringBuilder("   ");
-        if (time != null) {
-            b.append(Tk.dim(time)).append("  ");
+        if (event.time() != null) {
+            b.append(Tk.dim(event.time())).append("  ");
         }
-        b.append(glyph).append(' ').append(Tk.dim(body));
+        b.append(glyph).append(' ');
+        String body = event.repeatCount() > 1 ? event.body() + " ×" + event.repeatCount() : event.body();
+        int textWidth = Math.max(1, WIDTH - Tk.displayWidth(b.toString()));
+        b.append(Tk.dim(fit(body, textWidth)));
         return b.toString();
     }
 
-    private static String eventGlyph(String body) {
-        String lower = body.toLowerCase(Locale.ROOT);
-        if (lower.contains("build success") || lower.contains("failures: 0")
-                || lower.contains("failures 0") || lower.startsWith("worker finished")) {
-            return Tk.success("✓");
-        }
-        if (looksLikeFailure(lower)) {
-            return Tk.failure("✗");
-        }
-        if (lower.startsWith("report")) {
-            return Tk.thinking("◷");
-        }
-        if (lower.contains("cycle") && lower.contains("started")) {
-            return Tk.accent("●");
-        }
-        if (lower.startsWith("run ") || lower.startsWith("edit") || lower.startsWith("inspect")
-                || lower.startsWith("update") || lower.startsWith("正在运行") || lower.startsWith("running")) {
-            return Tk.filePath("›");
-        }
-        return Tk.dim("·");
+    private static String eventGlyph(LongRunningMonitorActivity event) {
+        return switch (event.status()) {
+            case FAILURE -> Tk.failure("✗");
+            case WARNING -> Tk.warn("!");
+            case INFO -> Tk.info("?");
+            case SUCCESS -> successGlyph(event.kind());
+            case RUNNING, NEUTRAL -> runningGlyph(event.kind());
+        };
     }
 
-    private static boolean looksLikeFailure(String lower) {
-        return lower.contains("fail") || lower.contains("error") || lower.contains("exception")
-                || lower.contains("timed out") || lower.contains("cannot ") || lower.contains("not found");
+    private static String nowGlyph(LongRunningMonitorActivityStatus status, String spin) {
+        return switch (status == null ? LongRunningMonitorActivityStatus.RUNNING : status) {
+            case FAILURE -> Tk.failure("✗");
+            case WARNING -> Tk.warn("!");
+            case INFO -> Tk.info("?");
+            case SUCCESS -> Tk.success("✓");
+            case RUNNING, NEUTRAL -> Tk.thinking(spin);
+        };
+    }
+
+    private static String successGlyph(LongRunningMonitorActivityKind kind) {
+        return switch (kind) {
+            case FINISHED, REPORT -> Tk.success("✓");
+            default -> Tk.dim("·");
+        };
+    }
+
+    private static String runningGlyph(LongRunningMonitorActivityKind kind) {
+        return switch (kind) {
+            case CYCLE -> Tk.accent("●");
+            case COMMAND, INSPECT, UPDATE -> Tk.filePath("›");
+            default -> Tk.dim("·");
+        };
     }
 
     // ---- footer ---------------------------------------------------------

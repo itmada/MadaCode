@@ -1,6 +1,7 @@
 package madacode.render.tool;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.tool.ToolNames;
 
 import java.util.List;
 
@@ -8,7 +9,7 @@ public final class FileEditDisplayAdapter implements ToolDisplayAdapter {
 
     @Override
     public String toolName() {
-        return "edit";
+        return ToolNames.FILE_EDIT;
     }
 
     @Override

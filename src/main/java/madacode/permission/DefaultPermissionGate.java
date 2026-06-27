@@ -136,8 +136,9 @@ public class DefaultPermissionGate implements PermissionGate {
                 new ToolSearchPermissionRule(),
                 new SessionProgressPermissionRule(),
                 new ReadOnlyPermissionRule(trustedRoots),
+                new DefaultModePermissionRule(),
                 new BypassPermissionRule(),
-                new AcceptEditsPermissionRule());
+                new EditModePermissionRule());
     }
 
     private String approvalKey(Tool<?> tool, ObjectNode input) {

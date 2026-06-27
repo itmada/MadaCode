@@ -78,8 +78,8 @@ public interface Tool<I> {
 
     /**
      * Whether this tool's primary effect is modifying user files in the
-     * working directory. The {@code AcceptEditsPermissionRule} reads this
-     * to decide whether to auto-allow in {@link madacode.permission.PermissionMode#ACCEPT_EDITS}.
+     * working directory. The edit-mode permission rule reads this to decide
+     * whether to auto-allow in {@link madacode.permission.PermissionMode#EDIT}.
      *
      * <p>Defaults to {@code false}; only file edit/write tools opt in.
      * Tools that modify session state, run commands, or call external

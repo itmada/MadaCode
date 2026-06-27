@@ -16,9 +16,9 @@ public final class ToolActivitySummary {
     public static String summarize(String toolName, ObjectNode input) {
         String normalized = normalize(toolName);
         String summary = switch (normalized) {
-            case "file_read", "read" -> "Reading " + field(input, "path");
-            case "write", "file_write" -> "Writing " + field(input, "file_path");
-            case "edit", "file_edit" -> "Editing " + field(input, "file_path");
+            case "file_read" -> "Reading " + field(input, "path");
+            case "file_write" -> "Writing " + field(input, "file_path");
+            case "file_edit" -> "Editing " + field(input, "file_path");
             case "bash" -> "Running " + firstNonBlank(
                     field(input, "description"), field(input, "command"));
             case "grep" -> "Searching for \"" + field(input, "pattern", MAX_PATTERN_COLUMNS) + "\"";

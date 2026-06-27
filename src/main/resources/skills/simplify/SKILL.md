@@ -4,7 +4,7 @@ description: Review changed code for reuse, quality, and efficiency, then fix is
 when_to_use: User asks to refactor, simplify, or clean up code
 tags: [code, refactor, quality]
 mode: inline
-allowed_tools: [file_read, edit, grep, glob, bash]
+allowed_tools: [file_read, file_edit, grep, glob, bash]
 disallowed_tools: [agent]
 ---
 

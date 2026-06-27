@@ -22,7 +22,7 @@ class TrajectoryScorerTest {
     @Test
     void scorePassesForAllowedToolsWhitelistedFilesAndProvableReadBeforeEdit() {
         EvalCase evalCase = evalCase(new TrajectoryChecks(
-                List.of("file_read", "edit", "write"),
+                List.of("file_read", "file_edit", "file_write"),
                 List.of("bash"),
                 List.of("src/**"),
                 true,
@@ -30,8 +30,8 @@ class TrajectoryScorerTest {
         ExecutionTrace trace = trace(
                 List.of(
                         invocation("file_read", "{\"path\":\"src/App.java\"}", "1\tclass App {}", 1),
-                        invocation("edit", writeInput("src/App.java"), "updated", 2),
-                        invocation("write", writeInput("src/NewFile.java"), "created", 3)),
+                        invocation("file_edit", writeInput("src/App.java"), "updated", 2),
+                        invocation("file_write", writeInput("src/NewFile.java"), "created", 3)),
                 List.of(
                         new TouchedFile("src/App.java", TouchedFile.ChangeKind.MODIFIED),
                         new TouchedFile("src/NewFile.java", TouchedFile.ChangeKind.CREATED)),
@@ -57,7 +57,7 @@ class TrajectoryScorerTest {
         ExecutionTrace trace = trace(
                 List.of(
                         invocation("bash", "{\"command\":\"touch README.md\"}", "ok", 7),
-                        invocation("edit", writeInput("README.md"), "ok", 9)),
+                        invocation("file_edit", writeInput("README.md"), "ok", 9)),
                 List.of(new TouchedFile("README.md", TouchedFile.ChangeKind.MODIFIED)),
                 2,
                 40);
@@ -66,7 +66,7 @@ class TrajectoryScorerTest {
 
         assertFalse(score.passed());
         assertTrue(score.detail().contains("Unexpected tool bash at #7."), score.detail());
-        assertTrue(score.detail().contains("Unexpected tool edit at #9."), score.detail());
+        assertTrue(score.detail().contains("Unexpected tool file_edit at #9."), score.detail());
         assertTrue(score.detail().contains("Forbidden tool bash used at #7."), score.detail());
         assertTrue(score.detail().contains("Touched file outside whitelist: README.md."), score.detail());
     }
@@ -104,9 +104,9 @@ class TrajectoryScorerTest {
                 null));
         ExecutionTrace trace = trace(
                 List.of(
-                        invocation("edit", writeInput("src/App.java"), "updated", 2),
+                        invocation("file_edit", writeInput("src/App.java"), "updated", 2),
                         invocation("file_read", "{\"path\":\"src/App.java\"}", "1\tclass App {}", 5),
-                        invocation("edit", writeInput("src/App.java"), "updated again", 6)),
+                        invocation("file_edit", writeInput("src/App.java"), "updated again", 6)),
                 List.of(new TouchedFile("src/App.java", TouchedFile.ChangeKind.MODIFIED)),
                 3,
                 70);

@@ -18,8 +18,8 @@ import java.util.Set;
 public final class TrajectoryScorer implements Scorer {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Set<String> READ_TOOL_NAMES = Set.of("file_read", "read");
-    private static final Set<String> WRITE_TOOL_NAMES = Set.of("edit", "write", "file_edit", "file_write");
+    private static final Set<String> READ_TOOL_NAMES = Set.of("file_read");
+    private static final Set<String> WRITE_TOOL_NAMES = Set.of("file_edit", "file_write");
     private static final List<String> READ_FAILURE_PREFIXES = List.of(
             "Missing required field:",
             "Path does not exist:",
