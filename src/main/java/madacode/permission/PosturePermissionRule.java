@@ -3,6 +3,7 @@ package madacode.permission;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.governance.ApprovalPosture;
+import madacode.permission.bash.BashCommandModel;
 import madacode.tool.Tool;
 import madacode.tool.ToolNames;
 
@@ -56,7 +57,7 @@ public final class PosturePermissionRule implements PermissionRule {
     }
 
     private Optional<PermissionDecision> evaluateBash(ObjectNode input, ApprovalPosture posture) {
-        if (BashCommandClassifier.isBasicReadOnly(input.path("command").asText(""))) {
+        if (BashCommandModel.parse(input.path("command").asText("")).isBasicReadOnly()) {
             return evaluateStance(posture.read());
         }
         return evaluateStance(posture.exec());
