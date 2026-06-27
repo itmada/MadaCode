@@ -58,7 +58,7 @@ final class ToolGroupingPolicy {
     }
 
     private static boolean isExplorationSegment(BashCommandModel.Segment segment) {
-        if (segment.hasUnresolvedExpansion() || segment.hasRedirection() || segment.isMutatingCommand()) {
+        if (segment.hasUnresolvedExpansion() || segment.writesRealFile() || segment.isMutatingCommand()) {
             return false;
         }
         return segment.isBasicReadOnlyCommand() || isUiLabelSegment(segment) || isDirectorySegment(segment);

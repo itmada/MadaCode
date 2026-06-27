@@ -166,6 +166,29 @@ class TurnRendererToolActivityTest {
     }
 
     @Test
+    void readOnlyBashWithHarmlessRedirectionStaysInExplorationGroup() {
+        Harness h = new Harness();
+        ObjectNode read = input("path", "/tmp/README.md");
+        ObjectNode quietGit = input("command", "git diff --name-only HEAD 2>/dev/null || echo none");
+        ObjectNode quietCat = input("command", "cat package.json 2>/dev/null");
+
+        h.appendTool("r1", "file_read", read);
+        h.appendTool("b1", "bash", quietGit);
+        h.appendTool("b2", "bash", quietCat);
+        h.complete("r1", "file_read", read, true, "a");
+        h.complete("b1", "bash", quietGit, true, "");
+        h.complete("b2", "bash", quietCat, true, "{}");
+
+        h.renderer.onTurnEnd();
+
+        List<String> lines = strip(h.screen.scrollback);
+        assertEquals(1, count(lines, "Explored"),
+                "stderr-suppressed read-only bash should stay in the exploration group");
+        assertTrue(hasLine(lines, "Inspect git diff --name-only HEAD 2>/dev/null || echo none"));
+        assertTrue(hasLine(lines, "Inspect cat package.json 2>/dev/null"));
+    }
+
+    @Test
     void standaloneToolBreaksExplorationGroup() {
         Harness h = new Harness();
         ObjectNode firstRead = input("path", "/tmp/a.txt");
