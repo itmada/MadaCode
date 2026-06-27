@@ -1,6 +1,7 @@
 package madacode.eval;
 
 import madacode.core.model.TokenUsage;
+import madacode.governance.IsolationProfile;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -109,8 +110,8 @@ class EfficiencyScorerTest {
         }
 
         @Override
-        public IsolationLevel isolationLevel() {
-            return IsolationLevel.LOCAL_UNSAFE;
+        public IsolationProfile isolationProfile() {
+            return IsolationProfile.localUnsafe();
         }
 
         @Override
