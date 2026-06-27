@@ -13,6 +13,8 @@ import madacode.core.turn.TurnExecutor;
 import madacode.core.turn.TurnHandle;
 import madacode.core.turn.TurnLog;
 import madacode.core.turn.TurnResult;
+import madacode.execution.HostProcessEnvironment;
+import madacode.execution.WorkerExecutionEnvironment;
 import madacode.permission.PermissionMode;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.tool.ToolRegistry;
@@ -31,7 +33,9 @@ import java.util.function.Consumer;
  *
  * <p>The worker session is independent from the control session — it does not
  * inherit conversation messages. The worker reads the task store, performs one
- * bounded unit of work, and calls {@code worker_report} before ending.
+ * bounded unit of work, and calls {@code worker_report} before ending. Production
+ * currently uses {@link HostProcessEnvironment}, which keeps behavior on the host
+ * workspace and provides only a LOCAL_UNSAFE, best-effort execution boundary.
  */
 public class LongRunningWorkerRunner {
 
@@ -108,97 +112,99 @@ public class LongRunningWorkerRunner {
         Objects.requireNonNull(taskId, "taskId");
         Objects.requireNonNull(projectDir, "projectDir");
 
-        LongRunningTaskStore store = new LongRunningTaskStore(projectDir);
-        Path taskDir = store.taskDirectoryPath(taskId);
+        try (WorkerExecutionEnvironment environment = new HostProcessEnvironment(projectDir)) {
+            LongRunningTaskStore store = new LongRunningTaskStore(environment.workspace());
+            Path taskDir = store.taskDirectoryPath(taskId);
 
-        // Create a fresh worker session
-        ConversationSession workerSession = new ConversationSession(projectDir);
-        workerSession.setWorkflowMode(SessionMode.LONG_RUNNING);
-        workerSession.setLongRunningStage(LongRunningStage.RUNNING);
-        workerSession.setLongRunningWorkerSession(true);
-        workerSession.setLongRunningTaskId(taskId);
-        workerSession.setLongRunningTaskDirectory(taskDir.toString());
-        workerSession.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
-        // Sub-agents spawned by the worker register with the out-of-band observer (no-op
-        // in production); propagation to descendants is handled by registerSubAgent.
-        workerSession.setSubAgentSpawnObserver(subAgentSpawnObserver);
-        LongRunningWorkerMonitorBridge monitorBridge =
-                new LongRunningWorkerMonitorBridge(store, taskId, workerSession);
-        workerSession.addListener(monitorBridge);
+            // Create a fresh worker session
+            ConversationSession workerSession = new ConversationSession(environment.workspace());
+            workerSession.setWorkflowMode(SessionMode.LONG_RUNNING);
+            workerSession.setLongRunningStage(LongRunningStage.RUNNING);
+            workerSession.setLongRunningWorkerSession(true);
+            workerSession.setLongRunningTaskId(taskId);
+            workerSession.setLongRunningTaskDirectory(taskDir.toString());
+            workerSession.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
+            // Sub-agents spawned by the worker register with the out-of-band observer (no-op
+            // in production); propagation to descendants is handled by registerSubAgent.
+            workerSession.setSubAgentSpawnObserver(subAgentSpawnObserver);
+            LongRunningWorkerMonitorBridge monitorBridge =
+                    new LongRunningWorkerMonitorBridge(store, taskId, workerSession);
+            workerSession.addListener(monitorBridge);
 
-        // Build worker-specific system prompt
-        String workerPrompt = LongRunningWorkerPrompt.build();
-        SystemPromptBuilder workerPromptBuilder = SystemPromptBuilder.builder()
-                .agentContext(workerPrompt)
-                .build();
+            // Build worker-specific system prompt
+            String workerPrompt = LongRunningWorkerPrompt.build();
+            SystemPromptBuilder workerPromptBuilder = SystemPromptBuilder.builder()
+                    .agentContext(workerPrompt)
+                    .build();
 
-        // Create a QueryEngine for the worker
-        QueryEngine workerEngine = queryEngineFactory.create(
-                toolRegistry, workerPromptBuilder);
+            // Create a QueryEngine for the worker
+            QueryEngine workerEngine = queryEngineFactory.create(
+                    toolRegistry, workerPromptBuilder);
 
-        // Run the worker turn through the managed turn executor so worker
-        // sessions get the same turn log and terminal-state accounting as
-        // foreground turns, without attaching foreground UI listeners.
-        String workerInput = "[worker-start] Execute exactly one long-running worker cycle for task "
-                + taskId + ". Rebuild context from the task store and workspace, choose one bounded work item, "
-                + "update progress, verify your work, and report the outcome.";
-        TurnResult turnResult;
-        try {
-            try (TurnExecutor workerExecutor = new TurnExecutor(
-                    new QueryEngineTurnRunner(workerEngine),
-                    new TurnLog(turnLogRoot))) {
-                TurnHandle handle = workerExecutor.submit(workerSession, workerInput);
-                try {
-                    turnResult = waitForWorkerTurn(handle);
-                } catch (ExecutionException e) {
-                    Throwable cause = e.getCause() == null ? e : e.getCause();
-                    throw cause instanceof RuntimeException re ? re : new RuntimeException(cause);
-                } catch (InterruptedException e) {
-                    handle.cancel().accept("long-running launcher interrupted");
-                    boolean quiescent = awaitWorkerStop(handle);
-                    Thread.currentThread().interrupt();
-                    if (!quiescent) {
-                        throw new WorkerDidNotTerminateException(
-                                "Worker did not terminate within 10 seconds after cancellation", e);
+            // Run the worker turn through the managed turn executor so worker
+            // sessions get the same turn log and terminal-state accounting as
+            // foreground turns, without attaching foreground UI listeners.
+            String workerInput = "[worker-start] Execute exactly one long-running worker cycle for task "
+                    + taskId + ". Rebuild context from the task store and workspace, choose one bounded work item, "
+                    + "update progress, verify your work, and report the outcome.";
+            TurnResult turnResult;
+            try {
+                try (TurnExecutor workerExecutor = new TurnExecutor(
+                        new QueryEngineTurnRunner(workerEngine),
+                        new TurnLog(turnLogRoot))) {
+                    TurnHandle handle = workerExecutor.submit(workerSession, workerInput);
+                    try {
+                        turnResult = waitForWorkerTurn(handle);
+                    } catch (ExecutionException e) {
+                        Throwable cause = e.getCause() == null ? e : e.getCause();
+                        throw cause instanceof RuntimeException re ? re : new RuntimeException(cause);
+                    } catch (InterruptedException e) {
+                        handle.cancel().accept("long-running launcher interrupted");
+                        boolean quiescent = awaitWorkerStop(handle);
+                        Thread.currentThread().interrupt();
+                        if (!quiescent) {
+                            throw new WorkerDidNotTerminateException(
+                                    "Worker did not terminate within 10 seconds after cancellation", e);
+                        }
+                        throw new RuntimeException("Worker interrupted", e);
                     }
-                    throw new RuntimeException("Worker interrupted", e);
+                }
+            } finally {
+                completedSessionObserver.accept(workerSession);
+                workerSession.removeListener(monitorBridge);
+            }
+
+            // Save the worker session
+            try {
+                sessionStorage.save(workerSession);
+            } catch (RuntimeException e) {
+                try {
+                    store.appendEvent(taskId, LongRunningTaskEvent.of(
+                            "worker_session_save_failed",
+                            taskId,
+                            workerSession.sessionId(),
+                            workerSession.longRunningStage().name(),
+                            null,
+                            false,
+                            "Failed to save worker session: " + e.getMessage(),
+                            Map.of("workerSessionId", workerSession.sessionId())));
+                } catch (RuntimeException ignored) {
+                    // Worker report remains the source of launcher control flow.
                 }
             }
-        } finally {
-            completedSessionObserver.accept(workerSession);
-            workerSession.removeListener(monitorBridge);
+
+            // Read the report
+            Optional<WorkerReport> report = workerSession.lastWorkerReport()
+                    .filter(WorkerReport.class::isInstance)
+                    .map(WorkerReport.class::cast);
+
+            return new WorkerRunResult(
+                    workerSession.sessionId(),
+                    turnResult,
+                    report,
+                    workerSession.tokenUsage(),
+                    countToolCalls(workerSession));
         }
-
-        // Save the worker session
-        try {
-            sessionStorage.save(workerSession);
-        } catch (RuntimeException e) {
-            try {
-                store.appendEvent(taskId, LongRunningTaskEvent.of(
-                        "worker_session_save_failed",
-                        taskId,
-                        workerSession.sessionId(),
-                        workerSession.longRunningStage().name(),
-                        null,
-                        false,
-                        "Failed to save worker session: " + e.getMessage(),
-                        Map.of("workerSessionId", workerSession.sessionId())));
-            } catch (RuntimeException ignored) {
-                // Worker report remains the source of launcher control flow.
-            }
-        }
-
-        // Read the report
-        Optional<WorkerReport> report = workerSession.lastWorkerReport()
-                .filter(WorkerReport.class::isInstance)
-                .map(WorkerReport.class::cast);
-
-        return new WorkerRunResult(
-                workerSession.sessionId(),
-                turnResult,
-                report,
-                workerSession.tokenUsage(),
-                countToolCalls(workerSession));
     }
 
     private static TurnResult waitForWorkerTurn(TurnHandle handle)

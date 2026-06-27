@@ -2,6 +2,7 @@ package madacode.eval;
 
 import madacode.bootstrap.HeadlessAgentRuntime;
 import madacode.core.session.ConversationSession;
+import madacode.governance.IsolationProfile;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -122,7 +123,7 @@ public final class EvalRunner {
                     projectDir,
                     loaded,
                     runtime,
-                    environment.trustProfile(),
+                    environment.isolationProfile(),
                     scorers.reproducibilityFingerprint(),
                     startedAt);
             ConversationSession session = new ConversationSession(environment.workspace());
@@ -199,8 +200,7 @@ public final class EvalRunner {
                 : runtime.projectDir();
         EvalRunManifest manifest = EvalRunManifestFactory.capture(
                 projectDir, loaded, runtime,
-                EvalExecutionEnvironment.TrustProfile.forIsolation(
-                        EvalExecutionEnvironment.IsolationLevel.LOCAL_UNSAFE),
+                IsolationProfile.localUnsafe(),
                 scorers.reproducibilityFingerprint(),
                 Instant.now());
         return new EvalResult(
