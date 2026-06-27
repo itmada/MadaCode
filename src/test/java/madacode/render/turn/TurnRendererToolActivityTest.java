@@ -7,7 +7,9 @@ import madacode.core.model.Message;
 import madacode.tui.Screen;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,6 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TurnRendererToolActivityTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void consecutiveExplorationToolsCollapseToOneGroup() {
@@ -42,6 +47,125 @@ class TurnRendererToolActivityTest {
     }
 
     @Test
+    void explorationGroupShowsWorkspaceRelativeReadPaths() {
+        Path projectFile = tempDir.resolve("backend/src/main/java/App.java");
+        Harness h = new Harness(tempDir);
+        ObjectNode read = input("path", projectFile.toString());
+
+        h.appendTool("r1", "file_read", read);
+        h.complete("r1", "file_read", read, true, "class App {}");
+
+        h.renderer.onTurnEnd();
+
+        List<String> lines = strip(h.screen.scrollback);
+        assertTrue(hasLine(lines, "Read backend/src/main/java/App.java"));
+        assertTrue(lines.stream().noneMatch(line -> line.contains(projectFile.toString())),
+                "cwd-contained absolute input should be display-only relativized");
+    }
+
+    @Test
+    void explorationGroupKeepsOutsideReadPathsAbsolute() {
+        Path outside = tempDir.getParent().resolve("outside/App.java").toAbsolutePath().normalize();
+        Harness h = new Harness(tempDir);
+        ObjectNode read = input("path", outside.toString());
+
+        h.appendTool("r1", "file_read", read);
+        h.complete("r1", "file_read", read, true, "class App {}");
+
+        h.renderer.onTurnEnd();
+
+        List<String> lines = strip(h.screen.scrollback);
+        assertTrue(hasLine(lines, "Read " + outside));
+    }
+
+    @Test
+    void consecutiveReadsCollapseInsideExplorationGroup() {
+        Harness h = new Harness();
+        ObjectNode first = input("path", "/tmp/a.txt");
+        ObjectNode second = input("path", "/tmp/b.txt");
+        ObjectNode third = input("path", "/tmp/c.txt");
+
+        h.appendTool("r1", "file_read", first);
+        h.appendTool("r2", "file_read", second);
+        h.appendTool("r3", "file_read", third);
+        h.complete("r1", "file_read", first, true, "a");
+        h.complete("r2", "file_read", second, true, "b");
+        h.complete("r3", "file_read", third, true, "c");
+
+        h.renderer.onTurnEnd();
+
+        List<String> lines = strip(h.screen.scrollback);
+        assertTrue(hasLine(lines, "Read · 3 files · 21ms"));
+        assertTrue(lines.stream().noneMatch(line -> line.contains("/tmp/a.txt")));
+        assertTrue(lines.stream().noneMatch(line -> line.contains("/tmp/b.txt")));
+        assertTrue(lines.stream().noneMatch(line -> line.contains("/tmp/c.txt")));
+    }
+
+    @Test
+    void consecutiveReadsCollapseWhileStillRunning() {
+        Harness h = new Harness();
+        ObjectNode first = input("path", "/tmp/a.txt");
+        ObjectNode second = input("path", "/tmp/b.txt");
+        ObjectNode third = input("path", "/tmp/c.txt");
+
+        h.appendTool("r1", "file_read", first);
+        h.appendTool("r2", "file_read", second);
+        h.appendTool("r3", "file_read", third);
+        h.renderer.onToolExecutionStarted("r1", "file_read", first);
+        h.view.flushNow();
+
+        List<String> live = strip(h.screen.live);
+        assertTrue(hasLine(live, "Read · 3 files · reading"));
+        assertTrue(live.stream().noneMatch(line -> line.contains("/tmp/a.txt")));
+        assertTrue(live.stream().noneMatch(line -> line.contains("/tmp/b.txt")));
+        assertTrue(live.stream().noneMatch(line -> line.contains("/tmp/c.txt")));
+    }
+
+    @Test
+    void readOnlyBashDisplaysAsInspectionNotFileRead() {
+        Harness h = new Harness();
+        ObjectNode bash = input("command", "cat backend/pom.xml");
+
+        h.appendTool("b1", "bash", bash);
+        h.complete("b1", "bash", bash, true, "<project/>");
+
+        h.renderer.onTurnEnd();
+
+        List<String> lines = strip(h.screen.scrollback);
+        assertTrue(hasLine(lines, "Inspect cat backend/pom.xml"));
+        assertTrue(lines.stream().noneMatch(line -> line.contains("Read cat backend/pom.xml")));
+    }
+
+    @Test
+    void explorationGroupSpansCompletedToolBatchesUntilSemanticBoundary() {
+        Harness h = new Harness();
+        ObjectNode firstRead = input("path", "/tmp/README.md");
+        ObjectNode firstList = input("command",
+                "echo \"=== Source files ===\" && find src/main/resources -type f | head -50");
+        ObjectNode secondRead = input("path", "/tmp/pom.xml");
+        ObjectNode secondSearch = input("pattern", "Controller").put("path", "src");
+
+        h.appendTool("r1", "file_read", firstRead);
+        h.appendTool("b1", "bash", firstList);
+        h.complete("r1", "file_read", firstRead, true, "a");
+        h.complete("b1", "bash", firstList, true, "README.md");
+
+        h.appendTool("r2", "file_read", secondRead);
+        h.appendTool("s1", "grep", secondSearch);
+        h.complete("r2", "file_read", secondRead, true, "b");
+        h.complete("s1", "grep", secondSearch, true, "src/App.java:1:Controller");
+
+        h.renderer.onTurnEnd();
+
+        List<String> lines = strip(h.screen.scrollback);
+        assertEquals(1, count(lines, "Explored"), "completed exploration batches should remain one group");
+        assertTrue(hasLine(lines, "Read /tmp/README.md"));
+        assertTrue(hasLine(lines, "List echo \"=== Source files ===\" && find src/main/resources -type f | head -50"));
+        assertTrue(hasLine(lines, "Read /tmp/pom.xml"));
+        assertTrue(hasLine(lines, "Search \"Controller\" in src"));
+    }
+
+    @Test
     void standaloneToolBreaksExplorationGroup() {
         Harness h = new Harness();
         ObjectNode firstRead = input("path", "/tmp/a.txt");
@@ -50,8 +174,8 @@ class TurnRendererToolActivityTest {
 
         h.appendTool("r1", "file_read", firstRead);
         h.complete("r1", "file_read", firstRead, true, "a");
-        h.appendTool("e1", "edit", edit);
-        h.complete("e1", "edit", edit, true, "File updated successfully");
+        h.appendTool("e1", "file_edit", edit);
+        h.complete("e1", "file_edit", edit, true, "File updated successfully");
         h.appendTool("r2", "file_read", secondRead);
         h.complete("r2", "file_read", secondRead, true, "b");
 
@@ -59,7 +183,28 @@ class TurnRendererToolActivityTest {
 
         List<String> lines = strip(h.screen.scrollback);
         assertEquals(2, count(lines, "Explored"), "edit should break exploration grouping");
-        assertTrue(hasLine(lines, "file_edit /tmp/a.txt"), "edit remains an independent card");
+        assertTrue(hasLine(lines, "file_edit /tmp/a.txt"), "file_edit remains an independent card");
+    }
+
+    @Test
+    void mutatingBashBreaksExplorationGroup() {
+        Harness h = new Harness();
+        ObjectNode firstRead = input("path", "/tmp/a.txt");
+        ObjectNode mutating = input("command", "touch generated.txt && ls");
+        ObjectNode secondRead = input("path", "/tmp/b.txt");
+
+        h.appendTool("r1", "file_read", firstRead);
+        h.complete("r1", "file_read", firstRead, true, "a");
+        h.appendTool("b1", "bash", mutating);
+        h.complete("b1", "bash", mutating, true, "generated.txt");
+        h.appendTool("r2", "file_read", secondRead);
+        h.complete("r2", "file_read", secondRead, true, "b");
+
+        h.renderer.onTurnEnd();
+
+        List<String> lines = strip(h.screen.scrollback);
+        assertEquals(2, count(lines, "Explored"), "mutating bash should be a semantic boundary");
+        assertTrue(hasLine(lines, "bash touch generated.txt && ls"));
     }
 
     @Test
@@ -93,6 +238,36 @@ class TurnRendererToolActivityTest {
         assertTrue(hasLine(live, "ls -la /tmp"));
     }
 
+    @Test
+    void assistantTextClosesCompletedExplorationGroupBeforeStreaming() {
+        Harness h = new Harness();
+        ObjectNode firstRead = input("path", "/tmp/a.txt");
+        ObjectNode secondRead = input("path", "/tmp/b.txt");
+
+        h.appendTool("r1", "file_read", firstRead);
+        h.complete("r1", "file_read", firstRead, true, "a");
+        h.appendTool("r2", "file_read", secondRead);
+        h.complete("r2", "file_read", secondRead, true, "b");
+
+        h.renderer.onAssistantTextChunk(0,
+                "分析完成后开始正式输出正文。这里有足够长的内容，"
+                        + "用于确认已经完成的探索组不会继续占住 live 区并阻塞正文流式输出。");
+        h.view.flushNow();
+
+        List<String> scrollback = strip(h.screen.scrollback);
+        assertEquals(1, count(scrollback, "Explored"),
+                "completed exploration should spill to scrollback when assistant text starts");
+        assertTrue(hasLine(scrollback, "Read · 2 files · 14ms"));
+        assertTrue(scrollback.stream().noneMatch(line -> line.contains("/tmp/a.txt")));
+        assertTrue(scrollback.stream().noneMatch(line -> line.contains("/tmp/b.txt")));
+
+        List<String> live = strip(h.screen.live);
+        assertTrue(String.join("", live).contains("正式输出正文"),
+                "assistant text should own live preview after exploration closes");
+        assertTrue(live.stream().noneMatch(line -> line.contains("Explored")),
+                "closed exploration group should no longer remain in live");
+    }
+
     private ObjectNode input(String key, String value) {
         return mapper.createObjectNode().put(key, value);
     }
@@ -112,7 +287,15 @@ class TurnRendererToolActivityTest {
     private final class Harness {
         final CaptureScreen screen = new CaptureScreen();
         final TurnView view = new TurnView(screen);
-        final TurnRenderer renderer = new TurnRenderer(view, screen);
+        final TurnRenderer renderer;
+
+        Harness() {
+            this(null);
+        }
+
+        Harness(Path workingDirectory) {
+            renderer = new TurnRenderer(view, screen, () -> workingDirectory);
+        }
 
         void appendTool(String id, String name, ObjectNode input) {
             renderer.onAssistantBlockAppended(

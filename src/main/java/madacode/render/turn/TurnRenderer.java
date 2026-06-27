@@ -15,10 +15,12 @@ import madacode.tui.Screen;
 import madacode.tui.theme.Tk;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Single {@link SessionListener} that drives the {@link TurnView} render tree.
@@ -43,10 +45,15 @@ public final class TurnRenderer implements SessionListener {
     private boolean aborted;
 
     public TurnRenderer(TurnView turnView, Screen screen) {
+        this(turnView, screen, () -> null);
+    }
+
+    public TurnRenderer(TurnView turnView, Screen screen, Supplier<Path> workingDirectory) {
         this.turnView = Objects.requireNonNull(turnView, "turnView");
         this.screen = Objects.requireNonNull(screen, "screen");
         this.toolActivities = new ToolActivityController(
-                this.turnView, toolDisplays, new ToolGroupingPolicy());
+                this.turnView, toolDisplays, new ToolGroupingPolicy(),
+                Objects.requireNonNull(workingDirectory, "workingDirectory"));
     }
 
     // ---- streaming text ---------------------------------------------------
@@ -86,6 +93,7 @@ public final class TurnRenderer implements SessionListener {
     public synchronized void onAssistantTextChunk(int index, String chunk) {
         dismissStatusLine();
         if (activeStreamIndex != index) {
+            toolActivities.closeExplorationGroups();
             currentText = null;
             activeStreamIndex = index;
         }
@@ -198,7 +206,7 @@ public final class TurnRenderer implements SessionListener {
     @Override
     public synchronized void onToolExecutionStarted(String toolUseId, String toolName, ObjectNode input) {
         toolActivities.markStarted(toolUseId);
-        String activity = toolDisplays.activityDescription(toolName, input);
+        String activity = toolActivities.activityDescription(toolName, input);
         activeToolDescriptions.put(toolUseId, activity);
         // Card now animates its own spinner; status line yields to it.
         showStatusLine(activity, TurnStatusRenderable.Mode.TOOL_ACTIVE);
@@ -317,6 +325,7 @@ public final class TurnRenderer implements SessionListener {
             planPanel.markFinalized();
             planPanel = null;
         }
+        toolActivities.closeExplorationGroups();
         turnView.endTurn();
         toolActivities.clear();
         activeToolDescriptions.clear();
@@ -340,6 +349,7 @@ public final class TurnRenderer implements SessionListener {
             currentText.finalizeText();
         }
         List<String> planSummary = finalizePlanPanel();
+        toolActivities.closeExplorationGroups();
         turnView.endTurn();
         if (!planSummary.isEmpty()) {
             screen.commitBlock(planSummary);

@@ -4,6 +4,8 @@ import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
 import madacode.core.model.MessageKind;
 import madacode.core.model.MessageRole;
+import madacode.governance.ApprovalPosture;
+import madacode.permission.PermissionMode;
 
 import org.junit.jupiter.api.Test;
 
@@ -125,6 +127,14 @@ class ConversationSessionTest {
         assertEquals(
                 List.of("chunk:partial-from-failed-attempt", "reset:" + reservedIndex, "chunk:clean-retry-output"),
                 events);
+    }
+
+    @Test
+    void capabilityProfileReflectsPermissionMode() {
+        ConversationSession session = new ConversationSession();
+        session.setPermissionMode(PermissionMode.BYPASS);
+
+        assertEquals(ApprovalPosture.bypassInteractive(), session.capabilityProfile().approvalPosture());
     }
 
     private static LinkedHashMap<String, String> linkedMap(String firstKey, String firstValue, String secondKey,

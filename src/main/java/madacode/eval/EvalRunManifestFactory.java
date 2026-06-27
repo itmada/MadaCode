@@ -1,6 +1,7 @@
 package madacode.eval;
 
 import madacode.bootstrap.HeadlessAgentRuntime;
+import madacode.governance.IsolationProfile;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -16,7 +17,7 @@ final class EvalRunManifestFactory {
             Path projectDir,
             EvalCaseLoader.LoadedCase loaded,
             HeadlessAgentRuntime runtime,
-            EvalExecutionEnvironment.TrustProfile trust,
+            IsolationProfile isolationProfile,
             String scorerFingerprint,
             Instant startedAt) {
         GitState git = gitState(projectDir);
@@ -29,11 +30,11 @@ final class EvalRunManifestFactory {
                 runtime == null ? "(none)" : runtime.modelName(),
                 runtime == null ? "(none)" : runtime.runtimeFingerprint(),
                 scorerFingerprint == null ? "(none)" : scorerFingerprint,
-                trust.isolationLevel().name(),
-                trust.judgeVisibility().name(),
-                trust.hostAccess().name(),
-                trust.networkAccess().name(),
-                trust.trustedMeasurement(),
+                isolationProfile.level().name(),
+                isolationProfile.judgeVisibility().name(),
+                isolationProfile.hostAccess().name(),
+                isolationProfile.networkAccess().name(),
+                isolationProfile.trustedMeasurement(),
                 System.getProperty("java.version", "(unknown)"),
                 System.getProperty("os.name", "(unknown)") + " "
                         + System.getProperty("os.version", ""));

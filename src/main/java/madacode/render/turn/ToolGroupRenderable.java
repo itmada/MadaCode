@@ -22,6 +22,7 @@ public final class ToolGroupRenderable implements Renderable {
     private final List<ToolInvocationModel> invocations = new ArrayList<>();
     private final Map<String, ToolInvocationModel> byId = new LinkedHashMap<>();
     private boolean marginIssued;
+    private boolean closed;
 
     public ToolGroupRenderable(ToolDisplayRegistry displayRegistry) {
         this.displayRegistry = Objects.requireNonNull(displayRegistry, "displayRegistry");
@@ -114,6 +115,11 @@ public final class ToolGroupRenderable implements Renderable {
                 invocation.finalizeTool(false, 0);
             }
         }
+        closed = true;
+    }
+
+    public synchronized void closeGroup() {
+        closed = true;
     }
 
     @Override
@@ -123,7 +129,7 @@ public final class ToolGroupRenderable implements Renderable {
         }
         int safeWidth = Math.max(1, maxWidth);
         List<String> lines = new ArrayList<>();
-        boolean active = !isFinalized();
+        boolean active = hasActiveInvocation();
         String glyph = active ? spinner.tick() : "●";
         String header = statusColor(active ? DisplayStatus.RUNNING : DisplayStatus.INFO, glyph)
                 + " "
@@ -139,9 +145,14 @@ public final class ToolGroupRenderable implements Renderable {
                     && waitingPermission == null) {
                 waitingPermission = invocation;
             }
-            boolean last = i == invocations.size() - 1;
-            lines.add(fit("  " + Tk.dim(last ? "└" : "├") + " " + invocationLine(invocation), safeWidth));
-            for (String detail : failureDetails(invocation)) {
+        }
+
+        List<GroupLine> groupLines = groupLines();
+        for (int i = 0; i < groupLines.size(); i++) {
+            GroupLine groupLine = groupLines.get(i);
+            boolean last = i == groupLines.size() - 1;
+            lines.add(fit("  " + Tk.dim(last ? "└" : "├") + " " + groupLine.text(), safeWidth));
+            for (String detail : groupLine.details()) {
                 lines.add(fit("  " + Tk.dim(last ? " " : "│") + "   " + Tk.dim(detail), safeWidth));
             }
         }
@@ -160,8 +171,13 @@ public final class ToolGroupRenderable implements Renderable {
 
     @Override
     public synchronized boolean isFinalized() {
-        return !invocations.isEmpty()
+        return closed
+                && !invocations.isEmpty()
                 && invocations.stream().allMatch(ToolInvocationModel::isFinalized);
+    }
+
+    private boolean hasActiveInvocation() {
+        return invocations.stream().anyMatch(invocation -> !invocation.isFinalized());
     }
 
     @Override
@@ -208,6 +224,83 @@ public final class ToolGroupRenderable implements Renderable {
             line += Tk.dim(" · ") + display.summary();
         }
         return line;
+    }
+
+    private List<GroupLine> groupLines() {
+        List<GroupLine> lines = new ArrayList<>();
+        int i = 0;
+        while (i < invocations.size()) {
+            ReadRun readRun = readRunStartingAt(i);
+            if (readRun != null) {
+                lines.add(new GroupLine(readRun.line(), List.of()));
+                i += readRun.count();
+                continue;
+            }
+
+            ToolInvocationModel invocation = invocations.get(i);
+            lines.add(new GroupLine(invocationLine(invocation), failureDetails(invocation)));
+            i++;
+        }
+        return lines;
+    }
+
+    private ReadRun readRunStartingAt(int start) {
+        if (!isReadRunMember(invocations.get(start))) {
+            return null;
+        }
+
+        int end = start;
+        long durationMs = 0;
+        int completed = 0;
+        boolean running = false;
+        boolean queued = false;
+        while (end < invocations.size() && isReadRunMember(invocations.get(end))) {
+            ToolInvocationModel invocation = invocations.get(end);
+            if (invocation.state() == ToolInvocationModel.State.SUCCESS) {
+                completed++;
+                durationMs += Math.max(0, invocation.durationMs());
+            } else if (invocation.state() == ToolInvocationModel.State.RUNNING) {
+                running = true;
+            } else if (invocation.state() == ToolInvocationModel.State.QUEUED) {
+                queued = true;
+            }
+            end++;
+        }
+
+        int count = end - start;
+        if (count <= 1) {
+            return null;
+        }
+        return new ReadRun(count, completed, durationMs, running, queued);
+    }
+
+    private static boolean isReadRunMember(ToolInvocationModel invocation) {
+        if (!"file_read".equals(invocation.toolName)) {
+            return false;
+        }
+        return switch (invocation.state()) {
+            case QUEUED, RUNNING, SUCCESS -> true;
+            case WAITING_PERMISSION, FAILED, DENIED -> false;
+        };
+    }
+
+    private static String readRunLine(
+            int count, int completed, long durationMs, boolean running, boolean queued) {
+        ToolInvocationModel.State state = completed == count
+                ? ToolInvocationModel.State.SUCCESS
+                : (running ? ToolInvocationModel.State.RUNNING : ToolInvocationModel.State.QUEUED);
+        String line = statusBullet(state)
+                + " "
+                + Tk.accent("Read")
+                + Tk.dim(" · ")
+                + count + " files";
+        if (completed == count) {
+            return line + Tk.dim(" · ") + duration(durationMs);
+        }
+        if (completed > 0) {
+            return line + Tk.dim(" · ") + completed + "/" + count + " done";
+        }
+        return line + Tk.dim(" · ") + (running ? "reading" : "queued");
     }
 
     private List<String> failureDetails(ToolInvocationModel invocation) {
@@ -279,5 +372,21 @@ public final class ToolGroupRenderable implements Renderable {
         return TerminalText.displayWidth(line) <= maxWidth
                 ? line
                 : TerminalText.fitEnd(line, maxWidth);
+    }
+
+    private static String duration(long durationMs) {
+        if (durationMs < 1000) {
+            return durationMs + "ms";
+        }
+        double seconds = durationMs / 1000.0;
+        return String.format(java.util.Locale.ROOT, "%.1fs", seconds);
+    }
+
+    private record GroupLine(String text, List<String> details) {}
+
+    private record ReadRun(int count, int completed, long durationMs, boolean running, boolean queued) {
+        String line() {
+            return readRunLine(count, completed, durationMs, running, queued);
+        }
     }
 }

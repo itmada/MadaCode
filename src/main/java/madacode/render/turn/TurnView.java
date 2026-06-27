@@ -1,6 +1,7 @@
 package madacode.render.turn;
 
 import madacode.tui.Screen;
+import madacode.tui.theme.Tk;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,6 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * coordinate spacing between channels.
  */
 public final class TurnView {
+
+    private static final int MIN_LIVE_LINES = 3;
+    private static final int LIVE_HEIGHT_RESERVED_LINES = 2;
 
     private final Screen screen;
     private final ScheduledExecutorService paintScheduler =
@@ -301,6 +305,8 @@ public final class TurnView {
             }
         }
 
+        liveLines = fitLiveViewport(liveLines);
+
         // 4. Atomic I/O
         if (!scrollbackLines.isEmpty()) {
             scrollbackWritten = true;
@@ -308,6 +314,27 @@ public final class TurnView {
         } else {
             screen.setLiveStatus(liveLines);
         }
+    }
+
+    private List<String> fitLiveViewport(List<String> lines) {
+        if (lines.isEmpty()) {
+            return lines;
+        }
+        int maxLines = liveViewportBudget();
+        if (lines.size() <= maxLines) {
+            return lines;
+        }
+
+        int hidden = lines.size() - maxLines + 1;
+        List<String> visible = new ArrayList<>(maxLines);
+        visible.add(Tk.dim("… " + hidden + " earlier live line" + (hidden == 1 ? "" : "s") + " hidden"));
+        visible.addAll(lines.subList(lines.size() - maxLines + 1, lines.size()));
+        return visible;
+    }
+
+    private int liveViewportBudget() {
+        int height = Math.max(5, screen.height());
+        return Math.max(MIN_LIVE_LINES, height - LIVE_HEIGHT_RESERVED_LINES);
     }
 
     /** True if every entry from this item is at or below splitIndex (i.e., in scrollback). */

@@ -1,5 +1,9 @@
 package madacode.eval;
 
+import madacode.governance.EgressEvent;
+import madacode.governance.EgressObservation;
+import madacode.governance.EgressReport;
+import madacode.governance.IsolationProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -101,7 +105,7 @@ class SafetyScorerTest {
         DimensionScore score = score(
                 new SafetyChecks(null, true, List.of(), null),
                 trace(List.of(), List.of(), ""),
-                new FakeEnvironment(tempDir, EvalExecutionEnvironment.EgressReport.unavailable()));
+                new FakeEnvironment(tempDir, EgressReport.unavailable()));
 
         assertEquals(EvalResult.JudgeStatus.ERROR, score.status());
         assertTrue(score.detail().contains("absence of evidence"));
@@ -114,9 +118,9 @@ class SafetyScorerTest {
                 trace(List.of(), List.of(), ""),
                 new FakeEnvironment(
                         tempDir,
-                        new EvalExecutionEnvironment.EgressReport(
-                                EvalExecutionEnvironment.EgressObservation.OBSERVED,
-                                List.of(new EvalExecutionEnvironment.EgressEvent(
+                        new EgressReport(
+                                EgressObservation.OBSERVED,
+                                List.of(new EgressEvent(
                                         "api.example.test", false, "dns+tcp")))));
 
         DimensionScore pass = score(
@@ -124,9 +128,9 @@ class SafetyScorerTest {
                 trace(List.of(), List.of(), ""),
                 new FakeEnvironment(
                         tempDir,
-                        new EvalExecutionEnvironment.EgressReport(
-                                EvalExecutionEnvironment.EgressObservation.OBSERVED,
-                                List.of(new EvalExecutionEnvironment.EgressEvent(
+                        new EgressReport(
+                                EgressObservation.OBSERVED,
+                                List.of(new EgressEvent(
                                         "api.example.test", true, "blocked by policy")))));
 
         assertEquals(EvalResult.JudgeStatus.FAIL, fail.status());
@@ -138,8 +142,8 @@ class SafetyScorerTest {
     private DimensionScore score(SafetyChecks checks, ExecutionTrace trace) {
         return score(checks, trace, new FakeEnvironment(
                 tempDir,
-                new EvalExecutionEnvironment.EgressReport(
-                        EvalExecutionEnvironment.EgressObservation.OBSERVED,
+                new EgressReport(
+                        EgressObservation.OBSERVED,
                         List.of())));
     }
 
@@ -198,10 +202,10 @@ class SafetyScorerTest {
         }
 
         @Override
-        public IsolationLevel isolationLevel() {
+        public IsolationProfile isolationProfile() {
             return egressReport.observation() == EgressObservation.UNAVAILABLE
-                    ? IsolationLevel.LOCAL_UNSAFE
-                    : IsolationLevel.CONTAINER;
+                    ? IsolationProfile.localUnsafe()
+                    : IsolationProfile.container();
         }
 
         @Override

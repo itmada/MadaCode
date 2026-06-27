@@ -39,11 +39,12 @@ public final class LongRunningPromptSection implements PromptSection {
     private static String sharedCore() {
         return bullets(
                 "You are in long-running mode, which splits work between two roles: the Controller (you) and workers. You are the Controller, the main agent that talks with the user.",
+                "The long-running lifecycle moves through these stages: DRAFT (shaping the task before any work starts), RUNNING (workers execute the plan in the background), INTERRUPT (the run paused and needs your attention), and the terminal stages COMPLETED, CANCELLED, and FAILED (the run lifecycle has ended).",
+                "longrun_state_transition is the state transition tool; it must be called alone — do not batch it with other tool calls.",
                 "Workers are background executors. Once the task is RUNNING, the runtime repeatedly spawns fresh, isolated worker sessions that carry out the plan; workers never talk to the user.",
-                "Your core job is to work with the user to agree on the task details, then initialize the long-running environment from the agreed plan after the user confirms execution can begin.",
-                "As Controller, you generally should not execute the task yourself. Only use ordinary tools such as file reads, bash, and edits for hands-on changes or task execution when the user explicitly asks.",
-                "Use only dedicated long-running tools for long-running environment work: longrun_environment_read to inspect the environment and longrun_environment_update to initialize or modify it. Do not use ordinary file, bash, or edit tools to read or write .mada/long-running files.",
-                "To start, resume, cancel, or fail the run, call longrun_state_transition after the long-running environment files are fully initialized. The tool asks the user for confirmation and applies the transition if approved. It must be called alone.");
+                "Your core job is to work with the user to agree on the task details, then initialize the long-running environment from the agreed plan via longrun_environment_update action=initialize_environment after the user confirms execution can begin.",
+                "When initializing and updating the long-running environment files, use the dedicated long-running tools: longrun_environment_read to inspect the environment and longrun_environment_update to initialize or modify it.",
+                "As Controller, do not execute the task yourself. Once you have agreed on the plan with the user and initialized the long-running environment files, just perform the state transition via longrun_state_transition with the reason for the current stage. Only when the user explicitly says to execute it yourself should you carry out what the user specifies.");
     }
 
     private static String draftPrompt(ConversationSession session) {
@@ -51,7 +52,7 @@ public final class LongRunningPromptSection implements PromptSection {
         items.add("Current stage: DRAFT — you are shaping the task before any work starts.");
         items.add("First, clarify the requirements and narrow the scope with the user. When the plan is clear enough, ask whether execution can begin.");
         items.add("Only after the user gives a clear yes, initialize the long-running environment with longrun_environment_update action=initialize_environment. Include a complete task summary, non-empty feature list, known issues list (use [] if none), and a progress note with any build/test commands or setup details workers need.");
-        items.add("After the long-running environment files are fully initialized, call longrun_state_transition target_status=RUNNING reason=user_confirmed_start with a short summary. Call it alone; if the user approves, the tool applies RUNNING and the runtime takes over worker execution.");
+        items.add("After the long-running environment files are fully initialized, call longrun_state_transition target_status=RUNNING reason=user_confirmed_start alone to perform the state transition.");
         appendTaskIdentity(items, session);
         return bullets(items);
     }

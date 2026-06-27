@@ -1,7 +1,5 @@
 package madacode.agent;
 
-import madacode.permission.PermissionMode;
-
 import java.util.Objects;
 import java.util.Set;
 
@@ -15,25 +13,24 @@ public final class AgentDefinition {
     private final Set<String> disallowedTools;
     private final boolean allowedToolsSpecified;
     private final Integer maxIterations;
-    private final PermissionMode permissionMode;
 
     /** Convenience constructor for simple definitions with no turn limit. */
     public AgentDefinition(String name, String description, Set<String> allowedTools) {
         this(name, description, "", "", allowedTools, Set.of(),
-                true, null, PermissionMode.EDIT);
+                true, null);
     }
 
     public AgentDefinition(String agentType, String description, String whenToUse,
                            String systemPrompt, Set<String> allowedTools,
-                           Set<String> disallowedTools, Integer maxIterations, PermissionMode permissionMode) {
+                           Set<String> disallowedTools, Integer maxIterations) {
         this(agentType, description, whenToUse, systemPrompt, allowedTools, disallowedTools,
-                allowedTools != null, maxIterations, permissionMode);
+                allowedTools != null, maxIterations);
     }
 
     public AgentDefinition(String agentType, String description, String whenToUse,
                            String systemPrompt, Set<String> allowedTools,
                            Set<String> disallowedTools, boolean allowedToolsSpecified,
-                           Integer maxIterations, PermissionMode permissionMode) {
+                           Integer maxIterations) {
         this.agentType = Objects.requireNonNull(agentType, "agentType");
         this.description = Objects.requireNonNull(description, "description");
         this.whenToUse = Objects.requireNonNull(whenToUse, "whenToUse");
@@ -42,7 +39,6 @@ public final class AgentDefinition {
         this.disallowedTools = Set.copyOf(disallowedTools == null ? Set.of() : disallowedTools);
         this.allowedToolsSpecified = allowedToolsSpecified;
         this.maxIterations = requirePositiveOrNull(maxIterations, "maxIterations");
-        this.permissionMode = permissionMode == null ? PermissionMode.EDIT : permissionMode;
     }
 
     private static Integer requirePositiveOrNull(Integer value, String fieldName) {
@@ -61,5 +57,4 @@ public final class AgentDefinition {
     public Set<String> disallowedTools() { return disallowedTools; }
     public boolean allowedToolsSpecified() { return allowedToolsSpecified; }
     public Integer maxIterations()  { return maxIterations; }
-    public PermissionMode permissionMode() { return permissionMode; }
 }

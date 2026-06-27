@@ -3,7 +3,6 @@ package madacode.agent;
 import madacode.events.AppEventPublisher;
 import madacode.events.DiagnosticEvent;
 import madacode.events.EventContext;
-import madacode.permission.PermissionMode;
 import madacode.skill.SkillFrontmatterParser;
 import madacode.tool.ToolNameCanonicalizer;
 
@@ -80,7 +79,7 @@ public final class AgentDefinitionParser {
             return Optional.of(new AgentDefinition(
                     name, desc, when, body,
                     Set.copyOf(allowed), Set.copyOf(disallowed),
-                    allowedToolsSpecified, maxIter, PermissionMode.EDIT));
+                    allowedToolsSpecified, maxIter));
         } catch (IllegalArgumentException e) {
             publisher.publish(DiagnosticEvent.warn(
                     EventContext.bootstrap("AgentDefinitionParser"),

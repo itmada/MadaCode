@@ -11,6 +11,7 @@ import madacode.logging.DiagnosticEvents;
 import madacode.tool.Tool;
 
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -18,19 +19,20 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * V1 default permission gate.
+ * Default permission gate.
  *
  * <p>Decision pipeline:
  * <ol>
- *   <li><strong>Permission rules</strong> &rarr; auto-allow or deny known cases.</li>
+ *   <li><strong>Permission rules</strong> &rarr; structural safety, capability,
+ *       scope, and posture decisions.</li>
  *   <li><strong>Session memory</strong> &rarr; if the user previously chose
  *       "allow for session", the same tool input auto-allows.</li>
  *   <li><strong>Interactive prompt</strong> &rarr; delegate to the injected
  *       {@link UserApprovalPrompt} for the final decision.</li>
  * </ol>
  *
- * <p>Deny rules run first, then tool-specific checks, then mode-based
- * overrides, then a default "ask the user" fallback.
+ * <p>Rules declare their {@link PermissionLayer}; the gate sorts by that
+ * structure instead of relying on caller list order for cross-layer precedence.
  */
 public class DefaultPermissionGate implements PermissionGate {
 
@@ -50,7 +52,9 @@ public class DefaultPermissionGate implements PermissionGate {
             DiagnosticEvents diagnosticEvents,
             AppEventPublisher publisher) {
         this.prompt = Objects.requireNonNull(prompt, "prompt");
-        this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));
+        this.rules = Objects.requireNonNull(rules, "rules").stream()
+                .sorted(Comparator.comparing(PermissionRule::layer))
+                .toList();
         this.sessionApprovedInputs = Objects.requireNonNull(sessionApprovedInputs);
         this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
         this.publisher = Objects.requireNonNull(publisher, "publisher");
@@ -105,7 +109,7 @@ public class DefaultPermissionGate implements PermissionGate {
 
         String approvalKey = approvalKey(tool, input);
         if (sessionApprovedInputs.contains(approvalKey)) {
-            PermissionDecision decision = PermissionDecision.allow(SOURCE_SESSION_MEMORY);
+            PermissionDecision decision = PermissionDecision.allow(PermissionLayer.FALLBACK, SOURCE_SESSION_MEMORY);
             recordDecision(context, tool, input, decision, 0);
             return decision;
         }
@@ -116,11 +120,12 @@ public class DefaultPermissionGate implements PermissionGate {
         PermissionDecision userDecision = switch (response) {
             case ALLOW_SESSION -> {
                 sessionApprovedInputs.add(approvalKey);
-                yield PermissionDecision.allow(SOURCE_USER_PROMPT);
+                yield PermissionDecision.allow(PermissionLayer.FALLBACK, SOURCE_USER_PROMPT);
             }
-            case ALLOW_ONCE -> PermissionDecision.allow(SOURCE_USER_PROMPT);
+            case ALLOW_ONCE -> PermissionDecision.allow(PermissionLayer.FALLBACK, SOURCE_USER_PROMPT);
             case DENY -> PermissionDecision.deny(
                     "User denied permission for tool: " + tool.name(),
+                    PermissionLayer.FALLBACK,
                     SOURCE_USER_PROMPT);
         };
         recordDecision(context, tool, input, userDecision, waitMs);
@@ -129,16 +134,14 @@ public class DefaultPermissionGate implements PermissionGate {
 
     private static List<PermissionRule> defaultRules(List<Path> trustedRoots) {
         return List.of(
-                new PlanModePermissionRule(),
                 new BashSafetyPermissionRule(),
+                new PlanModePermissionRule(),
                 new LongRunningTaskStatePermissionRule(),
                 new LongRunningWorkspacePermissionRule(),
                 new ToolSearchPermissionRule(),
                 new SessionProgressPermissionRule(),
-                new ReadOnlyPermissionRule(trustedRoots),
-                new DefaultModePermissionRule(),
-                new BypassPermissionRule(),
-                new EditModePermissionRule());
+                new FilesystemReadPermissionRule(trustedRoots),
+                new PosturePermissionRule());
     }
 
     private String approvalKey(Tool<?> tool, ObjectNode input) {
@@ -157,6 +160,7 @@ public class DefaultPermissionGate implements PermissionGate {
                 tool.name(),
                 decision.isAllowed(),
                 decision.reason(),
+                decision.layer().name(),
                 decision.source(),
                 waitMs,
                 truncate(input.toString(), 500)));

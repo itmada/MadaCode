@@ -43,6 +43,7 @@ public class AuditSink implements Sink<AuditEvent> {
         node.put("tool", event.tool());
         node.put("allowed", event.allowed());
         node.put("reason", event.reason());
+        node.put("permissionLayer", event.permissionLayer());
         node.put("permissionSource", event.permissionSource());
         node.put("waitMs", event.waitMs());
         node.put("inputPreview", event.inputPreview());

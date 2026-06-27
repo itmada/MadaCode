@@ -1,5 +1,7 @@
 package madacode.eval;
 
+import madacode.governance.IsolationProfile;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -11,8 +13,9 @@ import java.util.stream.Stream;
  * Local temporary-workspace backend for one eval case.
  *
  * <p>This isolates ordinary relative file operations but is deliberately classified as
- * {@link IsolationLevel#LOCAL_UNSAFE}: absolute paths, host processes, and network access
- * are not contained. The judge still runs against a separate snapshot of this workspace.
+ * {@link madacode.governance.IsolationProfile.IsolationLevel#LOCAL_UNSAFE}: absolute paths,
+ * host processes, and network access are not contained. The judge still runs against a
+ * separate snapshot of this workspace.
  */
 public final class Sandbox implements EvalExecutionEnvironment {
 
@@ -48,8 +51,8 @@ public final class Sandbox implements EvalExecutionEnvironment {
     }
 
     @Override
-    public IsolationLevel isolationLevel() {
-        return IsolationLevel.LOCAL_UNSAFE;
+    public IsolationProfile isolationProfile() {
+        return IsolationProfile.localUnsafe();
     }
 
     /** Runs {@code verify.sh} in an immutable snapshot without mutating the agent workspace. */

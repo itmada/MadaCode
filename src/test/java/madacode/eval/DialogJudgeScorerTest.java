@@ -1,5 +1,6 @@
 package madacode.eval;
 
+import madacode.governance.IsolationProfile;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -254,8 +255,8 @@ class DialogJudgeScorerTest {
         }
 
         @Override
-        public IsolationLevel isolationLevel() {
-            return IsolationLevel.LOCAL_UNSAFE;
+        public IsolationProfile isolationProfile() {
+            return IsolationProfile.localUnsafe();
         }
 
         @Override

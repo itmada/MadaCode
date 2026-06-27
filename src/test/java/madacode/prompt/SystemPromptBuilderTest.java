@@ -67,6 +67,14 @@ class SystemPromptBuilderTest {
                 () -> assertFalse(prompt.contains("## Project & user context"), "no memory loader"));
         assertTrue(prompt.contains(tempDir.toAbsolutePath().normalize().toString()),
                 "Environment section must include the working directory");
+        assertTrue(prompt.contains("already run with this as their working directory"),
+                "Environment section must tell the model that local tools already run from cwd");
+        assertTrue(prompt.contains("do not prefix commands with cd {cwd} &&"),
+                "Bash guidance must discourage redundant cd into cwd");
+        assertTrue(prompt.contains("prefer paths relative to that directory when the tool schema allows it"),
+                "Environment guidance must distinguish user-facing paths from tool input paths");
+        assertTrue(prompt.contains("For files inside the primary working directory, pass a relative path"),
+                "file_read guidance must prefer relative paths inside cwd");
         assertTrue(prompt.contains("bash") && prompt.contains("file_read"),
                 "Tools section must list the visible tools");
     }

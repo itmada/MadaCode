@@ -6,7 +6,6 @@ import madacode.core.model.MetaEvent;
 import madacode.core.model.ToolResult;
 import madacode.core.engine.ToolUseContext;
 import madacode.core.turn.TurnResult;
-import madacode.permission.PermissionMode;
 import madacode.skill.Skill;
 import madacode.skill.SkillBodyRenderer;
 import madacode.skill.SkillRegistry;
@@ -91,7 +90,7 @@ public class SkillTool implements Tool<SkillTool.Input> {
                     Set.copyOf(s.allowedTools()),
                     Set.copyOf(s.disallowedTools()),
                     s.allowedToolsSpecified(),
-                    s.maxIterations(), PermissionMode.EDIT);
+                    s.maxIterations());
             TurnResult result = agentRunner.run(def, rendered, context);
             return AgentResults.toToolResult(name(), result);
         }
