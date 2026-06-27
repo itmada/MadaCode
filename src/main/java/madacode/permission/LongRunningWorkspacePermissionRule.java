@@ -14,6 +14,11 @@ import java.util.Set;
 
 public final class LongRunningWorkspacePermissionRule implements PermissionRule {
 
+    @Override
+    public PermissionLayer layer() {
+        return PermissionLayer.SCOPE;
+    }
+
     public static final String SOURCE = "long_running_workspace";
     private static final Set<String> WORKSPACE_READ_TOOLS = Set.of(
             ToolNames.FILE_READ,
@@ -31,6 +36,7 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
             if (!WORKSPACE_READ_TOOLS.contains(tool.name())) {
                 return Optional.of(PermissionDecision.deny(
                         "Long-running workers may only use workspace-scoped read tools.",
+                        layer(),
                         SOURCE));
             }
             Path workingDir = context.workingDirectory();
@@ -38,10 +44,11 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
                 if (!FilesystemScope.withinRoots(target, workingDir, List.of())) {
                     return Optional.of(PermissionDecision.deny(
                             "Long-running worker reads must stay inside the workspace.",
+                            layer(),
                             SOURCE));
                 }
             }
-            return Optional.of(PermissionDecision.allow(SOURCE));
+            return Optional.of(PermissionDecision.allow(layer(), SOURCE));
         }
 
         if ("bash".equals(tool.name())) {
@@ -49,7 +56,7 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
         }
 
         if (isWorkerTaskStoreTool(tool)) {
-            return Optional.of(PermissionDecision.allow(SOURCE));
+            return Optional.of(PermissionDecision.allow(layer(), SOURCE));
         }
 
         if (tool.isFileEdit()) {
@@ -57,6 +64,7 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
             if (targets.isEmpty()) {
                 return Optional.of(PermissionDecision.deny(
                         "Long-running worker file edits must declare a workspace target.",
+                        layer(),
                         SOURCE));
             }
 
@@ -65,26 +73,28 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
                 if (!FilesystemScope.withinRoots(target, workingDir, List.of())) {
                     return Optional.of(PermissionDecision.deny(
                             "Long-running worker file edits must stay inside the workspace.",
+                            layer(),
                             SOURCE));
                 }
                 if (FilesystemScope.isDangerousEditTarget(target, workingDir)) {
                     return Optional.of(PermissionDecision.deny(
                             "Long-running workers cannot modify sensitive workspace metadata.",
+                            layer(),
                             SOURCE));
                 }
             }
 
-            return Optional.of(PermissionDecision.allow(SOURCE));
+            return Optional.of(PermissionDecision.allow(layer(), SOURCE));
         }
 
         return Optional.of(PermissionDecision.deny(
                 "Long-running worker cannot request interactive approval for tool: " + tool.name(),
+                layer(),
                 SOURCE));
     }
 
     private static boolean applies(ToolUseContext context) {
-        return context.session().isLongRunningWorkerSession()
-                && context.session().permissionMode() == PermissionMode.LONG_RUNNING_WORKSPACE;
+        return context.session().isLongRunningWorkerSession();
     }
 
     private static boolean isWorkerTaskStoreTool(Tool<?> tool) {
@@ -96,9 +106,9 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
     private static PermissionDecision evaluateBash(String command, Path workingDir) {
         BashScopeDecision decision = BashScopeDecision.evaluate(command, workingDir);
         if (decision.allowed()) {
-            return PermissionDecision.allow(SOURCE);
+            return PermissionDecision.allow(PermissionLayer.SCOPE, SOURCE);
         }
-        return PermissionDecision.deny(decision.reason(), SOURCE);
+        return PermissionDecision.deny(decision.reason(), PermissionLayer.SCOPE, SOURCE);
     }
 
     private record BashScopeDecision(boolean allowed, String reason) {

@@ -11,6 +11,7 @@ import madacode.logging.DiagnosticEvents;
 import madacode.tool.Tool;
 
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -50,7 +51,9 @@ public class DefaultPermissionGate implements PermissionGate {
             DiagnosticEvents diagnosticEvents,
             AppEventPublisher publisher) {
         this.prompt = Objects.requireNonNull(prompt, "prompt");
-        this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));
+        this.rules = Objects.requireNonNull(rules, "rules").stream()
+                .sorted(Comparator.comparing(PermissionRule::layer))
+                .toList();
         this.sessionApprovedInputs = Objects.requireNonNull(sessionApprovedInputs);
         this.diagnosticEvents = Objects.requireNonNull(diagnosticEvents, "diagnosticEvents");
         this.publisher = Objects.requireNonNull(publisher, "publisher");
@@ -105,7 +108,7 @@ public class DefaultPermissionGate implements PermissionGate {
 
         String approvalKey = approvalKey(tool, input);
         if (sessionApprovedInputs.contains(approvalKey)) {
-            PermissionDecision decision = PermissionDecision.allow(SOURCE_SESSION_MEMORY);
+            PermissionDecision decision = PermissionDecision.allow(PermissionLayer.FALLBACK, SOURCE_SESSION_MEMORY);
             recordDecision(context, tool, input, decision, 0);
             return decision;
         }
@@ -116,11 +119,12 @@ public class DefaultPermissionGate implements PermissionGate {
         PermissionDecision userDecision = switch (response) {
             case ALLOW_SESSION -> {
                 sessionApprovedInputs.add(approvalKey);
-                yield PermissionDecision.allow(SOURCE_USER_PROMPT);
+                yield PermissionDecision.allow(PermissionLayer.FALLBACK, SOURCE_USER_PROMPT);
             }
-            case ALLOW_ONCE -> PermissionDecision.allow(SOURCE_USER_PROMPT);
+            case ALLOW_ONCE -> PermissionDecision.allow(PermissionLayer.FALLBACK, SOURCE_USER_PROMPT);
             case DENY -> PermissionDecision.deny(
                     "User denied permission for tool: " + tool.name(),
+                    PermissionLayer.FALLBACK,
                     SOURCE_USER_PROMPT);
         };
         recordDecision(context, tool, input, userDecision, waitMs);
@@ -129,16 +133,14 @@ public class DefaultPermissionGate implements PermissionGate {
 
     private static List<PermissionRule> defaultRules(List<Path> trustedRoots) {
         return List.of(
-                new PlanModePermissionRule(),
                 new BashSafetyPermissionRule(),
+                new PlanModePermissionRule(),
                 new LongRunningTaskStatePermissionRule(),
                 new LongRunningWorkspacePermissionRule(),
                 new ToolSearchPermissionRule(),
                 new SessionProgressPermissionRule(),
                 new ReadOnlyPermissionRule(trustedRoots),
-                new DefaultModePermissionRule(),
-                new BypassPermissionRule(),
-                new EditModePermissionRule());
+                new PosturePermissionRule());
     }
 
     private String approvalKey(Tool<?> tool, ObjectNode input) {
@@ -157,6 +159,7 @@ public class DefaultPermissionGate implements PermissionGate {
                 tool.name(),
                 decision.isAllowed(),
                 decision.reason(),
+                decision.layer().name(),
                 decision.source(),
                 waitMs,
                 truncate(input.toString(), 500)));

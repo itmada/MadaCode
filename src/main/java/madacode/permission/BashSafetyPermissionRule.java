@@ -47,6 +47,11 @@ public final class BashSafetyPermissionRule implements PermissionRule {
     private static final Pattern PIPE_TO_SHELL = Pattern.compile("(?i)(curl|wget)\\b.*\\|\\s*(bash|sh)(\\s|$)");
 
     @Override
+    public PermissionLayer layer() {
+        return PermissionLayer.SAFETY;
+    }
+
+    @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
         if (!"bash".equals(tool.name())) {
             return Optional.empty();
@@ -56,6 +61,7 @@ public final class BashSafetyPermissionRule implements PermissionRule {
         Optional<String> reason = dangerousReason(command);
         return reason.map(value -> PermissionDecision.deny(
                 "Dangerous bash command denied: " + value,
+                layer(),
                 SOURCE));
     }
 

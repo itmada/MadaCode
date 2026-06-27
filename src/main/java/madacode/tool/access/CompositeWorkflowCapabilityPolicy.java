@@ -9,9 +9,8 @@ import java.util.Objects;
 /**
  * Ordered composition for workflow capability overlays.
  *
- * <p>Profiles are combined by first non-null answer. Lifecycle votes are combined
- * by first non-abstaining vote. This keeps workflow-specific rules pluggable while
- * preserving deterministic precedence.
+ * <p>Lifecycle votes are combined by first non-abstaining vote. This keeps
+ * workflow-specific rules pluggable while preserving deterministic precedence.
  */
 public final class CompositeWorkflowCapabilityPolicy implements WorkflowCapabilityPolicy {
 
@@ -35,17 +34,6 @@ public final class CompositeWorkflowCapabilityPolicy implements WorkflowCapabili
             return safePolicies.getFirst();
         }
         return new CompositeWorkflowCapabilityPolicy(safePolicies);
-    }
-
-    @Override
-    public ToolCapabilityProfile sessionProfile(ConversationSession session) {
-        for (WorkflowCapabilityPolicy policy : policies) {
-            ToolCapabilityProfile profile = policy.sessionProfile(session);
-            if (profile != null) {
-                return profile;
-            }
-        }
-        return null;
     }
 
     @Override

@@ -1,5 +1,7 @@
 package madacode.permission;
 
+import madacode.governance.ApprovalPosture;
+
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
@@ -72,6 +74,14 @@ public enum PermissionMode {
      */
     public boolean isAtLeastAsPermissiveAs(PermissionMode other) {
         return this.permissivenessRank >= other.permissivenessRank;
+    }
+
+    public ApprovalPosture approvalPosture() {
+        return switch (this) {
+            case DEFAULT, LONG_RUNNING_WORKSPACE -> ApprovalPosture.defaultInteractive();
+            case EDIT -> ApprovalPosture.editInteractive();
+            case BYPASS -> ApprovalPosture.bypassInteractive();
+        };
     }
 
     public static Optional<PermissionMode> parse(String raw) {

@@ -22,6 +22,11 @@ public final class LongRunningTaskStatePermissionRule implements PermissionRule 
     public static final String SOURCE = "long_running_task_state";
 
     @Override
+    public PermissionLayer layer() {
+        return PermissionLayer.SAFETY;
+    }
+
+    @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
         Path activeTaskDirectory = activeTaskDirectory(context);
         if (activeTaskDirectory == null || isOfficialLongRunningTaskStoreTool(tool.name())) {
@@ -68,6 +73,7 @@ public final class LongRunningTaskStatePermissionRule implements PermissionRule 
     private static PermissionDecision deny() {
         return PermissionDecision.deny(
                 "Long-running task state files are runtime-owned. Use longrun_environment_read to inspect them and longrun_environment_update to change them; do not access .mada/long-running with generic file or bash tools.",
+                PermissionLayer.SAFETY,
                 SOURCE);
     }
 }

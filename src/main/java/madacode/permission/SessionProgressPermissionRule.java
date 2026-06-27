@@ -20,10 +20,15 @@ public final class SessionProgressPermissionRule implements PermissionRule {
     public static final String SOURCE = "session_progress";
 
     @Override
+    public PermissionLayer layer() {
+        return PermissionLayer.CAPABILITY;
+    }
+
+    @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
         if (!ToolNames.UPDATE_PLAN.equals(tool.name())) {
             return Optional.empty();
         }
-        return Optional.of(PermissionDecision.allow(SOURCE));
+        return Optional.of(PermissionDecision.allow(layer(), SOURCE));
     }
 }

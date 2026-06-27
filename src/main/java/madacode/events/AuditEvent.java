@@ -10,6 +10,7 @@ public record AuditEvent(
         String tool,
         boolean allowed,
         String reason,
+        String permissionLayer,
         String permissionSource,
         long waitMs,
         String inputPreview) implements AppEvent {
@@ -19,6 +20,7 @@ public record AuditEvent(
         context = Objects.requireNonNull(context, "context");
         tool = tool == null ? "" : tool;
         reason = reason == null ? "" : reason;
+        permissionLayer = permissionLayer == null ? "" : permissionLayer;
         permissionSource = permissionSource == null ? "" : permissionSource;
         inputPreview = inputPreview == null ? "" : inputPreview;
     }
@@ -28,6 +30,7 @@ public record AuditEvent(
             String tool,
             boolean allowed,
             String reason,
+            String permissionLayer,
             String permissionSource,
             long waitMs,
             String inputPreview) {
@@ -38,6 +41,7 @@ public record AuditEvent(
                 tool,
                 allowed,
                 reason,
+                permissionLayer,
                 permissionSource,
                 waitMs,
                 inputPreview);

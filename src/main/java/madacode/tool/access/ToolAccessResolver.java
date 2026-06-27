@@ -12,7 +12,8 @@ import java.util.List;
  * Single entry point for deciding whether a tool is exposed, loadable, or callable
  * in the current role/session/request context.
  *
- * <p>Resolution is one straight line: a role's {@link ToolCapabilityProfile} decides
+ * <p>Resolution is one straight line: a session or sub-agent's
+ * {@link ToolCapabilityProfile} decides
  * whether the tool may ever be used; a {@link WorkflowCapabilityPolicy} overlay gates
  * workflow lifecycle tools by stage; then the exposure tier (core vs deferred) and
  * deferred-load state decide whether it is declared now or must be loaded first.
@@ -75,7 +76,7 @@ public final class ToolAccessResolver {
         // session's workflow restriction. When both are present the effective
         // capability is their intersection — a child of a restricted session can use
         // only what both it and the workflow allow.
-        ToolCapabilityProfile workflowFloor = workflowPolicy.sessionProfile(session);
+        ToolCapabilityProfile workflowFloor = sessionProfile(session);
         if (workflowFloor != null && workflowFloor != profile && !workflowFloor.allows(name)) {
             return ToolAccessDecision.denied(name, "Tool is restricted by the active workflow for this session.");
         }
@@ -160,8 +161,15 @@ public final class ToolAccessResolver {
         if (scope.explicitProfile() != null) {
             return scope.explicitProfile();
         }
-        ToolCapabilityProfile derived = workflowPolicy.sessionProfile(scope.session());
+        ToolCapabilityProfile derived = sessionProfile(scope.session());
         return derived != null ? derived : ToolCapabilityProfile.unrestricted();
+    }
+
+    private ToolCapabilityProfile sessionProfile(ConversationSession session) {
+        if (session == null) {
+            return null;
+        }
+        return session.capabilityProfile().toolCapability();
     }
 
     private boolean directlyExposed(ToolCapabilityProfile profile, String toolName) {

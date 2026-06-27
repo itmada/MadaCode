@@ -32,6 +32,11 @@ public final class PlanModePermissionRule implements PermissionRule {
             "revert", "rm", "stash", "switch", "tag", "worktree");
 
     @Override
+    public PermissionLayer layer() {
+        return PermissionLayer.SAFETY;
+    }
+
+    @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
         if (context == null || context.session() == null || !context.session().isPlanMode()) {
             return Optional.empty();
@@ -43,6 +48,7 @@ public final class PlanModePermissionRule implements PermissionRule {
         Optional<String> reason = mutatingBashReason(command);
         return reason.map(value -> PermissionDecision.deny(
                 "Plan Mode blocks mutating bash commands: " + value,
+                layer(),
                 SOURCE));
     }
 
