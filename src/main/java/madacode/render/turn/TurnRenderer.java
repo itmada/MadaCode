@@ -6,7 +6,6 @@ import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.session.SessionListener;
-import madacode.render.BlockSpacing;
 import madacode.render.ThinkingVerbs;
 import madacode.render.tool.ToolProgressLine;
 import madacode.render.tool.ToolDisplayRegistry;
@@ -361,9 +360,9 @@ public final class TurnRenderer implements SessionListener {
         if (reason == FinishReason.PERMISSION_CANCELLED) {
             // Tool card already shows the denial; no separate banner needed.
         } else if (reason == FinishReason.CANCELLED) {
-            BlockSpacing.scrollbackBlock(screen, Tk.failure(message));
+            screen.commitBlock(Tk.failure(message));
         } else {
-            BlockSpacing.scrollbackBlock(screen, Tk.errorTag("error") + " " + message);
+            screen.commitBlock(Tk.errorTag("error") + " " + message);
         }
     }
 
@@ -376,7 +375,7 @@ public final class TurnRenderer implements SessionListener {
         List<String> planSummary = finalizePlanPanel();
         turnView.endTurn();
         if (!planSummary.isEmpty()) {
-            BlockSpacing.scrollbackBlock(screen, planSummary);
+            screen.commitBlock(planSummary);
         }
         toolCards.clear();
         activeToolDescriptions.clear();

@@ -104,6 +104,9 @@ public final class TurnView {
         boolean hadVisibleScrollback = scrollbackWritten || !entries.isEmpty();
         apply(entries, false);
         if (hadVisibleScrollback) {
+            // The turn is one logical block even when streaming has already
+            // committed stable prefixes to scrollback. Only the final commit
+            // owns the bottom boundary.
             screen.ensureScrollbackBoundary();
         }
         items.clear();
@@ -174,7 +177,7 @@ public final class TurnView {
                     if (!committed.isEmpty()) {
                         entries.add(new OutputEntry(
                                 atr, committed,
-                                !atr.isMarginIssued() && firstEntryOf(entries, atr),
+                                shouldIssueLeadingMargin(entries, atr),
                                 true));
                     }
                 }
@@ -183,7 +186,7 @@ public final class TurnView {
                     boolean permanent = atr.isFinalized() && stillInPrefix;
                     entries.add(new OutputEntry(
                             atr, partial,
-                            !atr.isMarginIssued() && firstEntryOf(entries, atr),
+                            shouldIssueLeadingMargin(entries, atr),
                             permanent));
                     if (!permanent) stillInPrefix = false;
                 } else if (!atr.isFinalized()) {
@@ -198,7 +201,7 @@ public final class TurnView {
                 boolean permanent = item.isFinalized() && stillInPrefix;
                 entries.add(new OutputEntry(
                         item, rendered,
-                        !item.isMarginIssued() && firstEntryOf(entries, item),
+                        shouldIssueLeadingMargin(entries, item),
                         permanent));
                 if (!permanent) stillInPrefix = false;
             }
@@ -221,14 +224,14 @@ public final class TurnView {
                 if (!committed.isEmpty()) {
                     entries.add(new OutputEntry(
                             atr, committed,
-                            !atr.isMarginIssued() && firstEntryOf(entries, atr),
+                            shouldIssueLeadingMargin(entries, atr),
                             true));
                 }
                 List<String> partial = atr.render(width);
                 if (!partial.isEmpty()) {
                     entries.add(new OutputEntry(
                             atr, partial,
-                            !atr.isMarginIssued() && firstEntryOf(entries, atr),
+                            shouldIssueLeadingMargin(entries, atr),
                             true));
                 }
             } else {
@@ -236,7 +239,7 @@ public final class TurnView {
                 if (rendered.isEmpty()) continue;
                 entries.add(new OutputEntry(
                         item, rendered,
-                        !item.isMarginIssued() && firstEntryOf(entries, item),
+                        shouldIssueLeadingMargin(entries, item),
                         true));
             }
         }
@@ -321,6 +324,17 @@ public final class TurnView {
             if (e.source() == item) return false;
         }
         return true;
+    }
+
+    /**
+     * Leading margins separate items inside a turn. The first item in a turn
+     * does not get one because the preceding user/input block already owns its
+     * bottom boundary.
+     */
+    private boolean shouldIssueLeadingMargin(List<OutputEntry> entries, Renderable item) {
+        return !item.isMarginIssued()
+                && firstEntryOf(entries, item)
+                && (!entries.isEmpty() || scrollbackWritten);
     }
 
     private synchronized void cancelPendingPaint() {

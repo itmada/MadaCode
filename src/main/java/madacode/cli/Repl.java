@@ -23,7 +23,6 @@ import madacode.services.compact.CompactPlanner;
 import madacode.provider.ActiveState;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
-import madacode.render.BlockSpacing;
 import madacode.render.HistoryPrinter;
 import madacode.render.MetaEventRenderer;
 import madacode.render.turn.TurnRenderer;
@@ -404,7 +403,7 @@ public abstract class Repl {
         if (notifications != null) {
             notifications.warn(summary);
         } else {
-            screen.scrollback(Tk.warnTag("error") + " " + summary);
+            screen.commitBlock(Tk.warnTag("error") + " " + summary);
         }
         try {
             session.addMessage(madacode.core.model.Message.system(summary));
@@ -437,13 +436,13 @@ public abstract class Repl {
     protected void onSessionReplaced(ConversationSession newSession, boolean fresh) {}
 
     protected void renderSwitchedSessionHeader(ConversationSession newSession) {
-        BlockSpacing.scrollbackBlock(screen,
+        screen.commitBlock(
                 Tk.dim("Switched to session: " + newSession.sessionId()));
     }
 
     private void renderFreshSessionHeader(ConversationSession newSession) {
         ActiveModel activeModel = currentActiveModel();
-        BlockSpacing.scrollbackBlock(screen,
+        screen.commitBlock(
                 WelcomeCard.render(
                         activeModel.provider(),
                         activeModel.model(),
@@ -503,7 +502,7 @@ public abstract class Repl {
             if (notifications != null) {
                 notifications.warn(message);
             } else {
-                screen.scrollback(Tk.warnTag("warn") + " " + message);
+                screen.commitBlock(Tk.warnTag("warn") + " " + message);
             }
         }
     }

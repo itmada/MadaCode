@@ -97,6 +97,6 @@ public final class MetaEventRenderer implements SessionListener {
             boolean hasMore) {
         List<String> lines = new ArrayList<>(
                 StageWriter.render(new StageWriter.Stage(status, title, summary, verbose, hasMore)));
-        BlockSpacing.scrollbackBlock(screen, lines);
+        screen.commitBlock(lines);
     }
 }

@@ -39,7 +39,7 @@ public final class NotificationCenter {
             case WARN -> Tk.apply(Token.TAG_WARN, "▏warn");
             case ERROR -> Tk.apply(Token.TAG_ERROR, "▏error");
         };
-        screen.scrollback(prefix + "  " + message.strip());
+        screen.commitBlock(prefix + "  " + message.strip());
     }
 
     public void clear() {

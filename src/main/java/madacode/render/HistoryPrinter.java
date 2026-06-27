@@ -10,6 +10,7 @@ import madacode.render.tool.ToolDisplayRegistry;
 import madacode.render.tool.ToolActivitySkip;
 import madacode.tui.Screen;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,38 +86,32 @@ public final class HistoryPrinter {
     }
 
     private void renderTerminal(String message, FinishReason reason) {
-        BlockSpacing.begin(screen);
         if (reason == FinishReason.CANCELLED || reason == FinishReason.PERMISSION_CANCELLED) {
-            screen.scrollback(failure(message));
+            screen.commitBlock(failure(message));
         } else {
-            screen.scrollback(errorTag("error") + " " + message);
+            screen.commitBlock(errorTag("error") + " " + message);
         }
-        screen.ensureScrollbackBoundary();
     }
 
     private void renderText(MessageRole role, String text) {
         switch (role) {
-            case USER -> {
-                BlockSpacing.begin(screen);
-                screen.scrollback(UserInputRenderer.lines(text));
-                screen.ensureScrollbackBoundary();
-            }
+            case USER -> screen.commitBlock(UserInputRenderer.lines(text));
             case ASSISTANT -> {
-                BlockSpacing.begin(screen);
                 MarkdownRenderer md = new MarkdownRenderer();
                 md.append(text);
                 int width = screen.width();
+                List<String> lines = new ArrayList<>();
                 String line;
                 while ((line = md.renderLine(width)) != null) {
-                    screen.scrollback(line);
+                    lines.add(line);
                 }
                 String tail = md.flushRemaining(width);
                 if (tail != null && !tail.isEmpty()) {
-                    screen.scrollback(tail);
+                    lines.add(tail);
                 }
-                screen.ensureScrollbackBoundary();
+                screen.commitBlock(lines);
             }
-            case SYSTEM -> BlockSpacing.scrollbackBlock(screen, dim(text));
+            case SYSTEM -> screen.commitBlock(dim(text));
         }
     }
 

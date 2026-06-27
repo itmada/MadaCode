@@ -12,7 +12,6 @@ import madacode.permission.PermissionMode;
 import madacode.permission.PermissionGate;
 import madacode.provider.ProviderRegistry;
 import madacode.render.ExpandableHistory;
-import madacode.render.BlockSpacing;
 import madacode.render.UserInputRenderer;
 import madacode.render.turn.TurnRenderer;
 import madacode.render.turn.TurnView;
@@ -219,10 +218,10 @@ public final class JLineRepl extends Repl {
                 try {
                     line = lineReader.readLine(buildPrompt());
                 } catch (UserInterruptException e) {
-                    BlockSpacing.scrollbackBlock(screen, Tk.dim("(type 'exit' to quit)"));
+                    screen.commitBlock(Tk.dim("(type 'exit' to quit)"));
                     continue;
                 } catch (EndOfFileException e) {
-                    screen.scrollback("");
+                    screen.ensureScrollbackBoundary();
                     break;
                 } finally {
                     jlineScreen.clearActiveLineReader();
@@ -238,7 +237,7 @@ public final class JLineRepl extends Repl {
                         if (composed.isEmpty()) continue; // user cancelled
                         line = composed.get();
                     } catch (IOException e) {
-                        BlockSpacing.scrollbackBlock(screen,
+                        screen.commitBlock(
                                 Tk.errorTag("compose") + " " + e.getMessage());
                         continue;
                     }
@@ -248,14 +247,14 @@ public final class JLineRepl extends Repl {
 
                 // Echo user input into scrollback (matches HistoryPrinter USER format).
                 // JLine erases its own input line via ERASE_LINE_ON_FINISH; we own the scrollback record.
-                screen.scrollback(UserInputRenderer.lines(line));
+                screen.commitBlock(UserInputRenderer.lines(line));
 
                 String stripped = line.stripLeading();
                 if (stripped.startsWith("!") && stripped.length() > 1) {
                     try {
                         runInlineBash(stripped.substring(1).stripLeading(), screen, session.workingDirectory());
                     } catch (IOException e) {
-                        BlockSpacing.scrollbackBlock(screen,
+                        screen.commitBlock(
                                 Tk.errorTag("bash") + " " + e.getMessage());
                     }
                     loadHistory();
@@ -265,7 +264,7 @@ public final class JLineRepl extends Repl {
                     try {
                         appendInlineMemory(stripped.substring(1).stripLeading(), screen, inlineMemoryFile);
                     } catch (IOException e) {
-                        BlockSpacing.scrollbackBlock(screen,
+                        screen.commitBlock(
                                 Tk.errorTag("memory") + " " + e.getMessage());
                     }
                     loadHistory();
@@ -341,7 +340,7 @@ public final class JLineRepl extends Repl {
                         }
                     }
                 } catch (IOException exception) {
-                    screen.scrollback(Tk.errorTag("monitor") + " " + exception.getMessage());
+                    screen.commitBlock(Tk.errorTag("monitor") + " " + exception.getMessage());
                     requestLongRunningMonitorInterrupt();
                     break;
                 }
@@ -542,7 +541,7 @@ public final class JLineRepl extends Repl {
         if (title != null && !title.equals("(empty session)") && !title.isBlank()) {
             line += " " + title;
         }
-        BlockSpacing.scrollbackBlock(screen, Tk.dim(line));
+        screen.commitBlock(Tk.dim(line));
     }
 
     private void replayRecentSession() {
@@ -552,21 +551,26 @@ public final class JLineRepl extends Repl {
             return;
         }
         int omitted = messages.size() - 20;
-        screen.scrollback(Tk.dim("[" + omitted + " earlier messages omitted, use /replay-all to show]"));
+        screen.commitBlock(
+                Tk.dim("[" + omitted + " earlier messages omitted, use /replay-all to show]"));
         historyPrinter.printFrom(messages, omitted);
     }
 
     private static void runInlineBash(String command, Screen screen, Path cwd) throws IOException {
         try {
             BashShell.Result result = BashShell.execute(command, cwd);
+            List<String> lines = new ArrayList<>();
             if (!result.stdout().isBlank()) {
-                screen.scrollback(List.of(result.stdout().stripTrailing().split("\\R", -1)));
+                lines.addAll(List.of(result.stdout().stripTrailing().split("\\R", -1)));
             }
             if (!result.stderr().isBlank()) {
-                screen.scrollback(List.of(result.stderr().stripTrailing().split("\\R", -1)));
+                lines.addAll(List.of(result.stderr().stripTrailing().split("\\R", -1)));
             }
             if (result.exitCode() != 0) {
-                screen.scrollback(Tk.warnTag("exit") + " " + result.exitCode());
+                lines.add(Tk.warnTag("exit") + " " + result.exitCode());
+            }
+            if (!lines.isEmpty()) {
+                screen.commitBlock(lines);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -576,13 +580,13 @@ public final class JLineRepl extends Repl {
 
     private static void appendInlineMemory(String text, Screen screen, Path target) throws IOException {
         if (text == null || text.isBlank()) {
-            screen.scrollback(Tk.warnTag("memory") + " Nothing to save.");
+            screen.commitBlock(Tk.warnTag("memory") + " Nothing to save.");
             return;
         }
         Files.createDirectories(target.getParent());
         String entry = text.strip() + System.lineSeparator();
         Files.writeString(target, entry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        screen.scrollback(Tk.infoTag("memory") + " Saved to " + target);
+        screen.commitBlock(Tk.infoTag("memory") + " Saved to " + target);
     }
 
     private static SlashContext.ModelChooser inlineModelChooser(

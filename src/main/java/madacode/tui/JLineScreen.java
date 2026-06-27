@@ -121,6 +121,7 @@ public final class JLineScreen implements Screen {
             for (String line : lines) {
                 lr.printAbove(line);
             }
+            rememberScrollbackBoundary(lines);
             return;
         }
         scrollback(lines);

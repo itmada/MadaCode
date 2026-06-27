@@ -1,6 +1,7 @@
 package madacode.tui;
 
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -19,6 +20,26 @@ public interface Screen {
 
     /** Append a batch of lines to scrollback. */
     void scrollback(List<String> lines);
+
+    /**
+     * Commit one complete user-visible block to scrollback. The block owns its
+     * bottom boundary; callers should not add a leading blank before the next
+     * block.
+     */
+    default void commitBlock(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        scrollback(lines);
+        if (!lines.getLast().isEmpty()) {
+            ensureScrollbackBoundary();
+        }
+    }
+
+    /** Commit one complete user-visible block to scrollback. */
+    default void commitBlock(String line) {
+        commitBlock(List.of(line));
+    }
 
     /**
      * Ensure the next prompt or content block starts below a blank scrollback
@@ -46,6 +67,29 @@ public interface Screen {
      */
     default void notifyAsync(List<String> lines) {
         scrollback(lines);
+    }
+
+    /** Thread-safe async variant of {@link #commitBlock(List)}. */
+    default void commitAsyncBlock(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        notifyAsync(withTrailingBoundary(lines));
+    }
+
+    /** Thread-safe async variant of {@link #commitBlock(String)}. */
+    default void commitAsyncBlock(String line) {
+        commitAsyncBlock(List.of(line));
+    }
+
+    private static List<String> withTrailingBoundary(List<String> lines) {
+        if (!lines.getLast().isEmpty()) {
+            List<String> result = new ArrayList<>(lines.size() + 1);
+            result.addAll(lines);
+            result.add("");
+            return result;
+        }
+        return lines;
     }
 
     /** Set the transient status layer. Empty list clears it. */

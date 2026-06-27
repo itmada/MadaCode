@@ -62,7 +62,7 @@ public final class ProviderSetupWizard {
                                     Provider provider = draft.toProvider();
                                     loader.save(List.of(provider));
                                     screen.clearLiveModal();
-                                    screen.scrollback(List.of("Configuration saved to " + loader.file()));
+                                    screen.commitBlock("Configuration saved to " + loader.file());
                                     return List.of(provider);
                                 } catch (IllegalArgumentException e) {
                                     draft.setError(e.getMessage());

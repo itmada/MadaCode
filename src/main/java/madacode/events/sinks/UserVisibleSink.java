@@ -47,7 +47,7 @@ public class UserVisibleSink implements Sink<UserVisibleEvent> {
 
         String line = format(event);
         if (screen != null) {
-            screen.scrollback(line);
+            screen.commitBlock(line);
         } else {
             stderrFallback.println(line);
             stderrFallback.flush();

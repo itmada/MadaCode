@@ -25,8 +25,7 @@ public final class ExpandableHistory {
     public void expandInto(Screen screen) {
         take().ifPresentOrElse(stage -> {
             List<String> lines = new ArrayList<>(StageWriter.renderVerbose(stage));
-            lines.add("");
-            screen.scrollback(lines);
-        }, () -> screen.scrollback(Tk.dim("(nothing to expand)")));
+            screen.commitBlock(lines);
+        }, () -> screen.commitBlock(Tk.dim("(nothing to expand)")));
     }
 }

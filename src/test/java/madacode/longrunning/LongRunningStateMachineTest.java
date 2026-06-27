@@ -200,6 +200,9 @@ class LongRunningStateMachineTest {
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningPlanSummary("Implement the requested feature deterministically.");
+        new LongRunningTaskInitializer(new LongRunningTaskStore(tempDir),
+                LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId)
+                .ensurePlanningTask(session, "Initialize long-running test task.");
         return session;
     }
 

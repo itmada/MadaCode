@@ -11,7 +11,7 @@ import madacode.core.engine.QueryEngine;
 import madacode.core.session.SessionStorage;
 import madacode.provider.ProviderRegistry;
 import madacode.services.compact.CompactPlanner;
-import madacode.tui.BlockScopedScreen;
+import madacode.tui.BlockCommitScreen;
 import madacode.tui.Screen;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
@@ -157,7 +157,7 @@ public class SlashCommandHandler {
             return new SlashAction.Handled();
         }
 
-        BlockScopedScreen output = new BlockScopedScreen(screen);
+        BlockCommitScreen output = new BlockCommitScreen(screen);
         SlashContext ctx = new SlashContext(
                 current,
                 output,
@@ -176,12 +176,12 @@ public class SlashCommandHandler {
         try {
             return command.get().execute(ctx, arg);
         } finally {
-            output.finishBlock();
+            output.commitBlock();
         }
     }
 
     private void notifyWarn(String message) {
-        BlockScopedScreen output = new BlockScopedScreen(screen);
+        BlockCommitScreen output = new BlockCommitScreen(screen);
         try {
             if (notifications != null) {
                 new NotificationCenter(output).warn(message);
@@ -189,7 +189,7 @@ public class SlashCommandHandler {
                 output.scrollback(message);
             }
         } finally {
-            output.finishBlock();
+            output.commitBlock();
         }
     }
 }
