@@ -16,10 +16,15 @@ public final class ToolSearchPermissionRule implements PermissionRule {
     public static final String SOURCE = "tool_search";
 
     @Override
+    public PermissionLayer layer() {
+        return PermissionLayer.CAPABILITY;
+    }
+
+    @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
         if (!ToolSearchTool.NAME.equals(tool.name())) {
             return Optional.empty();
         }
-        return Optional.of(PermissionDecision.allow(SOURCE));
+        return Optional.of(PermissionDecision.allow(layer(), SOURCE));
     }
 }

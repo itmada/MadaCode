@@ -15,13 +15,13 @@ import java.util.Set;
  * loaded tools, and the exact tool snapshot exposed to one model request.
  *
  * <p>When {@code explicitProfile} is {@code null} the resolver derives the effective
- * capability from the session's workflow role, so a scope built with a plain
- * {@link #forSession} on e.g. a long-running worker session is still restricted —
- * the restriction follows the session, not the construction site.
+ * capability from the session's {@code capabilityProfile()}, so a scope built with a
+ * plain {@link #forSession} on e.g. a long-running worker session is still restricted
+ * — the restriction follows the session, not the construction site.
  *
  * <p>Assembly flow:
  * <ol>
- *   <li>Root turns start with {@link #forSession}: session and workflow role only.</li>
+ *   <li>Root turns start with {@link #forSession}: session capability only.</li>
  *   <li>Sub-agents use {@link #forSubAgent}: explicit profile plus the parent's
  *       loaded deferred-tool snapshot.</li>
  *   <li>Each model request calls {@link #withRequestExposedToolNames}: the exact
@@ -40,7 +40,7 @@ public record ToolAccessScope(
         exposedToolNames = exposedToolNames == null ? null : Set.copyOf(exposedToolNames);
     }
 
-    /** Scope whose capability is derived from the session's workflow role. */
+    /** Scope whose capability is derived from the session's capability profile. */
     public static ToolAccessScope forSession(ConversationSession session) {
         return new ToolAccessScope(session, null, Set.of(), null);
     }

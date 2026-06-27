@@ -6,6 +6,7 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
+import madacode.permission.PermissionLayer;
 import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.FileWriteTool;
@@ -50,14 +51,19 @@ class PermissionEnforcementTest {
 
         assertTrue(readDecision.isAllowed());
         assertEquals(ReadOnlyPermissionRule.SOURCE, readDecision.source());
+        assertEquals(PermissionLayer.SCOPE, readDecision.layer());
         assertTrue(safeBash.isAllowed());
-        assertEquals(DefaultModePermissionRule.SOURCE, safeBash.source());
+        assertEquals(PosturePermissionRule.SOURCE, safeBash.source());
+        assertEquals(PermissionLayer.POSTURE, safeBash.layer());
         assertTrue(writeDecision.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, writeDecision.source());
+        assertEquals(PermissionLayer.FALLBACK, writeDecision.layer());
         assertTrue(rememberedWriteDecision.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_SESSION_MEMORY, rememberedWriteDecision.source());
+        assertEquals(PermissionLayer.FALLBACK, rememberedWriteDecision.layer());
         assertTrue(mutatingBash.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, mutatingBash.source());
+        assertEquals(PermissionLayer.FALLBACK, mutatingBash.layer());
         assertEquals(2, prompt.calls);
     }
 
@@ -78,9 +84,11 @@ class PermissionEnforcementTest {
                 context);
 
         assertTrue(safeWrite.isAllowed());
-        assertEquals(EditModePermissionRule.SOURCE, safeWrite.source());
+        assertEquals(PosturePermissionRule.SOURCE, safeWrite.source());
+        assertEquals(PermissionLayer.POSTURE, safeWrite.layer());
         assertFalse(dangerousWrite.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, dangerousWrite.source());
+        assertEquals(PermissionLayer.FALLBACK, dangerousWrite.layer());
         assertEquals(1, prompt.calls);
     }
 
@@ -105,11 +113,14 @@ class PermissionEnforcementTest {
                 context);
 
         assertTrue(safeWrite.isAllowed());
-        assertEquals(BypassPermissionRule.SOURCE, safeWrite.source());
+        assertEquals(PosturePermissionRule.SOURCE, safeWrite.source());
+        assertEquals(PermissionLayer.POSTURE, safeWrite.layer());
         assertFalse(dangerousEdit.isAllowed());
         assertEquals(DefaultPermissionGate.SOURCE_USER_PROMPT, dangerousEdit.source());
+        assertEquals(PermissionLayer.FALLBACK, dangerousEdit.layer());
         assertFalse(dangerousBash.isAllowed());
         assertEquals(BashSafetyPermissionRule.SOURCE, dangerousBash.source());
+        assertEquals(PermissionLayer.SAFETY, dangerousBash.layer());
         assertEquals(1, prompt.calls);
     }
 
@@ -155,16 +166,22 @@ class PermissionEnforcementTest {
 
         assertFalse(writeDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, writeDecision.source());
+        assertEquals(PermissionLayer.SAFETY, writeDecision.layer());
         assertFalse(bashDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, bashDecision.source());
+        assertEquals(PermissionLayer.SAFETY, bashDecision.layer());
         assertTrue(otherWriteDecision.isAllowed());
         assertEquals(LongRunningWorkspacePermissionRule.SOURCE, otherWriteDecision.source());
+        assertEquals(PermissionLayer.SCOPE, otherWriteDecision.layer());
         assertFalse(otherBashDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, otherBashDecision.source());
+        assertEquals(PermissionLayer.SAFETY, otherBashDecision.layer());
         assertFalse(normalizedRelativeBashDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, normalizedRelativeBashDecision.source());
+        assertEquals(PermissionLayer.SAFETY, normalizedRelativeBashDecision.layer());
         assertFalse(cdRelativeBashDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, cdRelativeBashDecision.source());
+        assertEquals(PermissionLayer.SAFETY, cdRelativeBashDecision.layer());
         assertEquals(0, prompt.calls);
     }
 
@@ -191,8 +208,10 @@ class PermissionEnforcementTest {
 
         assertFalse(writeDecision.isAllowed());
         assertEquals(LongRunningTaskStatePermissionRule.SOURCE, writeDecision.source());
+        assertEquals(PermissionLayer.SAFETY, writeDecision.layer());
         assertTrue(officialToolDecision.isAllowed());
-        assertEquals(DefaultModePermissionRule.SOURCE, officialToolDecision.source());
+        assertEquals(PosturePermissionRule.SOURCE, officialToolDecision.source());
+        assertEquals(PermissionLayer.POSTURE, officialToolDecision.layer());
         assertEquals(0, prompt.calls);
     }
 
@@ -207,6 +226,7 @@ class PermissionEnforcementTest {
 
         assertTrue(decision.isAllowed());
         assertEquals(SessionProgressPermissionRule.SOURCE, decision.source());
+        assertEquals(PermissionLayer.CAPABILITY, decision.layer());
         assertEquals(0, prompt.calls);
     }
 
@@ -224,7 +244,8 @@ class PermissionEnforcementTest {
         PermissionDecision decision = gate.check(new UpdatePlanTool(), updatePlanInput(), context);
 
         assertTrue(decision.isAllowed());
-        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, decision.source());
+        assertEquals(SessionProgressPermissionRule.SOURCE, decision.source());
+        assertEquals(PermissionLayer.CAPABILITY, decision.layer());
         assertEquals(0, prompt.calls);
     }
 
@@ -240,9 +261,11 @@ class PermissionEnforcementTest {
         PermissionDecision mutate = gate.check(new BashTool(), bashInput("git add ."), context);
 
         assertTrue(inspect.isAllowed());
-        assertEquals(DefaultModePermissionRule.SOURCE, inspect.source());
+        assertEquals(PosturePermissionRule.SOURCE, inspect.source());
+        assertEquals(PermissionLayer.POSTURE, inspect.layer());
         assertFalse(mutate.isAllowed());
         assertEquals(PlanModePermissionRule.SOURCE, mutate.source());
+        assertEquals(PermissionLayer.SAFETY, mutate.layer());
         assertEquals(0, prompt.calls);
     }
 

@@ -6,6 +6,8 @@ import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.TokenUsage;
 
+import madacode.governance.CapabilityProfile;
+import madacode.governance.CapabilityProfiles;
 import madacode.permission.PermissionMode;
 import madacode.plan.CurrentPlan;
 import madacode.tool.ReadFileState;
@@ -529,6 +531,21 @@ public class ConversationSession {
 
     public void setPermissionMode(PermissionMode permissionMode) {
         this.permissionMode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
+    }
+
+    public CapabilityProfile capabilityProfile() {
+        if (isLongRunningWorkerSession()) {
+            if (lastWorkerReport().isPresent()
+                    || longRunningStage() != LongRunningStage.RUNNING) {
+                return CapabilityProfiles.longRunningWorker(
+                        madacode.tool.access.ToolCapabilityProfile.explicitAllowList(
+                                "longrun-worker-idle",
+                                Set.of(),
+                                false));
+            }
+            return CapabilityProfiles.longRunningWorker();
+        }
+        return CapabilityProfiles.mainSession(permissionMode);
     }
 
     // ---- Long-running mode -------------------------------------------

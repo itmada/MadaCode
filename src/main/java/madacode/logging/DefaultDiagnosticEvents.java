@@ -67,10 +67,11 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
             String toolName,
             PermissionDecision decision,
             long waitMs) {
-        String message = "permission_decision sessionId=%s tool=%s source=%s allowed=%s waitMs=%d reason=\"%s\""
+        String message = "permission_decision sessionId=%s tool=%s layer=%s source=%s allowed=%s waitMs=%d reason=\"%s\""
                 .formatted(
                         session.sessionId(),
                         toolName,
+                        decision.layer(),
                         decision.source(),
                         decision.isAllowed(),
                         waitMs,

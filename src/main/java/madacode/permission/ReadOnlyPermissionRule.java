@@ -24,6 +24,11 @@ public final class ReadOnlyPermissionRule implements PermissionRule {
 
     public static final String SOURCE = "read_only";
 
+    @Override
+    public PermissionLayer layer() {
+        return PermissionLayer.SCOPE;
+    }
+
     private final List<Path> trustedRoots;
 
     public ReadOnlyPermissionRule() {
@@ -42,7 +47,7 @@ public final class ReadOnlyPermissionRule implements PermissionRule {
 
         List<String> targets = tool.permissionTargets(input);
         if (targets.isEmpty()) {
-            return Optional.of(PermissionDecision.allow(SOURCE));
+            return Optional.of(PermissionDecision.allow(layer(), SOURCE));
         }
 
         Path workingDir = context.workingDirectory();
@@ -52,6 +57,6 @@ public final class ReadOnlyPermissionRule implements PermissionRule {
             }
         }
 
-        return Optional.of(PermissionDecision.allow(SOURCE));
+        return Optional.of(PermissionDecision.allow(layer(), SOURCE));
     }
 }
