@@ -32,11 +32,10 @@ import java.util.stream.Collectors;
  * in plan mode, the child is too. Writes inside the sub-agent are then
  * blocked by the same plan-mode check that protects the parent.
  *
- * <p>The child also inherits the parent's {@code permissionMode} verbatim:
- * spawning a sub-agent never escalates privileges beyond what the user
- * granted the parent session. Capabilities are narrowed by tool allowlists
- * ({@code allowedTools}/{@code disallowedTools}), not by widening the
- * permission mode.
+ * <p>The child inherits the parent's approval preset: spawning a sub-agent
+ * never escalates approval posture beyond what the user granted the parent
+ * session. Capabilities are narrowed by tool allowlists
+ * ({@code allowedTools}/{@code disallowedTools}), not by changing approval mode.
  *
  * <p>A {@link ParentEventForwarder} bridges sub-agent events to the parent
  * session: token usage bubbles up for billing correctness, and child tool
@@ -83,8 +82,9 @@ public class AgentRunner {
         ConversationSession parentSession = parentContext.session();
         ConversationSession childSession = new ConversationSession(parentContext.workingDirectory());
         childSession.setPlanMode(parentSession.isPlanMode());
+        childSession.setIsolationProfile(parentSession.capabilityProfile().isolationProfile());
 
-        // Sub-agents inherit the parent session's permission mode. Spawning a
+        // Sub-agents inherit the parent session's approval preset. Spawning a
         // sub-agent must never escalate privileges beyond what the user granted
         // the parent: a parent in DEFAULT means the child also prompts before
         // edits (the shared gate surfaces approvals to the user), while a parent

@@ -6,6 +6,7 @@ import madacode.core.engine.ToolUseContext;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
+import madacode.governance.IsolationProfile;
 import madacode.tool.BashTool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,7 +28,9 @@ class LongRunningWorkspacePermissionRuleTest {
 
     @Test
     void allowsUnresolvedExpansionWhenNoStaticScopeViolationIsConfirmed() {
-        assertAllowed("git commit -m \"fix $x\"");
+        assertAllowed(
+                "git commit -m \"fix $x\"",
+                LongRunningWorkspacePermissionRule.SOURCE_UNRESOLVED_EXPANSION);
         assertAllowed("grep \"$p\" README.md");
         assertAllowed("for f in *.java");
     }
@@ -47,10 +50,31 @@ class LongRunningWorkspacePermissionRuleTest {
                 changingDirWithExpansion.reason());
     }
 
+    @Test
+    void containerIsolationLetsHardBoundaryReplaceStaticWorkspaceScope() {
+        ConversationSession session = workerSession();
+        session.setIsolationProfile(IsolationProfile.container());
+
+        assertTrue(rule.evaluate(bashTool, bashInput("git add ../outside.txt"), new ToolUseContext(tempDir, session))
+                .isEmpty());
+    }
+
+    @Test
+    void unresolvedMutatingExpansionIsAllowedWithAuditSourceWhenNoStaticViolationIsConfirmed() {
+        PermissionDecision decision = evaluate("rm $TARGET");
+
+        assertTrue(decision.isAllowed());
+        assertEquals(LongRunningWorkspacePermissionRule.SOURCE_UNRESOLVED_EXPANSION, decision.source());
+    }
+
     private void assertAllowed(String command) {
+        assertAllowed(command, LongRunningWorkspacePermissionRule.SOURCE);
+    }
+
+    private void assertAllowed(String command, String source) {
         PermissionDecision decision = evaluate(command);
         assertTrue(decision.isAllowed(), () -> "Expected allowed bash command: " + command + " but got: " + decision.reason());
-        assertEquals(LongRunningWorkspacePermissionRule.SOURCE, decision.source());
+        assertEquals(source, decision.source());
     }
 
     private PermissionDecision evaluate(String command) {
@@ -58,12 +82,15 @@ class LongRunningWorkspacePermissionRuleTest {
     }
 
     private ToolUseContext context() {
+        return new ToolUseContext(tempDir, workerSession());
+    }
+
+    private ConversationSession workerSession() {
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
         session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningWorkerSession(true);
-        return new ToolUseContext(tempDir, session);
+        return session;
     }
 
     private ObjectNode bashInput(String command) {

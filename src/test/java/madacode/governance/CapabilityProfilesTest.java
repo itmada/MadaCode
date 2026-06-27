@@ -35,12 +35,14 @@ class CapabilityProfilesTest {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setLongRunningStage(LongRunningStage.RUNNING);
         session.setLongRunningWorkerSession(true);
+        session.setIsolationProfile(IsolationProfile.container());
 
         CapabilityProfile profile = session.capabilityProfile();
 
         assertEquals("longrun-worker", profile.id());
         assertEquals(ApprovalPosture.longRunningWorker(), profile.approvalPosture());
         assertEquals(CapabilityProfiles.LONG_RUNNING_WORKER_TOOLS, profile.toolCapability().allowedTools());
+        assertEquals(IsolationProfile.container(), profile.isolationProfile());
     }
 
     @Test

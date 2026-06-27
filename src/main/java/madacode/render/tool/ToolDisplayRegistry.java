@@ -24,7 +24,6 @@ public final class ToolDisplayRegistry {
             if (normalized != null && !normalized.isBlank()) {
                 this.aliases.put(normalized, canonical);
             }
-            // Backward-compat alias for historical web_fetch naming.
             if ("web_fetch".equals(canonical)) {
                 this.aliases.put("webfetch", canonical);
             }

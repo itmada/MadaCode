@@ -15,7 +15,6 @@ import madacode.core.turn.TurnLog;
 import madacode.core.turn.TurnResult;
 import madacode.execution.HostProcessEnvironment;
 import madacode.execution.WorkerExecutionEnvironment;
-import madacode.permission.PermissionMode;
 import madacode.prompt.SystemPromptBuilder;
 import madacode.tool.ToolRegistry;
 
@@ -123,7 +122,7 @@ public class LongRunningWorkerRunner {
             workerSession.setLongRunningWorkerSession(true);
             workerSession.setLongRunningTaskId(taskId);
             workerSession.setLongRunningTaskDirectory(taskDir.toString());
-            workerSession.setPermissionMode(PermissionMode.LONG_RUNNING_WORKSPACE);
+            workerSession.setIsolationProfile(environment.isolationProfile());
             // Sub-agents spawned by the worker register with the out-of-band observer (no-op
             // in production); propagation to descendants is handled by registerSubAgent.
             workerSession.setSubAgentSpawnObserver(subAgentSpawnObserver);

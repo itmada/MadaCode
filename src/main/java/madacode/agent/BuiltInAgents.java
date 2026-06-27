@@ -1,7 +1,5 @@
 package madacode.agent;
 
-import madacode.permission.PermissionMode;
-
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -30,8 +28,7 @@ public final class BuiltInAgents {
                         """,
                 Set.of("file_read", "glob", "grep"),
                 Set.of("agent", "bash"),
-                null,
-                PermissionMode.EDIT
+                null
         );
     }
 
@@ -58,8 +55,7 @@ public final class BuiltInAgents {
                         """,
                 Set.of("file_read", "glob", "grep"),
                 Set.of("agent", "bash"),
-                null,
-                PermissionMode.EDIT
+                null
         );
     }
 
@@ -71,8 +67,7 @@ public final class BuiltInAgents {
                 "You are a general-purpose sub-agent. Execute the given task using available tools. You can read files, search code, and run shell commands. Work independently and report results clearly.",
                 Set.of("file_read", "glob", "grep", "bash"),
                 Set.of("agent"),
-                null,
-                PermissionMode.EDIT
+                null
         );
     }
 
@@ -104,8 +99,7 @@ public final class BuiltInAgents {
                         """,
                 Set.of("file_read", "glob", "grep", "bash"),
                 Set.of("agent"),
-                null,
-                PermissionMode.EDIT
+                null
         );
     }
 

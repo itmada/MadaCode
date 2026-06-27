@@ -2,7 +2,7 @@ package madacode.permission;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
-import madacode.permission.bash.BashCommandModel;
+import madacode.shell.BashCommandModel;
 import madacode.tool.Tool;
 import madacode.tool.ToolNames;
 

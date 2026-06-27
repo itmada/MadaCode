@@ -8,9 +8,7 @@ import java.util.Optional;
 
 public interface PermissionRule {
 
-    default PermissionLayer layer() {
-        return PermissionLayer.FALLBACK;
-    }
+    PermissionLayer layer();
 
     Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context);
 }

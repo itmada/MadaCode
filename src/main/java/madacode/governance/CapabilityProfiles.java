@@ -4,6 +4,7 @@ import madacode.permission.PermissionMode;
 import madacode.tool.ToolNames;
 import madacode.tool.access.ToolCapabilityProfile;
 
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -26,43 +27,37 @@ public final class CapabilityProfiles {
     private CapabilityProfiles() {
     }
 
-    public static CapabilityProfile mainSession(PermissionMode permissionMode) {
+    public static CapabilityProfile mainSession(PermissionMode permissionMode, IsolationProfile isolationProfile) {
         PermissionMode mode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
-        return mainSession(mode.approvalPosture());
+        return mainSession(mode.approvalPosture(), isolationProfile);
     }
 
-    public static CapabilityProfile mainSession(ApprovalPosture approvalPosture) {
+    public static CapabilityProfile mainSession(
+            ApprovalPosture approvalPosture,
+            IsolationProfile isolationProfile) {
         return new CapabilityProfile(
                 "main",
                 ToolCapabilityProfile.unrestricted(),
-                approvalPosture,
-                IsolationProfile.localUnsafe());
+                Objects.requireNonNull(approvalPosture, "approvalPosture"),
+                Objects.requireNonNull(isolationProfile, "isolationProfile"));
     }
 
-    public static CapabilityProfile subAgent(
-            String id,
-            ToolCapabilityProfile toolCapability,
-            ApprovalPosture approvalPosture) {
-        return new CapabilityProfile(
-                id,
-                toolCapability,
-                approvalPosture,
-                IsolationProfile.localUnsafe());
-    }
-
-    public static CapabilityProfile longRunningWorker() {
+    public static CapabilityProfile longRunningWorker(IsolationProfile isolationProfile) {
         return longRunningWorker(ToolCapabilityProfile.explicitAllowList(
                 "longrun-worker",
                 LONG_RUNNING_WORKER_TOOLS,
-                false));
+                false),
+                isolationProfile);
     }
 
-    public static CapabilityProfile longRunningWorker(ToolCapabilityProfile toolCapability) {
+    public static CapabilityProfile longRunningWorker(
+            ToolCapabilityProfile toolCapability,
+            IsolationProfile isolationProfile) {
         return new CapabilityProfile(
                 "longrun-worker",
-                toolCapability,
+                Objects.requireNonNull(toolCapability, "toolCapability"),
                 ApprovalPosture.longRunningWorker(),
-                IsolationProfile.localUnsafe());
+                Objects.requireNonNull(isolationProfile, "isolationProfile"));
     }
 
     public static CapabilityProfile evalCase(IsolationProfile isolationProfile) {
@@ -70,6 +65,6 @@ public final class CapabilityProfiles {
                 "eval",
                 ToolCapabilityProfile.unrestricted(),
                 ApprovalPosture.defaultInteractive(),
-                isolationProfile);
+                Objects.requireNonNull(isolationProfile, "isolationProfile"));
     }
 }

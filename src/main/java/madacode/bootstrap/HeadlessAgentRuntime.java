@@ -49,10 +49,10 @@ import java.util.function.Consumer;
  * Callers supply an execution-environment session
  * per run; this runtime is built once and reused across cases.
  *
- * <p>Permission behavior is driven entirely by each session's {@code PermissionMode}: the
- * gate uses an auto-DENY approval prompt, so BYPASS auto-allows everything (full autonomy),
- * EDIT allows built-in file edits, and DEFAULT allows built-in non-edit tools plus basic
- * read/search bash.
+ * <p>Permission behavior is driven by each session's capability profile. The
+ * gate uses an auto-DENY approval prompt, so BYPASS maps to an all-allow
+ * approval posture after structural safety rules, EDIT allows workspace file
+ * edits, and DEFAULT still prompts for edits, exec, and network access.
  *
  * <p>Requires {@code ~/.mada/providers.json} to be configured (eval connects a real model).
  */

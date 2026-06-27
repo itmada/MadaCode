@@ -2,7 +2,8 @@ package madacode.permission;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
-import madacode.permission.bash.BashCommandModel;
+import madacode.governance.IsolationProfile;
+import madacode.shell.BashCommandModel;
 import madacode.tool.Tool;
 import madacode.tool.ToolNames;
 
@@ -19,6 +20,7 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
     }
 
     public static final String SOURCE = "long_running_workspace";
+    public static final String SOURCE_UNRESOLVED_EXPANSION = "long_running_workspace_unresolved_expansion";
     private static final Set<String> WORKSPACE_READ_TOOLS = Set.of(
             ToolNames.FILE_READ,
             ToolNames.GLOB,
@@ -93,40 +95,43 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
     }
 
     private static boolean applies(ToolUseContext context) {
-        return context.session().isLongRunningWorkerSession();
+        return context.session().isLongRunningWorkerSession()
+                && context.session().capabilityProfile().isolationProfile().level()
+                        == IsolationProfile.IsolationLevel.LOCAL_UNSAFE;
     }
 
     private static boolean isWorkerTaskStoreTool(Tool<?> tool) {
         return ToolNames.LONGRUN_ENVIRONMENT_UPDATE.equals(tool.name())
-                || ToolNames.WORKER_REPORT.equals(tool.name())
-                || ToolNames.UPDATE_PLAN.equals(tool.name());
+                || ToolNames.WORKER_REPORT.equals(tool.name());
     }
 
     private static PermissionDecision evaluateBash(String command, Path workingDir) {
         BashScopeDecision decision = BashScopeDecision.evaluate(command, workingDir);
         if (decision.allowed()) {
-            return PermissionDecision.allow(PermissionLayer.SCOPE, SOURCE);
+            return PermissionDecision.allow(
+                    PermissionLayer.SCOPE,
+                    decision.unresolvedMutation() ? SOURCE_UNRESOLVED_EXPANSION : SOURCE);
         }
         return PermissionDecision.deny(decision.reason(), PermissionLayer.SCOPE, SOURCE);
     }
 
-    private record BashScopeDecision(boolean allowed, String reason) {
+    private record BashScopeDecision(boolean allowed, String reason, boolean unresolvedMutation) {
         private static final Set<String> ALLOWED_EXTERNAL_READ_COMMANDS = Set.of(
                 "ls", "cat", "head", "tail", "less", "more",
                 "grep", "rg", "find", "pwd", "wc", "stat", "file",
                 "du", "df", "sort", "uniq", "cut", "awk", "sed",
                 "git");
-        private static final Set<String> LONG_RUNNING_READ_ONLY_GIT = Set.of(
-                "status", "log", "show", "diff", "branch", "rev-parse",
-                "ls-files", "grep", "remote", "config", "describe",
-                "tag", "blame");
 
         static BashScopeDecision allow() {
-            return new BashScopeDecision(true, "");
+            return allow(false);
+        }
+
+        static BashScopeDecision allow(boolean unresolvedMutation) {
+            return new BashScopeDecision(true, "", unresolvedMutation);
         }
 
         static BashScopeDecision deny(String reason) {
-            return new BashScopeDecision(false, reason);
+            return new BashScopeDecision(false, reason, false);
         }
 
         static BashScopeDecision evaluate(String command, Path workingDir) {
@@ -136,6 +141,7 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
             }
 
             Path currentDir = workingDir.toAbsolutePath().normalize();
+            boolean unresolvedMutation = false;
             for (BashCommandModel.Segment segment : model.segments()) {
                 if (segment.commandName() == null) {
                     continue;
@@ -168,11 +174,14 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
                         && !isAllowedExternalReadCommand(segment)) {
                     return deny("Long-running worker bash outside the workspace is limited to read-only inspection commands.");
                 }
-                if (currentOutsideWorkspace && segment.hasRedirection()) {
+                if (currentOutsideWorkspace && segment.writesRealFile()) {
                     return deny("Long-running worker bash cannot redirect output while running outside the workspace.");
                 }
+                if (segment.isMutatingCommand() && segment.hasUnresolvedExpansion()) {
+                    unresolvedMutation = true;
+                }
             }
-            return allow();
+            return allow(unresolvedMutation);
         }
 
         private static ExternalUse externalUse(BashCommandModel.Segment segment, Path currentDir, Path workingDir) {
@@ -189,6 +198,9 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
                 }
             }
             for (BashCommandModel.Redirection redirection : segment.redirections()) {
+                if (!redirection.writesRealFile()) {
+                    continue;
+                }
                 if (!BashCommandModel.isPathLike(redirection.target())) {
                     continue;
                 }
@@ -207,8 +219,7 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
 
         private static boolean isAllowedExternalReadCommand(BashCommandModel.Segment segment) {
             if ("git".equals(segment.commandName())) {
-                return segment.gitSubcommand() != null
-                        && LONG_RUNNING_READ_ONLY_GIT.contains(segment.gitSubcommand());
+                return segment.isReadOnlyGit();
             }
             if ("find".equals(segment.commandName()) && segment.findMutation()) {
                 return false;

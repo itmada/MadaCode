@@ -8,6 +8,7 @@ import madacode.core.model.TokenUsage;
 
 import madacode.governance.CapabilityProfile;
 import madacode.governance.CapabilityProfiles;
+import madacode.governance.IsolationProfile;
 import madacode.permission.PermissionMode;
 import madacode.plan.CurrentPlan;
 import madacode.tool.ReadFileState;
@@ -71,6 +72,7 @@ public class ConversationSession {
     private volatile SessionMode workflowMode = SessionMode.COMMON;
     private volatile boolean planMode;
     private volatile PermissionMode permissionMode = PermissionMode.DEFAULT;
+    private volatile IsolationProfile isolationProfile = IsolationProfile.localUnsafe();
     private volatile LongRunningSessionState longRunning;
     private final AtomicReference<TokenUsage> tokenUsageRef =
             new AtomicReference<>(TokenUsage.ZERO);
@@ -533,6 +535,14 @@ public class ConversationSession {
         this.permissionMode = permissionMode == null ? PermissionMode.DEFAULT : permissionMode;
     }
 
+    public IsolationProfile isolationProfile() {
+        return isolationProfile;
+    }
+
+    public void setIsolationProfile(IsolationProfile isolationProfile) {
+        this.isolationProfile = isolationProfile == null ? IsolationProfile.localUnsafe() : isolationProfile;
+    }
+
     public CapabilityProfile capabilityProfile() {
         if (isLongRunningWorkerSession()) {
             if (lastWorkerReport().isPresent()
@@ -541,11 +551,12 @@ public class ConversationSession {
                         madacode.tool.access.ToolCapabilityProfile.explicitAllowList(
                                 "longrun-worker-idle",
                                 Set.of(),
-                                false));
+                                false),
+                        isolationProfile);
             }
-            return CapabilityProfiles.longRunningWorker();
+            return CapabilityProfiles.longRunningWorker(isolationProfile);
         }
-        return CapabilityProfiles.mainSession(permissionMode);
+        return CapabilityProfiles.mainSession(permissionMode, isolationProfile);
     }
 
     // ---- Long-running mode -------------------------------------------

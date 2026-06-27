@@ -1,38 +1,26 @@
 package madacode.render.turn;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import madacode.tool.ToolNames;
+import madacode.shell.BashCommandModel;
 import madacode.tui.TerminalText;
 import madacode.util.ToolNameNormalizer;
 
-import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 final class ToolGroupingPolicy {
-
-    private static final Set<String> READ_ONLY_COMMANDS = Set.of(
-            "pwd", "ls", "find", "rg", "grep", "cat", "sed", "awk",
-            "head", "tail", "wc", "nl", "tree", "sort");
-
-    private static final Set<String> READ_ONLY_PIPE_COMMANDS = Set.of(
-            "rg", "grep", "sed", "awk", "head", "tail", "wc", "nl", "sort", "cat");
-
-    private static final Set<String> READ_ONLY_GIT_SUBCOMMANDS = Set.of(
-            "status", "diff", "grep", "show", "log");
 
     ToolActivityDescriptor describe(String toolName, ObjectNode input) {
         String normalized = normalize(toolName);
         return switch (normalized) {
-            case "file_read", "read" -> groupable(
+            case "file_read" -> groupable(
                     ToolActivityKind.READ, "Read", field(input, "path", "file_path"));
-            case "glob", "list" -> groupable(
+            case "glob" -> groupable(
                     ToolActivityKind.LIST, "List", quote(field(input, "pattern", "")));
-            case "grep", "search" -> groupable(
+            case "grep" -> groupable(
                     ToolActivityKind.SEARCH, "Search", grepTarget(input));
             case "bash" -> describeBash(field(input, "command", ""));
-            case "write", "file_write" -> standalone(ToolActivityKind.WRITE, "Write", field(input, "file_path", "path"));
-            case "edit", "file_edit" -> standalone(ToolActivityKind.EDIT, "Edit", field(input, "file_path", "path"));
+            case "file_write" -> standalone(ToolActivityKind.WRITE, "Write", field(input, "file_path", "path"));
+            case "file_edit" -> standalone(ToolActivityKind.EDIT, "Edit", field(input, "file_path", "path"));
             case "agent" -> standalone(ToolActivityKind.AGENT, "Agent", field(input, "subagent_type", ""));
             case "skill" -> standalone(ToolActivityKind.AGENT, "Skill", field(input, "skill", ""));
             case "update_plan" -> new ToolActivityDescriptor(
@@ -42,94 +30,76 @@ final class ToolGroupingPolicy {
     }
 
     private static ToolActivityDescriptor describeBash(String command) {
-        if (command.isBlank() || !isReadOnlyShell(command)) {
+        BashCommandModel model = BashCommandModel.parse(command);
+        BashCommandModel.Segment primary = primaryExplorationSegment(model);
+        if (primary == null) {
             return standalone(ToolActivityKind.EXEC, "Run", command);
         }
-        String first = firstToken(firstPipelineSegment(command));
-        if ("git".equals(first)) {
-            String subcommand = gitSubcommand(firstPipelineSegment(command));
-            ToolActivityKind kind = "grep".equals(subcommand)
+
+        ToolActivityKind kind = bashKind(primary);
+        return groupable(kind, bashAction(kind), command);
+    }
+
+    private static BashCommandModel.Segment primaryExplorationSegment(BashCommandModel model) {
+        if (model.isBlank() || model.connectors().contains(BashCommandModel.Connector.BACKGROUND)) {
+            return null;
+        }
+
+        BashCommandModel.Segment primary = null;
+        for (BashCommandModel.Segment segment : model.segments()) {
+            if (!isExplorationSegment(segment)) {
+                return null;
+            }
+            if (primary == null && !isAuxiliaryExplorationSegment(segment)) {
+                primary = segment;
+            }
+        }
+        return primary;
+    }
+
+    private static boolean isExplorationSegment(BashCommandModel.Segment segment) {
+        if (segment.hasUnresolvedExpansion() || segment.hasRedirection() || segment.isMutatingCommand()) {
+            return false;
+        }
+        return segment.isBasicReadOnlyCommand() || isUiLabelSegment(segment) || isDirectorySegment(segment);
+    }
+
+    private static boolean isAuxiliaryExplorationSegment(BashCommandModel.Segment segment) {
+        return isUiLabelSegment(segment) || isDirectorySegment(segment);
+    }
+
+    private static boolean isUiLabelSegment(BashCommandModel.Segment segment) {
+        return "echo".equals(segment.commandName()) || "printf".equals(segment.commandName());
+    }
+
+    private static boolean isDirectorySegment(BashCommandModel.Segment segment) {
+        return "cd".equals(segment.commandName()) && segment.cdTarget() != null;
+    }
+
+    private static ToolActivityKind bashKind(BashCommandModel.Segment segment) {
+        String commandName = segment.commandName();
+        if ("git".equals(commandName)) {
+            return "grep".equals(segment.gitSubcommand())
                     ? ToolActivityKind.SEARCH
                     : ToolActivityKind.INSPECT;
-            return groupable(kind, "Inspect", command);
         }
-        ToolActivityKind kind = switch (first) {
+        if ("rg".equals(commandName) && segment.tokens().contains("--files")) {
+            return ToolActivityKind.LIST;
+        }
+        return switch (commandName) {
             case "ls", "find", "tree" -> ToolActivityKind.LIST;
             case "rg", "grep" -> ToolActivityKind.SEARCH;
-            default -> ToolActivityKind.READ;
+            default -> ToolActivityKind.INSPECT;
         };
-        String action = switch (kind) {
+    }
+
+    private static String bashAction(ToolActivityKind kind) {
+        return switch (kind) {
             case LIST -> "List";
             case SEARCH -> "Search";
             case INSPECT -> "Inspect";
             default -> "Read";
         };
-        return groupable(kind, action, command);
-    }
-
-    private static boolean isReadOnlyShell(String command) {
-        String clean = command.strip();
-        if (clean.isEmpty() || containsUnsafeShellSyntax(clean)) {
-            return false;
-        }
-        List<String> segments = List.of(clean.split("\\|"));
-        for (int i = 0; i < segments.size(); i++) {
-            String segment = segments.get(i).strip();
-            if (segment.isBlank()) {
-                return false;
-            }
-            String first = firstToken(segment);
-            if ("git".equals(first)) {
-                if (!READ_ONLY_GIT_SUBCOMMANDS.contains(gitSubcommand(segment))
-                        || containsGitOutputFlag(segment)) {
-                    return false;
-                }
-                continue;
-            }
-            Set<String> allowed = i == 0 ? READ_ONLY_COMMANDS : READ_ONLY_PIPE_COMMANDS;
-            if (!allowed.contains(first) || containsMutatingReadOnlyFlag(first, segment)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean containsUnsafeShellSyntax(String command) {
-        return command.contains("&&")
-                || command.contains("||")
-                || command.contains(";")
-                || command.contains(">")
-                || command.contains("<")
-                || command.contains("`")
-                || command.contains("$(")
-                || command.contains("\n")
-                || command.contains("\r");
-    }
-
-    private static boolean containsMutatingReadOnlyFlag(String command, String segment) {
-        List<String> tokens = tokens(segment);
-        return switch (command) {
-            case "sed" -> tokens.stream().anyMatch(token ->
-                    token.equals("-i") || token.startsWith("-i."));
-            case "find" -> tokens.stream().anyMatch(token ->
-                    token.equals("-delete")
-                            || token.equals("-exec")
-                            || token.equals("-execdir")
-                            || token.equals("-ok")
-                            || token.equals("-okdir"));
-            case "sort" -> tokens.stream().anyMatch(token ->
-                    token.equals("-o") || token.startsWith("-o"));
-            default -> false;
-        };
-    }
-
-    private static boolean containsGitOutputFlag(String segment) {
-        return tokens(segment).stream().anyMatch(token ->
-                token.equals("--output") || token.startsWith("--output="));
-    }
-
-    private static List<String> tokens(String segment) {
-        return List.of(segment.strip().split("\\s+"));
     }
 
     private static ToolActivityDescriptor groupable(
@@ -167,39 +137,10 @@ final class ToolGroupingPolicy {
         return value;
     }
 
-    private static String firstPipelineSegment(String command) {
-        int pipe = command.indexOf('|');
-        return pipe < 0 ? command.strip() : command.substring(0, pipe).strip();
-    }
-
-    private static String firstToken(String command) {
-        String clean = command.strip();
-        if (clean.isEmpty()) {
-            return "";
-        }
-        int idx = 0;
-        while (idx < clean.length() && !Character.isWhitespace(clean.charAt(idx))) {
-            idx++;
-        }
-        return clean.substring(0, idx).toLowerCase(Locale.ROOT);
-    }
-
-    private static String gitSubcommand(String command) {
-        String clean = command.strip();
-        if (!firstToken(clean).equals("git")) {
-            return "";
-        }
-        String rest = clean.substring(Math.min(clean.length(), 3)).strip();
-        return firstToken(rest);
-    }
-
     private static String normalize(String toolName) {
         String normalized = ToolNameNormalizer.normalize(toolName);
         if (normalized == null || normalized.isBlank()) {
             return toolName == null ? "" : toolName.toLowerCase(Locale.ROOT);
-        }
-        if (ToolNames.FILE_READ.equals(normalized)) {
-            return "file_read";
         }
         return normalized;
     }

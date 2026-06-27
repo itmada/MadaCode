@@ -3,7 +3,7 @@ package madacode.permission;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.governance.ApprovalPosture;
-import madacode.permission.bash.BashCommandModel;
+import madacode.shell.BashCommandModel;
 import madacode.tool.Tool;
 import madacode.tool.ToolNames;
 
@@ -16,7 +16,7 @@ public final class PosturePermissionRule implements PermissionRule {
 
     public static final String SOURCE = "posture";
 
-    private static final Set<String> AUTO_ALLOWED_NON_EDIT_TOOLS = Set.of(
+    private static final Set<String> STATE_TOOLS = Set.of(
             ToolNames.ADD_PROVIDER,
             ToolNames.AGENT,
             ToolNames.ASK_USER_QUESTION,
@@ -27,10 +27,10 @@ public final class PosturePermissionRule implements PermissionRule {
             ToolNames.MEMORY_SAVE,
             ToolNames.READ_MCP_RESOURCE,
             ToolNames.SKILL,
-            ToolNames.TOOL_SEARCH,
-            ToolNames.UPDATE_PLAN,
-            ToolNames.WEB_FETCH,
             ToolNames.WORKER_REPORT);
+
+    private static final Set<String> NETWORK_TOOLS = Set.of(
+            ToolNames.WEB_FETCH);
 
     @Override
     public PermissionLayer layer() {
@@ -49,8 +49,12 @@ public final class PosturePermissionRule implements PermissionRule {
             return evaluateFileEdit(tool, input, context, posture);
         }
 
-        if (AUTO_ALLOWED_NON_EDIT_TOOLS.contains(tool.name())) {
-            return evaluateStance(posture.read());
+        if (NETWORK_TOOLS.contains(tool.name())) {
+            return evaluateStance(posture.network());
+        }
+
+        if (STATE_TOOLS.contains(tool.name())) {
+            return evaluateStance(posture.state());
         }
 
         return Optional.empty();
@@ -72,10 +76,11 @@ public final class PosturePermissionRule implements PermissionRule {
 
         Path workingDir = context.workingDirectory();
         for (String target : targets) {
-            if (!FilesystemScope.withinRoots(target, workingDir, List.of())) {
+            if (FilesystemScope.isDangerousEditTarget(target, workingDir)) {
                 return Optional.empty();
             }
-            if (FilesystemScope.isDangerousEditTarget(target, workingDir)) {
+            if (!FilesystemScope.withinRoots(target, workingDir, List.of())
+                    && posture.edit() != ApprovalPosture.Stance.ALLOW_SILENT) {
                 return Optional.empty();
             }
         }

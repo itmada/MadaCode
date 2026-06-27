@@ -1,6 +1,4 @@
-package madacode.permission;
-
-import madacode.permission.bash.BashCommandModel;
+package madacode.shell;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -50,6 +48,23 @@ class BashCommandModelTest {
         assertEquals(1, redirection.redirections().size());
         assertEquals("../out.txt", redirection.redirections().getFirst().target());
         assertFalse(redirection.isBasicReadOnlyCommand());
+    }
+
+    @Test
+    void treatsHarmlessRedirectionsAsReadOnly() {
+        // stderr discarded to the null device has no filesystem side effect
+        assertTrue(BashCommandModel.parse("find src -type f 2>/dev/null | sort").isBasicReadOnly());
+        // file-descriptor duplication is not a real-file write
+        assertTrue(BashCommandModel.parse("grep -rn needle src 2>&1").isBasicReadOnly());
+        // input redirection only reads
+        assertTrue(BashCommandModel.parse("sort < data.txt").isBasicReadOnly());
+
+        // writing an actual file is still a mutation
+        BashCommandModel realFile = BashCommandModel.parse("cat README.md > out.txt");
+        assertFalse(realFile.isBasicReadOnly());
+        assertTrue(realFile.segments().getFirst().writesRealFile());
+        assertFalse(BashCommandModel.parse("grep needle src 2>/dev/null")
+                .segments().getFirst().writesRealFile());
     }
 
     @Test

@@ -19,19 +19,20 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * V1 default permission gate.
+ * Default permission gate.
  *
  * <p>Decision pipeline:
  * <ol>
- *   <li><strong>Permission rules</strong> &rarr; auto-allow or deny known cases.</li>
+ *   <li><strong>Permission rules</strong> &rarr; structural safety, capability,
+ *       scope, and posture decisions.</li>
  *   <li><strong>Session memory</strong> &rarr; if the user previously chose
  *       "allow for session", the same tool input auto-allows.</li>
  *   <li><strong>Interactive prompt</strong> &rarr; delegate to the injected
  *       {@link UserApprovalPrompt} for the final decision.</li>
  * </ol>
  *
- * <p>Deny rules run first, then tool-specific checks, then mode-based
- * overrides, then a default "ask the user" fallback.
+ * <p>Rules declare their {@link PermissionLayer}; the gate sorts by that
+ * structure instead of relying on caller list order for cross-layer precedence.
  */
 public class DefaultPermissionGate implements PermissionGate {
 
@@ -139,7 +140,7 @@ public class DefaultPermissionGate implements PermissionGate {
                 new LongRunningWorkspacePermissionRule(),
                 new ToolSearchPermissionRule(),
                 new SessionProgressPermissionRule(),
-                new ReadOnlyPermissionRule(trustedRoots),
+                new FilesystemReadPermissionRule(trustedRoots),
                 new PosturePermissionRule());
     }
 

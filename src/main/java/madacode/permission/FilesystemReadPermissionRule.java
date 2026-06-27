@@ -3,45 +3,49 @@ package madacode.permission;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.engine.ToolUseContext;
 import madacode.tool.Tool;
+import madacode.tool.ToolNames;
 
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Auto-allows read-only tools whose filesystem targets fall within the
+ * Auto-allows built-in filesystem read tools whose targets stay inside the
  * working directory or an additional trusted root.
  *
- * <p>Read-only tools without targets (e.g. {@code glob} with no path)
- * are always allowed.  Read-only tools with targets outside every
- * trusted root fall through to the next rule, ultimately reaching the
- * interactive prompt so the user can decide.
- *
- * <p>The gate is the sole authority for filesystem policy — tools must
- * never reject accesses themselves.
+ * <p>This rule is deliberately limited to workspace filesystem inspection. A
+ * tool being {@link Tool#isReadOnly()} is not enough to make it a scope decision:
+ * network, MCP, delegation, and session tools must flow through capability or
+ * posture rules instead.
  */
-public final class ReadOnlyPermissionRule implements PermissionRule {
+public final class FilesystemReadPermissionRule implements PermissionRule {
 
-    public static final String SOURCE = "read_only";
+    public static final String SOURCE = "filesystem_read";
+
+    private static final Set<String> FILESYSTEM_READ_TOOLS = Set.of(
+            ToolNames.FILE_READ,
+            ToolNames.GLOB,
+            ToolNames.GREP);
+
+    private final List<Path> trustedRoots;
+
+    public FilesystemReadPermissionRule() {
+        this(List.of());
+    }
+
+    public FilesystemReadPermissionRule(List<Path> trustedRoots) {
+        this.trustedRoots = List.copyOf(trustedRoots);
+    }
 
     @Override
     public PermissionLayer layer() {
         return PermissionLayer.SCOPE;
     }
 
-    private final List<Path> trustedRoots;
-
-    public ReadOnlyPermissionRule() {
-        this(List.of());
-    }
-
-    public ReadOnlyPermissionRule(List<Path> trustedRoots) {
-        this.trustedRoots = List.copyOf(trustedRoots);
-    }
-
     @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
-        if (!tool.isReadOnly()) {
+        if (!tool.isReadOnly() || !FILESYSTEM_READ_TOOLS.contains(tool.name())) {
             return Optional.empty();
         }
 

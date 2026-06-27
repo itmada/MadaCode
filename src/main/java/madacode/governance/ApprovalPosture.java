@@ -8,7 +8,8 @@ public record ApprovalPosture(
         Stance read,
         Stance edit,
         Stance exec,
-        Stance network) {
+        Stance network,
+        Stance state) {
 
     public enum Stance {
         ALLOW_SILENT,
@@ -21,7 +22,8 @@ public record ApprovalPosture(
                 Stance.ALLOW_SILENT,
                 Stance.PROMPT,
                 Stance.PROMPT,
-                Stance.PROMPT);
+                Stance.PROMPT,
+                Stance.ALLOW_SILENT);
     }
 
     public static ApprovalPosture editInteractive() {
@@ -29,11 +31,13 @@ public record ApprovalPosture(
                 Stance.ALLOW_SILENT,
                 Stance.ALLOW_SILENT,
                 Stance.PROMPT,
-                Stance.PROMPT);
+                Stance.PROMPT,
+                Stance.ALLOW_SILENT);
     }
 
     public static ApprovalPosture bypassInteractive() {
         return new ApprovalPosture(
+                Stance.ALLOW_SILENT,
                 Stance.ALLOW_SILENT,
                 Stance.ALLOW_SILENT,
                 Stance.ALLOW_SILENT,
@@ -42,6 +46,7 @@ public record ApprovalPosture(
 
     public static ApprovalPosture longRunningWorker() {
         return new ApprovalPosture(
+                Stance.ALLOW_SILENT,
                 Stance.ALLOW_SILENT,
                 Stance.ALLOW_SILENT,
                 Stance.ALLOW_SILENT,

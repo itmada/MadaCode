@@ -4,26 +4,31 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.render.tool.ToolDisplayRegistry;
 import madacode.render.tool.ToolProgressLine;
 
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 
 final class ToolActivityController {
 
     private final TurnView turnView;
     private final ToolDisplayRegistry displayRegistry;
     private final ToolGroupingPolicy groupingPolicy;
+    private final ToolDisplayInputProjector inputProjector;
     private final Map<String, ToolCardRenderable> cardsByToolId = new LinkedHashMap<>();
     private final Map<String, ToolGroupRenderable> groupsByToolId = new LinkedHashMap<>();
     private ToolGroupRenderable activeExplorationGroup;
 
     ToolActivityController(TurnView turnView, ToolDisplayRegistry displayRegistry,
-                           ToolGroupingPolicy groupingPolicy) {
+                           ToolGroupingPolicy groupingPolicy,
+                           Supplier<Path> workingDirectory) {
         this.turnView = Objects.requireNonNull(turnView, "turnView");
         this.displayRegistry = Objects.requireNonNull(displayRegistry, "displayRegistry");
         this.groupingPolicy = Objects.requireNonNull(groupingPolicy, "groupingPolicy");
+        this.inputProjector = new ToolDisplayInputProjector(workingDirectory);
     }
 
     boolean contains(String toolUseId) {
@@ -34,26 +39,32 @@ final class ToolActivityController {
         if (contains(toolUseId)) {
             return;
         }
-        ToolActivityDescriptor descriptor = groupingPolicy.describe(toolName, input);
+        ObjectNode displayInput = inputProjector.project(toolName, input);
+        ToolActivityDescriptor descriptor = groupingPolicy.describe(toolName, displayInput);
         if (descriptor.grouping() == ToolActivityGrouping.NEVER_GROUP) {
-            activeExplorationGroup = null;
+            closeActiveExplorationGroup();
             return;
         }
         if (descriptor.groupableExploration()) {
-            if (activeExplorationGroup == null || activeExplorationGroup.isFinalized()) {
+            if (activeExplorationGroup == null) {
                 activeExplorationGroup = new ToolGroupRenderable(displayRegistry);
                 turnView.add(activeExplorationGroup);
             }
             ToolInvocationModel invocation = new ToolInvocationModel(
-                    toolUseId, toolName, input, descriptor);
+                    toolUseId, toolName, displayInput, descriptor);
             activeExplorationGroup.add(invocation);
             groupsByToolId.put(toolUseId, activeExplorationGroup);
             return;
         }
-        activeExplorationGroup = null;
-        ToolCardRenderable card = new ToolCardRenderable(toolUseId, toolName, input, displayRegistry);
+        closeActiveExplorationGroup();
+        ToolCardRenderable card = new ToolCardRenderable(toolUseId, toolName, displayInput, displayRegistry);
         cardsByToolId.put(toolUseId, card);
         turnView.add(card);
+    }
+
+    String activityDescription(String toolName, ObjectNode input) {
+        ObjectNode displayInput = inputProjector.project(toolName, input);
+        return displayRegistry.activityDescription(toolName, displayInput);
     }
 
     boolean markStarted(String toolUseId) {
@@ -161,6 +172,14 @@ final class ToolActivityController {
                 group.finalizeUnfinishedAsFailed();
             }
         }
+        activeExplorationGroup = null;
+    }
+
+    void closeExplorationGroups() {
+        closeActiveExplorationGroup();
+        for (ToolGroupRenderable group : uniqueGroups()) {
+            group.closeGroup();
+        }
     }
 
     void removeUnfinalized() {
@@ -187,6 +206,13 @@ final class ToolActivityController {
         cardsByToolId.clear();
         groupsByToolId.clear();
         activeExplorationGroup = null;
+    }
+
+    private void closeActiveExplorationGroup() {
+        if (activeExplorationGroup != null) {
+            activeExplorationGroup.closeGroup();
+            activeExplorationGroup = null;
+        }
     }
 
     private Set<ToolGroupRenderable> uniqueGroups() {

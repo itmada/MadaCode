@@ -128,6 +128,7 @@ public final class EvalRunner {
                     startedAt);
             ConversationSession session = new ConversationSession(environment.workspace());
             session.setPermissionMode(evalCase.permissionMode());
+            session.setIsolationProfile(environment.isolationProfile());
             ModeLauncher launcher = launchers.resolve(evalCase.mode());
             ExecutionTraceCollector traceCollector =
                     new ExecutionTraceCollector(environment.workspace());

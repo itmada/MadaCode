@@ -159,7 +159,8 @@ public final class JLineRepl extends Repl {
 
         TurnView turnView = new TurnView(screen);
         screen.setResizeListener(turnView::markDirty);
-        TurnRenderer turnRenderer = new TurnRenderer(turnView, screen);
+        TurnRenderer turnRenderer = new TurnRenderer(
+                turnView, screen, () -> currentSessionRef.get().workingDirectory());
 
         Config config = Config.builder()
                 .queryEngine(queryEngine)

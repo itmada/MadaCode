@@ -1,4 +1,4 @@
-package madacode.permission.bash;
+package madacode.shell;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,7 +18,8 @@ public final class BashCommandModel {
             "ls", "cat", "head", "tail", "less", "more",
             "grep", "rg", "find", "pwd", "wc", "stat", "file",
             "du", "df", "sort", "uniq", "cut",
-            "which", "printenv", "git");
+            "which", "printenv", "echo", "cd", "git",
+            "printf", "diff", "tree", "basename", "dirname");
 
     private static final Set<String> READ_ONLY_GIT = Set.of(
             "status", "log", "show", "diff", "rev-parse",
@@ -116,7 +117,32 @@ public final class BashCommandModel {
         }
     }
 
-    public record Redirection(String operator, String target, boolean inline) {}
+    public record Redirection(String operator, String target, boolean inline) {
+
+        /** Output redirection ({@code >}, {@code >>}, {@code n>} …) as opposed to input ({@code <}). */
+        public boolean isOutput() {
+            return operator != null && operator.contains(">");
+        }
+
+        /**
+         * Whether this redirection actually writes a real file. Input redirections,
+         * file-descriptor duplications ({@code 2>&1}) and the null device
+         * ({@code /dev/null}) have no filesystem side effect.
+         */
+        public boolean writesRealFile() {
+            if (!isOutput() || target == null || target.isBlank()) {
+                return false;
+            }
+            if (target.startsWith("&")) {
+                return false;
+            }
+            return !isNullDevice(target);
+        }
+    }
+
+    private static boolean isNullDevice(String target) {
+        return "/dev/null".equals(target);
+    }
 
     public record Segment(
             List<String> tokens,
@@ -271,6 +297,11 @@ public final class BashCommandModel {
             return gitSubcommand != null && READ_ONLY_GIT.contains(gitSubcommand);
         }
 
+        /** Whether any redirection on this segment writes a real file (ignores {@code /dev/null}, {@code 2>&1}, input). */
+        public boolean writesRealFile() {
+            return redirections.stream().anyMatch(Redirection::writesRealFile);
+        }
+
         public boolean isMutatingCommand() {
             if (commandName == null) {
                 return false;
@@ -285,7 +316,7 @@ public final class BashCommandModel {
         }
 
         public boolean isBasicReadOnlyCommand() {
-            if (commandName == null || hasRedirection) {
+            if (commandName == null || writesRealFile()) {
                 return false;
             }
             if (!BASIC_READ_COMMANDS.contains(commandName)) {
@@ -360,6 +391,23 @@ public final class BashCommandModel {
                 continue;
             }
             if (ch == '&') {
+                // File-descriptor duplication (2>&1, >&2): the '&' binds to a preceding
+                // redirection operator as its target, it is not a job-control '&'.
+                if (token.isEmpty()
+                        && !tokens.isEmpty()
+                        && isOutputRedirectionOperator(tokens.get(tokens.size() - 1))
+                        && i + 1 < command.length()
+                        && Character.isDigit(command.charAt(i + 1))) {
+                    StringBuilder fd = new StringBuilder("&");
+                    i++;
+                    while (i < command.length() && Character.isDigit(command.charAt(i))) {
+                        fd.append(command.charAt(i));
+                        i++;
+                    }
+                    i--;
+                    tokens.add(fd.toString());
+                    continue;
+                }
                 flushToken(tokens, token);
                 if (i + 1 < command.length() && command.charAt(i + 1) == '&') {
                     tokens.add("&&");
@@ -415,6 +463,10 @@ public final class BashCommandModel {
 
     private static boolean isRedirection(String token) {
         return ">".equals(token) || ">>".equals(token) || "<".equals(token) || "<<".equals(token);
+    }
+
+    private static boolean isOutputRedirectionOperator(String token) {
+        return token != null && token.matches("\\d?>>?");
     }
 
     private static Redirection inlineRedirection(String token) {
