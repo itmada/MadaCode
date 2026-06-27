@@ -76,6 +76,17 @@ public final class ToolOrchestrator {
         List<ResolvedToolCall> resolvedCalls = toolCalls.stream()
                 .map((ToolCall call) -> resolve(call, context.toolAccessScope()))
                 .toList();
+
+        ResolvedToolCall exclusiveCall = exclusiveCall(resolvedCalls);
+        if (exclusiveCall != null && toolCalls.size() > 1) {
+            List<ToolResult> results = new ArrayList<>(toolCalls.size());
+            String message = exclusiveCall.tool().runAloneFailureMessage();
+            for (ToolCall call : toolCalls) {
+                results.add(errorResult(call, message, context));
+            }
+            return results;
+        }
+
         List<ToolResult> results = new ArrayList<>(Collections.nCopies(toolCalls.size(), null));
         int i = 0;
         while (i < toolCalls.size()) {
@@ -195,6 +206,13 @@ public final class ToolOrchestrator {
 
     private ResolvedToolCall resolve(ToolCall call, ToolAccessScope accessScope) {
         return ResolvedToolCall.resolve(call, toolRegistry, mapper, toolAccessResolver, accessScope);
+    }
+
+    private static ResolvedToolCall exclusiveCall(List<ResolvedToolCall> toolCalls) {
+        return toolCalls.stream()
+                .filter(call -> call.tool() != null && call.tool().mustRunAlone())
+                .findFirst()
+                .orElse(null);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

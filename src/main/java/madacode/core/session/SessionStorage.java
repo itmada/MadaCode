@@ -343,10 +343,6 @@ public final class SessionStorage {
             session.setLongRunningReason(optionalText(state, "longRunningReason"));
             session.setLongRunningPlanSummary(optionalText(state, "longRunningPlanSummary"));
             session.setLongRunningWorkerSession(state.path("longRunningWorkerSession").asBoolean(false));
-            JsonNode pendingRequest = state.get("pendingLongRunningTransitionRequest");
-            if (pendingRequest != null && !pendingRequest.isNull()) {
-                session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
-            }
         }
     }
 
@@ -405,11 +401,6 @@ public final class SessionStorage {
         if (session.isLongRunningWorkerSession()) {
             root.put("longRunningWorkerSession", true);
         }
-        session.pendingLongRunningTransitionRequest()
-                .ifPresent(request -> root.set(
-                        "pendingLongRunningTransitionRequest",
-                        serializeTransitionRequest(request)));
-
         ArrayNode historyNode = mapper.createArrayNode();
         for (String input : session.inputHistory()) {
             historyNode.add(input);
@@ -650,10 +641,6 @@ public final class SessionStorage {
             session.setLongRunningReason(optionalText(migrated, "longRunningReason"));
             session.setLongRunningPlanSummary(optionalText(migrated, "longRunningPlanSummary"));
             session.setLongRunningWorkerSession(migrated.path("longRunningWorkerSession").asBoolean(false));
-            JsonNode pendingRequest = migrated.get("pendingLongRunningTransitionRequest");
-            if (pendingRequest != null && !pendingRequest.isNull()) {
-                session.setPendingLongRunningTransitionRequest(deserializeTransitionRequest(pendingRequest));
-            }
         }
         List<String> loadedDeferredTools = new ArrayList<>();
         JsonNode loadedDeferredToolsNode = migrated.path("loadedDeferredTools");
@@ -677,25 +664,6 @@ public final class SessionStorage {
             }
         }
         return history;
-    }
-
-    private ObjectNode serializeTransitionRequest(LongRunningTransitionRequest request) {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("sourceStage", request.sourceStage().name());
-        node.put("targetStage", request.targetStage().name());
-        node.put("reason", request.reason());
-        if (request.summary() != null) {
-            node.put("summary", request.summary());
-        }
-        if (request.planDelta() != null) {
-            node.put("planDelta", request.planDelta());
-        }
-        node.put("requestedAt", request.requestedAt().toString());
-        if (request.requestedBy() != null) {
-            node.put("requestedBy", request.requestedBy());
-        }
-        node.put("userConfirmationRequired", request.userConfirmationRequired());
-        return node;
     }
 
     private ObjectNode serializeMessage(Message message) {
@@ -773,27 +741,6 @@ public final class SessionStorage {
         }
         return LongRunningStage.fromWire(raw)
                 .orElseThrow(() -> new SessionStorageException("Unsupported longRunningStage: " + raw));
-    }
-
-    private LongRunningTransitionRequest deserializeTransitionRequest(JsonNode node) {
-        if (!node.isObject()) {
-            throw new SessionStorageException("pendingLongRunningTransitionRequest must be an object");
-        }
-        String sourceRaw = requiredText(node, "sourceStage");
-        String targetRaw = requiredText(node, "targetStage");
-        LongRunningStage source = LongRunningStage.fromWire(sourceRaw)
-                .orElseThrow(() -> new SessionStorageException("Unsupported sourceStage: " + sourceRaw));
-        LongRunningStage target = LongRunningStage.fromWire(targetRaw)
-                .orElseThrow(() -> new SessionStorageException("Unsupported targetStage: " + targetRaw));
-        return new LongRunningTransitionRequest(
-                source,
-                target,
-                requiredText(node, "reason"),
-                optionalText(node, "summary"),
-                optionalText(node, "planDelta"),
-                node.has("requestedAt") ? Instant.parse(node.path("requestedAt").asText()) : Instant.now(),
-                optionalText(node, "requestedBy"),
-                node.path("userConfirmationRequired").asBoolean(true));
     }
 
     private int optionalSchemaVersion(JsonNode root) {

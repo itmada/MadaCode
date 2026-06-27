@@ -187,9 +187,8 @@ public final class FilesystemScope {
      *
      * <p>Bash does not provide structured path arguments to the permission gate.
      * The path-aware active-task check is therefore reserved for file tools; shell
-     * commands that mention the task-store root are denied and should use
-     * read/search tools for inspection or long-running task-store tools for
-     * mutation.
+     * commands that mention the task-store root are denied and should use the
+     * dedicated long-running environment tools instead.
      */
     public static boolean isProtectedLongRunningTaskStateShellAccess(String command, Path workingDir) {
         return isProtectedLongRunningTaskStateShellAccess(command, workingDir, null);

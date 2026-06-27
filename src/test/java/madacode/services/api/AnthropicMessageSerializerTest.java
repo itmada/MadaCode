@@ -99,11 +99,11 @@ class AnthropicMessageSerializerTest {
                 4096,
                 projection.project(List.of(
                         Message.assistant(List.of(new ContentBlock.ToolUseBlock(
-                                "toolu_1", "longrun_state_transition_request", input))),
+                                "toolu_1", "longrun_state_transition", input))),
                         Message.user(List.of(new ContentBlock.ToolResultBlock(
-                                "toolu_1", "Pending transition request recorded.", true, -1))),
+                                "toolu_1", "State transition applied.", true, -1))),
                         Message.controllerEvent("[controller-event][long-running]\n"
-                                + "event: transition_request_pending"))),
+                                + "event: transition_applied"))),
                 "system prompt",
                 ToolVisibility.empty());
 

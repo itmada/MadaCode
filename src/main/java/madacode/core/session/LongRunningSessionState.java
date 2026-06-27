@@ -1,7 +1,5 @@
 package madacode.core.session;
 
-import java.util.Optional;
-
 /**
  * Mutable long-running workflow state attached to a conversation session.
  */
@@ -14,7 +12,6 @@ public final class LongRunningSessionState {
     private volatile String reason;
     private volatile String planSummary;
     private volatile boolean workerSession;
-    private volatile LongRunningTransitionRequest pendingTransitionRequest;
     private volatile LongRunningWorkerReport lastWorkerReport;
 
     public boolean isActive() {
@@ -77,20 +74,8 @@ public final class LongRunningSessionState {
         this.workerSession = workerSession;
     }
 
-    public Optional<LongRunningTransitionRequest> pendingTransitionRequest() {
-        return Optional.ofNullable(pendingTransitionRequest);
-    }
-
-    public void setPendingTransitionRequest(LongRunningTransitionRequest pendingTransitionRequest) {
-        this.pendingTransitionRequest = pendingTransitionRequest;
-    }
-
-    public void clearPendingTransitionRequest() {
-        this.pendingTransitionRequest = null;
-    }
-
-    public Optional<LongRunningWorkerReport> lastWorkerReport() {
-        return Optional.ofNullable(lastWorkerReport);
+    public java.util.Optional<LongRunningWorkerReport> lastWorkerReport() {
+        return java.util.Optional.ofNullable(lastWorkerReport);
     }
 
     public void recordWorkerReport(LongRunningWorkerReport report) {

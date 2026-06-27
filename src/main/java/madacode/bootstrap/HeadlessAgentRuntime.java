@@ -1,6 +1,7 @@
 package madacode.bootstrap;
 
 import madacode.cli.CliArgs;
+import madacode.cli.UserPromptChannel;
 import madacode.core.engine.QueryEngine;
 import madacode.core.engine.QueryEngineTurnRunner;
 import madacode.core.session.SessionStorage;
@@ -219,8 +220,17 @@ public final class HeadlessAgentRuntime implements AutoCloseable {
             ConversationSession session,
             String instruction,
             Duration timeout) {
+        return runTurn(engine, session, instruction, timeout, madacode.cli.UnavailablePromptChannel.INSTANCE);
+    }
+
+    public TurnResult runTurn(
+            QueryEngine engine,
+            ConversationSession session,
+            String instruction,
+            Duration timeout,
+            UserPromptChannel promptChannel) {
         try (TurnExecutor executor = new TurnExecutor(
-                new QueryEngineTurnRunner(engine), new TurnLog(turnLogRoot))) {
+                new QueryEngineTurnRunner(engine, promptChannel), new TurnLog(turnLogRoot))) {
             TurnHandle handle = executor.submit(session, instruction);
             try {
                 return handle.result().get(timeout.toMillis(), TimeUnit.MILLISECONDS);

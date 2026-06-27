@@ -10,13 +10,12 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Protects active long-running task source-of-truth files from generic mutation.
+ * Protects active long-running task source-of-truth files from generic access.
  *
- * <p>Read/search tools may inspect these files, but updates must go through
- * the dedicated task-store tools. That keeps state changes behind
- * {@link madacode.longrunning.LongRunningTaskStore}, which preserves
- * invariants such as "feature descriptions do not drift" and "passes only
- * flips to true".
+ * <p>The model-facing environment tools are the read/write boundary. That keeps
+ * inspection and mutation behind {@link madacode.longrunning.LongRunningTaskStore},
+ * which preserves invariants such as "feature descriptions do not drift" and
+ * "passes only flips to true".
  */
 public final class LongRunningTaskStatePermissionRule implements PermissionRule {
 
@@ -60,19 +59,15 @@ public final class LongRunningTaskStatePermissionRule implements PermissionRule 
     }
 
     private static boolean isOfficialLongRunningTaskStoreTool(String toolName) {
-        return ToolNames.LONGRUN_PLAN_UPDATE.equals(toolName)
-                || ToolNames.LONGRUN_TASK_SUMMARY_UPDATE.equals(toolName)
-                || ToolNames.LONGRUN_FEATURE_LIST_REPLACE.equals(toolName)
-                || ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE.equals(toolName)
-                || ToolNames.LONGRUN_PROGRESS_APPEND.equals(toolName)
-                || ToolNames.LONGRUN_TASK_UPDATE.equals(toolName)
-                || ToolNames.LONGRUN_STATE_TRANSITION_REQUEST.equals(toolName)
+        return ToolNames.LONGRUN_ENVIRONMENT_READ.equals(toolName)
+                || ToolNames.LONGRUN_ENVIRONMENT_UPDATE.equals(toolName)
+                || ToolNames.LONGRUN_STATE_TRANSITION.equals(toolName)
                 || ToolNames.WORKER_REPORT.equals(toolName);
     }
 
     private static PermissionDecision deny() {
         return PermissionDecision.deny(
-                "Long-running task state files are runtime-owned and must be updated with long-running task-store tools.",
+                "Long-running task state files are runtime-owned. Use longrun_environment_read to inspect them and longrun_environment_update to change them; do not access .mada/long-running with generic file or bash tools.",
                 SOURCE);
     }
 }

@@ -9,7 +9,7 @@ import madacode.core.session.SessionMode;
 import madacode.tool.BashTool;
 import madacode.tool.FileReadTool;
 import madacode.tool.FileWriteTool;
-import madacode.tool.LongRunPlanUpdateTool;
+import madacode.tool.LongRunEnvironmentUpdateTool;
 import madacode.tool.UpdatePlanTool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -173,8 +173,8 @@ class PermissionEnforcementTest {
                 writeInput(protectedTaskState),
                 context);
         PermissionDecision officialToolDecision = gate.check(
-                new LongRunPlanUpdateTool(),
-                longRunPlanUpdateInput(),
+                new LongRunEnvironmentUpdateTool(),
+                longRunEnvironmentUpdateInput(),
                 context);
 
         assertFalse(writeDecision.isAllowed());
@@ -268,7 +268,7 @@ class PermissionEnforcementTest {
         return input;
     }
 
-    private ObjectNode longRunPlanUpdateInput() {
+    private ObjectNode longRunEnvironmentUpdateInput() {
         ObjectNode input = mapper.createObjectNode();
         input.put("action", "append_progress");
         input.put("text", "note");

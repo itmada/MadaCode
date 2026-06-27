@@ -15,7 +15,11 @@ import java.util.Set;
 public final class LongRunningWorkspacePermissionRule implements PermissionRule {
 
     public static final String SOURCE = "long_running_workspace";
-    private static final Set<String> WORKSPACE_READ_TOOLS = Set.of("file_read", "glob", "grep");
+    private static final Set<String> WORKSPACE_READ_TOOLS = Set.of(
+            ToolNames.FILE_READ,
+            ToolNames.GLOB,
+            ToolNames.GREP,
+            ToolNames.LONGRUN_ENVIRONMENT_READ);
 
     @Override
     public Optional<PermissionDecision> evaluate(Tool<?> tool, ObjectNode input, ToolUseContext context) {
@@ -84,8 +88,8 @@ public final class LongRunningWorkspacePermissionRule implements PermissionRule 
     }
 
     private static boolean isWorkerTaskStoreTool(Tool<?> tool) {
-        return "longrun_task_update".equals(tool.name())
-                || "worker_report".equals(tool.name())
+        return ToolNames.LONGRUN_ENVIRONMENT_UPDATE.equals(tool.name())
+                || ToolNames.WORKER_REPORT.equals(tool.name())
                 || ToolNames.UPDATE_PLAN.equals(tool.name());
     }
 

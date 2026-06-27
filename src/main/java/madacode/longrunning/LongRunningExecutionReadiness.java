@@ -1,6 +1,5 @@
 package madacode.longrunning;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -19,19 +18,18 @@ public final class LongRunningExecutionReadiness {
     public Result evaluate(String taskId) {
         Objects.requireNonNull(taskId, "taskId");
 
-        Path featureListPath = store.taskDirectoryPath(taskId).resolve(LongRunningTaskRepository.FEATURE_LIST_FILE);
         List<String> unmetItems = new ArrayList<>();
         try {
             List<FeatureItem> features = store.readFeatureList(taskId);
             if (features.isEmpty()) {
-                unmetItems.add("feature_list.json is empty");
+                unmetItems.add("long-running environment feature list is empty");
             }
         } catch (LongRunningTaskStoreException exception) {
             String reason = exception.getMessage();
             if (reason == null || reason.isBlank()) {
                 reason = exception.getClass().getSimpleName();
             }
-            unmetItems.add("feature_list.json is malformed at " + featureListPath + ": " + reason.strip());
+            unmetItems.add("long-running environment feature list is malformed: " + reason.strip());
         }
         return new Result(List.copyOf(unmetItems));
     }

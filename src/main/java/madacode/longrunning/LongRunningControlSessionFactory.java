@@ -7,14 +7,10 @@ import madacode.core.session.SessionMode;
 import madacode.permission.PermissionMode;
 
 import java.nio.file.Path;
+
 public final class LongRunningControlSessionFactory {
 
     public LongRunningControlSessionFactory() {
-    }
-
-    public LongRunningControlSessionFactory(
-            LongRunningController.TaskStoreFactory taskStoreFactory,
-            LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
     }
 
     public ConversationSession create(Path workingDirectory) {

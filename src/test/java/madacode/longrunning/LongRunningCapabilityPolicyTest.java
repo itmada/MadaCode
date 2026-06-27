@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Pins the long-running worker capability set so it cannot drift silently. The worker
  * may use exactly {@link LongRunningCapabilityPolicy#WORKER_TOOLS} (ordinary file/shell
- * tools, update_plan, worker_report, longrun_task_update) and nothing else — not even
+ * tools, update_plan, worker_report, longrun_environment_* tools) and nothing else — not even
  * core tools like tool_search.
  */
 class LongRunningCapabilityPolicyTest {
@@ -47,8 +47,10 @@ class LongRunningCapabilityPolicyTest {
         List<Tool<?>> candidates = List.of(
                 fake(ToolNames.FILE_READ), fake(ToolNames.GLOB), fake(ToolNames.GREP),
                 fake(ToolNames.FILE_WRITE), fake(ToolNames.FILE_EDIT), fake(ToolNames.BASH),
-                fake(ToolNames.UPDATE_PLAN), fake(ToolNames.WORKER_REPORT), fake(ToolNames.LONGRUN_TASK_UPDATE),
-                fake(ToolNames.TOOL_SEARCH), fake(ToolNames.LONGRUN_PLAN_UPDATE), fake("web_fetch"));
+                fake(ToolNames.UPDATE_PLAN), fake(ToolNames.LONGRUN_ENVIRONMENT_READ),
+                fake(ToolNames.LONGRUN_ENVIRONMENT_UPDATE), fake(ToolNames.WORKER_REPORT),
+                fake(ToolNames.LONGRUN_STATE_TRANSITION),
+                fake(ToolNames.TOOL_SEARCH), fake("web_fetch"));
 
         VisibleTools visible = resolver.visibleTools(candidates, scope);
 
@@ -56,7 +58,7 @@ class LongRunningCapabilityPolicyTest {
         assertTrue(visible.names().contains(ToolNames.UPDATE_PLAN), "update_plan is part of the worker set");
         // Core tools that are not in the worker set must not leak in.
         assertFalse(visible.names().contains(ToolNames.TOOL_SEARCH));
-        assertFalse(visible.names().contains(ToolNames.LONGRUN_PLAN_UPDATE));
+        assertFalse(visible.names().contains(ToolNames.LONGRUN_STATE_TRANSITION));
     }
 
     @Test
@@ -100,31 +102,27 @@ class LongRunningCapabilityPolicyTest {
 
     @Test
     void controlSessionExposesLifecycleToolsOnlyInDraftOrInterrupt() {
-        Tool<?> planUpdate = fake(ToolNames.LONGRUN_PLAN_UPDATE);
-        Tool<?> featureListReplace = fake(ToolNames.LONGRUN_FEATURE_LIST_REPLACE);
-        Tool<?> transitionRequest = fake(ToolNames.LONGRUN_STATE_TRANSITION_REQUEST);
-        Tool<?> taskUpdate = fake(ToolNames.LONGRUN_TASK_UPDATE);
+        Tool<?> environmentRead = fake(ToolNames.LONGRUN_ENVIRONMENT_READ);
+        Tool<?> environmentUpdate = fake(ToolNames.LONGRUN_ENVIRONMENT_UPDATE);
+        Tool<?> stateTransition = fake(ToolNames.LONGRUN_STATE_TRANSITION);
 
-        assertNull(resolver.executionDenialReason(planUpdate, controlScope(LongRunningStage.DRAFT)));
-        assertNull(resolver.executionDenialReason(planUpdate, controlScope(LongRunningStage.INTERRUPT)));
-        assertNull(resolver.executionDenialReason(featureListReplace, controlScope(LongRunningStage.DRAFT)));
-        assertNull(resolver.executionDenialReason(featureListReplace, controlScope(LongRunningStage.INTERRUPT)));
-        assertNull(resolver.executionDenialReason(transitionRequest, controlScope(LongRunningStage.DRAFT)));
-        assertNull(resolver.executionDenialReason(transitionRequest, controlScope(LongRunningStage.INTERRUPT)));
+        assertNull(resolver.executionDenialReason(environmentRead, controlScope(LongRunningStage.DRAFT)));
+        assertNull(resolver.executionDenialReason(environmentRead, controlScope(LongRunningStage.RUNNING)));
+        assertNull(resolver.executionDenialReason(environmentRead, controlScope(LongRunningStage.COMPLETED)));
+        assertNull(resolver.executionDenialReason(environmentUpdate, controlScope(LongRunningStage.DRAFT)));
+        assertNull(resolver.executionDenialReason(environmentUpdate, controlScope(LongRunningStage.INTERRUPT)));
+        assertNull(resolver.executionDenialReason(stateTransition, controlScope(LongRunningStage.DRAFT)));
+        assertNull(resolver.executionDenialReason(stateTransition, controlScope(LongRunningStage.INTERRUPT)));
         for (LongRunningStage stage : List.of(
                 LongRunningStage.RUNNING,
                 LongRunningStage.COMPLETED,
                 LongRunningStage.CANCELLED,
                 LongRunningStage.FAILED)) {
-            assertNotNull(resolver.executionDenialReason(planUpdate, controlScope(stage)),
-                    "plan update should be denied in " + stage);
-            assertNotNull(resolver.executionDenialReason(featureListReplace, controlScope(stage)),
-                    "feature list replace should be denied in " + stage);
-            assertNotNull(resolver.executionDenialReason(transitionRequest, controlScope(stage)),
-                    "transition request should be denied in " + stage);
+            assertNotNull(resolver.executionDenialReason(environmentUpdate, controlScope(stage)),
+                    "environment update should be denied in " + stage);
+            assertNotNull(resolver.executionDenialReason(stateTransition, controlScope(stage)),
+                    "state transition should be denied in " + stage);
         }
-        // Worker-only lifecycle tools are never callable from the control session.
-        assertNotNull(resolver.executionDenialReason(taskUpdate, controlScope(LongRunningStage.DRAFT)));
     }
 
     @Test
@@ -162,15 +160,14 @@ class LongRunningCapabilityPolicyTest {
         ToolAccessScope scope = new ToolUseContext(tempDir, session).toolAccessScope();
 
         VisibleTools visible = resolver.visibleTools(
-                List.of(fake(ToolNames.FILE_READ), fake(ToolNames.LONGRUN_PLAN_UPDATE),
-                        fake(ToolNames.LONGRUN_FEATURE_LIST_REPLACE),
-                        fake(ToolNames.LONGRUN_STATE_TRANSITION_REQUEST)),
+                List.of(fake(ToolNames.FILE_READ), fake(ToolNames.LONGRUN_ENVIRONMENT_READ),
+                        fake(ToolNames.LONGRUN_ENVIRONMENT_UPDATE),
+                        fake(ToolNames.LONGRUN_STATE_TRANSITION)),
                 scope);
 
-        assertEquals(Set.of(ToolNames.FILE_READ), visible.names());
-        assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_PLAN_UPDATE), scope));
-        assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_FEATURE_LIST_REPLACE), scope));
-        assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_STATE_TRANSITION_REQUEST), scope));
+        assertEquals(Set.of(ToolNames.FILE_READ, ToolNames.LONGRUN_ENVIRONMENT_READ), visible.names());
+        assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_ENVIRONMENT_UPDATE), scope));
+        assertNotNull(resolver.executionDenialReason(fake(ToolNames.LONGRUN_STATE_TRANSITION), scope));
     }
 
     @Test
@@ -231,13 +228,8 @@ class LongRunningCapabilityPolicyTest {
                                 ToolNames.FILE_EDIT,
                                 ToolNames.FILE_WRITE,
                                 ToolNames.UPDATE_PLAN,
-                                ToolNames.LONGRUN_PLAN_UPDATE,
-                                ToolNames.LONGRUN_TASK_SUMMARY_UPDATE,
-                                ToolNames.LONGRUN_FEATURE_LIST_REPLACE,
-                                ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE,
-                                ToolNames.LONGRUN_PROGRESS_APPEND,
-                                ToolNames.LONGRUN_TASK_UPDATE,
-                                ToolNames.LONGRUN_STATE_TRANSITION_REQUEST)
+                                ToolNames.LONGRUN_ENVIRONMENT_UPDATE,
+                                ToolNames.LONGRUN_STATE_TRANSITION)
                         .contains(name);
             }
 

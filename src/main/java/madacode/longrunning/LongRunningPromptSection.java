@@ -42,15 +42,16 @@ public final class LongRunningPromptSection implements PromptSection {
                 "Workers are background executors. Once the task is RUNNING, the runtime repeatedly spawns fresh, isolated worker sessions that carry out the plan; workers never talk to the user.",
                 "Your core job is to work with the user to agree on the task details, then initialize the long-running environment from the agreed plan after the user confirms execution can begin.",
                 "As Controller, you generally should not execute the task yourself. Only use ordinary tools such as file reads, bash, and edits for hands-on changes or task execution when the user explicitly asks.",
-                "To start, resume, or cancel the run, call longrun_state_transition_request to propose it after the long-running environment files are fully initialized. This does not change state directly — the runtime asks the user to confirm first, so do not claim a transition happened until it is confirmed.");
+                "Use only dedicated long-running tools for long-running environment work: longrun_environment_read to inspect the environment and longrun_environment_update to initialize or modify it. Do not use ordinary file, bash, or edit tools to read or write .mada/long-running files.",
+                "To start, resume, cancel, or fail the run, call longrun_state_transition after the long-running environment files are fully initialized. The tool asks the user for confirmation and applies the transition if approved. It must be called alone.");
     }
 
     private static String draftPrompt(ConversationSession session) {
         List<String> items = new ArrayList<>();
         items.add("Current stage: DRAFT — you are shaping the task before any work starts.");
         items.add("First, clarify the requirements and narrow the scope with the user. When the plan is clear enough, ask whether execution can begin.");
-        items.add("Only after the user gives a clear yes, initialize the long-running environment files from the agreed plan: task summary, feature list, known issues, progress, and any build/test commands or init.sh details workers need.");
-        items.add("After the long-running environment files are fully initialized, propose starting the run by calling longrun_state_transition_request target_status=RUNNING reason=user_confirmed_start with a short summary. Call it alone, stop after calling it, and let the runtime ask the user for approval.");
+        items.add("Only after the user gives a clear yes, initialize the long-running environment with longrun_environment_update action=initialize_environment. Include a complete task summary, non-empty feature list, known issues list (use [] if none), and a progress note with any build/test commands or setup details workers need.");
+        items.add("After the long-running environment files are fully initialized, call longrun_state_transition target_status=RUNNING reason=user_confirmed_start with a short summary. Call it alone; if the user approves, the tool applies RUNNING and the runtime takes over worker execution.");
         appendTaskIdentity(items, session);
         return bullets(items);
     }
@@ -66,9 +67,9 @@ public final class LongRunningPromptSection implements PromptSection {
     private static String interruptPrompt(ConversationSession session) {
         List<String> items = new ArrayList<>();
         items.add("Current stage: INTERRUPT — the run paused and needs you.");
-        items.add("Find out what happened: read progress.txt, known_issues.json, and logs/events.jsonl in the task store.");
-        items.add("Fix the plan accordingly — correct the summary, features, known issues, or progress with the longrun_* plan tools.");
-        items.add("When it is ready to continue, propose resuming: longrun_state_transition_request target_status=RUNNING reason=resume_after_interrupt, with a short summary.");
+        items.add("Find out what happened with longrun_environment_read. Use view=snapshot first, then view=events or view=progress when you need focused detail.");
+        items.add("Fix the environment with longrun_environment_update — correct the summary, features, known issues, or progress through that tool only.");
+        items.add("When it is ready to continue, call longrun_state_transition target_status=RUNNING reason=resume_after_interrupt with a short summary.");
         appendTaskIdentity(items, session);
         return bullets(items);
     }

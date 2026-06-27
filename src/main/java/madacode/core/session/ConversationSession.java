@@ -633,26 +633,6 @@ public class ConversationSession {
         }
     }
 
-    public Optional<LongRunningTransitionRequest> pendingLongRunningTransitionRequest() {
-        LongRunningSessionState state = longRunning;
-        return state == null ? Optional.empty() : state.pendingTransitionRequest();
-    }
-
-    public void setPendingLongRunningTransitionRequest(LongRunningTransitionRequest request) {
-        requireLongRunningMode("pendingLongRunningTransitionRequest", request);
-        LongRunningSessionState state = longRunningStateFor(request);
-        if (state != null) {
-            state.setPendingTransitionRequest(request);
-        }
-    }
-
-    public void clearPendingLongRunningTransitionRequest() {
-        LongRunningSessionState state = longRunning;
-        if (state != null) {
-            state.clearPendingTransitionRequest();
-        }
-    }
-
     public Optional<LongRunningWorkerReport> lastWorkerReport() {
         LongRunningSessionState state = longRunning;
         return state == null ? Optional.empty() : state.lastWorkerReport();

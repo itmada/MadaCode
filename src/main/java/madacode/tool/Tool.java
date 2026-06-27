@@ -62,6 +62,21 @@ public interface Tool<I> {
     }
 
     /**
+     * Whether this tool must be the only tool call in a model response.
+     *
+     * <p>Use this for tools that synchronously hand control to the host runtime
+     * or ask the user an exclusive workflow question. The orchestrator enforces
+     * this before any tool in the batch executes.
+     */
+    default boolean mustRunAlone() {
+        return false;
+    }
+
+    default String runAloneFailureMessage() {
+        return "This tool must be called alone and cannot be batched with other tool calls.";
+    }
+
+    /**
      * Whether this tool's primary effect is modifying user files in the
      * working directory. The {@code AcceptEditsPermissionRule} reads this
      * to decide whether to auto-allow in {@link madacode.permission.PermissionMode#ACCEPT_EDITS}.

@@ -1,8 +1,15 @@
 package madacode.longrunning;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import madacode.core.engine.ToolUseContext;
+import madacode.core.model.ToolResult;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
+import madacode.tool.LongRunEnvironmentUpdateTool;
+import madacode.tool.validation.ToolInputCoercion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -20,14 +27,14 @@ class LongRunningStateMachineTest {
 
     @TempDir
     Path tempDir;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void controllerRequiresFeatureListBeforeStartingAndThenTransitionsDraftToRunning() {
+    void controllerRequiresInitializedEnvironmentBeforeTransitionProposal() {
         LongRunningController controller = new LongRunningController();
-        ConversationSession session = controlSession();
-        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        ConversationSession session = bareControlSession();
 
-        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.requestTransition(
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.prepareTransition(
                 session,
                 LongRunningStage.RUNNING,
                 LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
@@ -35,39 +42,58 @@ class LongRunningStateMachineTest {
                 null,
                 "tester"));
 
-        assertTrue(error.getMessage().contains("feature_list.json"));
+        assertTrue(error.getMessage().contains("environment files are not initialized"));
         assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
-        assertEquals("DRAFT", store.loadTask(session.longRunningTaskId()).status());
+    }
 
-        store.writeInitialFeatureList(session.longRunningTaskId(), List.of(feature("feature-1")));
-        LongRunningController.AppliedTransition transition = controller.requestAndApply(
+    @Test
+    void controllerTransitionsDraftToRunningAfterEnvironmentInitialization() {
+        LongRunningController controller = new LongRunningController();
+        ConversationSession session = initializedControlSession();
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+
+        String planSummary = store.loadTask(session.longRunningTaskId()).planSummary();
+        LongRunningController.AppliedTransition transition = controller.prepareAndApply(
                 session,
                 LongRunningStage.RUNNING,
                 LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
                 "Start execution",
                 null,
-                "tester",
-                null);
+                "tester");
 
         assertEquals(LongRunningStage.DRAFT, transition.sourceStage());
         assertEquals(LongRunningStage.RUNNING, transition.targetStage());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals("RUNNING", store.loadTask(session.longRunningTaskId()).status());
+        assertEquals(planSummary, store.loadTask(session.longRunningTaskId()).planSummary());
+    }
+
+    @Test
+    void controllerReadinessStillRejectsEmptyFeatureListOnInitializedTask() {
+        LongRunningController controller = new LongRunningController();
+        ConversationSession session = initializedControlSession();
+        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+
+        store.replaceFeatureList(session.longRunningTaskId(), List.of());
+
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.prepareTransition(
+                session,
+                LongRunningStage.RUNNING,
+                LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
+                "Start execution",
+                null,
+                "tester"));
+
+        assertTrue(error.getMessage().contains("long-running environment feature list is empty"));
+        assertEquals(LongRunningStage.DRAFT, session.longRunningStage());
+        assertEquals("DRAFT", store.loadTask(session.longRunningTaskId()).status());
     }
 
     @Test
     void controllerReportsMalformedFeatureListReadinessFailure() throws Exception {
         LongRunningController controller = new LongRunningController();
-        ConversationSession session = controlSession();
+        ConversationSession session = initializedControlSession();
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
-
-        assertThrows(IllegalStateException.class, () -> controller.requestTransition(
-                session,
-                LongRunningStage.RUNNING,
-                LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
-                "Prime task state",
-                null,
-                "tester"));
 
         Path featureList = store.taskDirectoryPath(session.longRunningTaskId())
                 .resolve(LongRunningTaskRepository.FEATURE_LIST_FILE);
@@ -84,7 +110,7 @@ class LongRunningStateMachineTest {
                 ]
                 """);
 
-        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.requestTransition(
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.prepareTransition(
                 session,
                 LongRunningStage.RUNNING,
                 LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
@@ -92,7 +118,7 @@ class LongRunningStateMachineTest {
                 null,
                 "tester"));
 
-        assertTrue(error.getMessage().contains("feature_list.json"));
+        assertTrue(error.getMessage().contains("long-running environment feature list is malformed"));
         assertTrue(error.getMessage().contains("Missing required field: id"));
     }
 
@@ -102,40 +128,37 @@ class LongRunningStateMachineTest {
         ConversationSession session = runningSession(controller);
         LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
 
-        LongRunningController.AppliedTransition interrupted = controller.requestAndApply(
+        LongRunningController.AppliedTransition interrupted = controller.prepareAndApply(
                 session,
                 LongRunningStage.INTERRUPT,
                 LongRunningTransitions.Trigger.WORKER_CYCLE_BUDGET_EXHAUSTED.wire(),
                 "Worker hit its cycle budget",
                 null,
-                "launcher",
-                null);
+                "launcher");
 
         assertEquals(LongRunningStage.INTERRUPT, interrupted.targetStage());
         assertEquals(LongRunningStage.INTERRUPT, session.longRunningStage());
         assertEquals("INTERRUPT", store.loadTask(session.longRunningTaskId()).status());
 
-        LongRunningController.AppliedTransition resumed = controller.requestAndApply(
+        LongRunningController.AppliedTransition resumed = controller.prepareAndApply(
                 session,
                 LongRunningStage.RUNNING,
                 LongRunningTransitions.Trigger.RESUME_AFTER_INTERRUPT.wire(),
                 "Resume after review",
                 null,
-                "tester",
-                null);
+                "tester");
 
         assertEquals(LongRunningStage.RUNNING, resumed.targetStage());
         assertEquals(LongRunningStage.RUNNING, session.longRunningStage());
         assertEquals("RUNNING", store.loadTask(session.longRunningTaskId()).status());
 
-        LongRunningController.AppliedTransition cancelled = controller.requestAndApply(
+        LongRunningController.AppliedTransition cancelled = controller.prepareAndApply(
                 session,
                 LongRunningStage.CANCELLED,
                 LongRunningTransitions.Trigger.USER_REQUESTED_CANCEL.wire(),
                 "Stop the task",
                 null,
-                "tester",
-                null);
+                "tester");
 
         assertEquals(LongRunningStage.CANCELLED, cancelled.targetStage());
         assertEquals(LongRunningStage.CANCELLED, session.longRunningStage());
@@ -163,7 +186,7 @@ class LongRunningStateMachineTest {
         assertTrue(terminalFailure.isTerminal());
         assertEquals(LongRunningTransitions.TerminalOutcome.FAILED, terminalFailure.terminalOutcome());
 
-        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.requestTransition(
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> controller.prepareTransition(
                 session,
                 LongRunningStage.RUNNING,
                 LongRunningTransitions.Trigger.RESUME_AFTER_INTERRUPT.wire(),
@@ -174,46 +197,50 @@ class LongRunningStateMachineTest {
     }
 
     private ConversationSession runningSession(LongRunningController controller) {
-        ConversationSession session = controlSession();
-        LongRunningTaskStore store = new LongRunningTaskStore(tempDir);
+        ConversationSession session = initializedControlSession();
 
-        assertThrows(IllegalStateException.class, () -> controller.requestTransition(
-                session,
-                LongRunningStage.RUNNING,
-                LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
-                "Prime task state",
-                null,
-                "tester"));
-        store.writeInitialFeatureList(session.longRunningTaskId(), List.of(feature("feature-1")));
-        controller.requestAndApply(
+        controller.prepareAndApply(
                 session,
                 LongRunningStage.RUNNING,
                 LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
                 "Start execution",
                 null,
-                "tester",
-                null);
+                "tester");
         return session;
     }
 
-    private ConversationSession controlSession() {
+    private ConversationSession bareControlSession() {
         ConversationSession session = new ConversationSession(tempDir);
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
-        session.setLongRunningPlanSummary("Implement the requested feature deterministically.");
-        new LongRunningTaskInitializer(new LongRunningTaskStore(tempDir),
-                LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId)
-                .ensurePlanningTask(session, "Initialize long-running test task.");
+        session.setLongRunningStage(LongRunningStage.DRAFT);
         return session;
     }
 
-    private static FeatureItem feature(String id) {
-        return new FeatureItem(
-                id,
-                "implementation",
-                "high",
-                "Finish the requested work",
-                List.of(),
-                List.of("run deterministic verification"),
-                false);
+    private ConversationSession initializedControlSession() {
+        ConversationSession session = bareControlSession();
+        LongRunEnvironmentUpdateTool tool = new LongRunEnvironmentUpdateTool();
+        ToolResult result = tool.execute(
+                ToolInputCoercion.coerce(tool, initializeEnvironmentInput(), mapper),
+                new ToolUseContext(tempDir, session));
+        assertTrue(result.success(), result.output());
+        return session;
+    }
+
+    private ObjectNode initializeEnvironmentInput() {
+        ObjectNode input = mapper.createObjectNode();
+        input.put("action", "initialize_environment");
+        input.put("title", "Deterministic long-running test");
+        input.put("plan_summary", "Implement the requested feature deterministically.");
+        input.put("text", "Environment initialized for state-machine test.");
+        ArrayNode features = input.putArray("features");
+        ObjectNode feature = features.addObject();
+        feature.put("id", "feature-1");
+        feature.put("category", "implementation");
+        feature.put("priority", "high");
+        feature.put("description", "Finish the requested work");
+        feature.putArray("depends_on");
+        feature.putArray("verification_steps").add("run deterministic verification");
+        input.putArray("issues");
+        return input;
     }
 }

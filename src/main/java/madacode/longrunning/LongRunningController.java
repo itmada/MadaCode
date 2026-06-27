@@ -1,10 +1,9 @@
 package madacode.longrunning;
 
-import madacode.cli.InterruptController;
 import madacode.core.model.Message;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
-import madacode.core.session.LongRunningTransitionRequest;
+import madacode.core.session.LongRunningTransitionProposal;
 import madacode.core.session.SessionMode;
 
 import java.nio.file.Path;
@@ -14,7 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Single authority for long-running transition requests and applied state changes.
+ * Single authority for validating and applying long-running state transitions.
  */
 public final class LongRunningController {
 
@@ -53,7 +52,7 @@ public final class LongRunningController {
                 "executionReadinessFactory");
     }
 
-    public LongRunningTransitionRequest requestTransition(
+    public LongRunningTransitionProposal prepareTransition(
             ConversationSession session,
             LongRunningStage targetStage,
             String reason,
@@ -63,7 +62,7 @@ public final class LongRunningController {
         Objects.requireNonNull(session, "session");
         requireControlSession(session);
         LongRunningStage sourceStage = effectiveStage(session);
-        LongRunningTransitionRequest request = LongRunningTransitionRequest.of(
+        LongRunningTransitionProposal proposal = LongRunningTransitionProposal.of(
                 sourceStage,
                 Objects.requireNonNull(targetStage, "targetStage").normalized(),
                 reason,
@@ -74,109 +73,95 @@ public final class LongRunningController {
             throw new IllegalStateException(
                     "Long-running environment files are not initialized. "
                             + "Initialize the task summary, feature list, known issues, and progress before "
-                            + "requesting a state transition.");
+                            + "applying a state transition.");
         }
-        validateRequest(session, request);
-        session.setPendingLongRunningTransitionRequest(request);
-        enqueueControllerEvent(session, "transition_request_pending", request,
+        validateProposal(session, proposal);
+        appendControllerEvent(session, "transition_confirmation_requested", proposal,
                 Map.of("requested_by", safe(requestedBy)));
-        appendEvent(session, "transition_request_pending", request, true,
-                "Pending transition request: " + request.sourceStage() + " -> " + request.targetStage() + ".",
+        appendEvent(session, "transition_confirmation_requested", proposal, true,
+                "Transition confirmation requested: "
+                        + proposal.sourceStage() + " -> " + proposal.targetStage() + ".",
                 Map.of());
-        appendControlNotice(session, "[long-running] Pending transition request: "
-                + request.sourceStage() + " -> " + request.targetStage() + ".");
-        return request;
+        return proposal;
     }
 
-    public void rejectPendingRequest(ConversationSession session, String rejectedBy) {
-        Objects.requireNonNull(session, "session");
-        LongRunningTransitionRequest request = session.pendingLongRunningTransitionRequest()
-                .orElseThrow(() -> new IllegalStateException("No pending long-running transition request."));
-        session.flushPendingControllerEvents();
-        appendControllerEvent(session, "transition_request_rejected", request,
-                Map.of("rejected_by", safe(rejectedBy)));
-        appendEvent(session, "transition_request_rejected", request, false,
-                "Rejected transition request: " + request.sourceStage() + " -> " + request.targetStage() + ".",
-                Map.of("rejectedBy", safe(rejectedBy)));
-        appendControlNotice(session, "[long-running] Kept " + request.sourceStage()
-                + " after user declined transition to " + request.targetStage() + ".");
-        session.clearPendingLongRunningTransitionRequest();
-    }
-
-    public AppliedTransition applyPendingRequest(
+    public void recordRejectedTransition(
             ConversationSession session,
-            String approvedBy,
-            InterruptController interruptController) {
+            LongRunningTransitionProposal proposal,
+            String rejectedBy) {
         Objects.requireNonNull(session, "session");
-        LongRunningTransitionRequest request = session.pendingLongRunningTransitionRequest()
-                .orElseThrow(() -> new IllegalStateException("No pending long-running transition request."));
-        session.clearPendingLongRunningTransitionRequest();
-        return applyTransition(session, request, approvedBy, interruptController);
+        Objects.requireNonNull(proposal, "proposal");
+        appendControllerEvent(session, "transition_confirmation_rejected", proposal,
+                Map.of("rejected_by", safe(rejectedBy)));
+        appendEvent(session, "transition_confirmation_rejected", proposal, false,
+                "Rejected transition proposal: " + proposal.sourceStage() + " -> " + proposal.targetStage() + ".",
+                Map.of("rejectedBy", safe(rejectedBy)));
+        appendControlNotice(session, "[long-running] Kept " + proposal.sourceStage()
+                + " after user declined transition to " + proposal.targetStage() + ".");
     }
 
-    public AppliedTransition requestAndApply(
+    AppliedTransition prepareAndApply(
             ConversationSession session,
             LongRunningStage targetStage,
             String reason,
             String summary,
             String planDelta,
-            String requestedBy,
-            InterruptController interruptController) {
-        requestTransition(session, targetStage, reason, summary, planDelta, requestedBy);
-        return applyPendingRequest(session, requestedBy, interruptController);
+            String requestedBy) {
+        LongRunningTransitionProposal transition = prepareTransition(
+                session, targetStage, reason, summary, planDelta, requestedBy);
+        return applyTransition(session, transition, requestedBy);
     }
 
-    private AppliedTransition applyTransition(
+    public AppliedTransition applyTransition(
             ConversationSession session,
-            LongRunningTransitionRequest request,
-            String approvedBy,
-            InterruptController interruptController) {
+            LongRunningTransitionProposal proposal,
+            String approvedBy) {
         requireControlSession(session);
         LongRunningStage previous = effectiveStage(session);
-        LongRunningStage requestSource = request.sourceStage().normalized();
-        if (previous != requestSource) {
+        LongRunningStage proposalSource = proposal.sourceStage().normalized();
+        if (previous != proposalSource) {
             throw new IllegalStateException(
-                    "Stale long-running transition request: requested from "
-                            + requestSource + " but current stage is " + previous
-                            + ". Request a new transition for the current stage.");
+                    "Stale long-running transition proposal: proposed from "
+                            + proposalSource + " but current stage is " + previous
+                            + ". Prepare a new transition for the current stage.");
         }
-        validateRequest(session, request);
+        validateProposal(session, proposal);
         LongRunningTaskStore store = taskStore(session);
         String taskId = requireTaskId(session);
-        LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(request.reason())
+        LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(proposal.reason())
                 .orElseThrow(() -> new IllegalStateException(
-                        "Unknown long-running transition reason: " + request.reason()));
+                        "Unknown long-running transition reason: " + proposal.reason()));
         LongRunningLifecycleEvent event = LongRunningLifecycleEvent.controller(trigger);
         LongRunningLifecycleDecision decision = LongRunningLifecycleStateMachine.decide(previous, event);
         LongRunningStage target = decision.target();
-        if (target != request.targetStage().normalized()) {
+        if (target != proposal.targetStage().normalized()) {
             throw new IllegalStateException(
-                    "Transition request target " + request.targetStage().normalized()
+                    "Transition proposal target " + proposal.targetStage().normalized()
                             + " does not match state machine target " + target
-                            + " for reason " + request.reason() + ".");
+                            + " for reason " + proposal.reason() + ".");
         }
 
         switch (target) {
             case RUNNING -> {
-                ensureExecutionTask(session, request.summary());
+                ensureExecutionTask(session, proposal.summary());
                 session.setLongRunningStage(LongRunningStage.RUNNING);
-                session.setLongRunningReason(request.reason());
+                session.setLongRunningReason(proposal.reason());
             }
             case INTERRUPT -> {
                 store.applyLifecycleEvent(taskId, event);
                 session.setLongRunningStage(LongRunningStage.INTERRUPT);
-                session.setLongRunningReason(request.reason());
+                session.setLongRunningReason(proposal.reason());
             }
             case COMPLETED, CANCELLED, FAILED -> {
                 store.applyLifecycleEvent(taskId, event);
                 session.setLongRunningStage(target);
-                session.setLongRunningReason(request.reason());
+                session.setLongRunningReason(proposal.reason());
             }
             case DRAFT -> throw new IllegalStateException(
                     "Long-running tasks do not transition back to DRAFT after creation.");
         }
 
-        appendProgress(store, taskId, request, true);
+        appendProgress(store, taskId, proposal, true);
         session.flushPendingControllerEvents();
         Map<String, String> appliedDetails = new LinkedHashMap<>();
         appliedDetails.put("approved_by", safe(approvedBy));
@@ -184,24 +169,24 @@ public final class LongRunningController {
             appliedDetails.put("interrupt_cause",
                     decision.interruptCause().name().toLowerCase(java.util.Locale.ROOT));
         }
-        appendControllerEvent(session, "transition_applied", request, Map.copyOf(appliedDetails));
-        appendEvent(session, "transition_applied", request, true,
-                "Applied transition: " + previous + " -> " + target + " (" + request.reason() + ").",
+        appendControllerEvent(session, "transition_applied", proposal, Map.copyOf(appliedDetails));
+        appendEvent(session, "transition_applied", proposal, true,
+                "Applied transition: " + previous + " -> " + target + " (" + proposal.reason() + ").",
                 Map.of("approvedBy", safe(approvedBy)));
         appendControlNotice(session, "[long-running] " + previous + " -> " + target
-                + " (" + request.reason() + ").");
-        return new AppliedTransition(previous, target, request.reason());
+                + " (" + proposal.reason() + ").");
+        return new AppliedTransition(previous, target, proposal.reason());
     }
 
-    private void validateRequest(ConversationSession session, LongRunningTransitionRequest request) {
+    private void validateProposal(ConversationSession session, LongRunningTransitionProposal proposal) {
         if (session.isLongRunningWorkerSession()) {
-            throw new IllegalStateException("Worker session cannot request long-running transitions.");
+            throw new IllegalStateException("Worker session cannot manage long-running transitions.");
         }
         LongRunningStage source = effectiveStage(session);
-        LongRunningStage target = request.targetStage().normalized();
-        LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(request.reason())
+        LongRunningStage target = proposal.targetStage().normalized();
+        LongRunningTransitions.Trigger trigger = LongRunningTransitions.Trigger.fromWire(proposal.reason())
                 .orElseThrow(() -> new IllegalStateException(
-                        "Unknown long-running transition reason: " + request.reason()));
+                        "Unknown long-running transition reason: " + proposal.reason()));
         LongRunningLifecycleDecision decision = LongRunningLifecycleStateMachine.decide(
                 source, LongRunningLifecycleEvent.controller(trigger));
         if (decision.target() != target) {
@@ -232,7 +217,7 @@ public final class LongRunningController {
     private void appendEvent(
             ConversationSession session,
             String type,
-            LongRunningTransitionRequest request,
+            LongRunningTransitionProposal proposal,
             boolean success,
             String message,
             Map<String, String> extraDetails) {
@@ -242,14 +227,14 @@ public final class LongRunningController {
                 return;
             }
             LinkedHashMap<String, String> details = new LinkedHashMap<>();
-            details.put("sourceStage", request.sourceStage().name());
-            details.put("targetStage", request.targetStage().name());
-            details.put("reason", request.reason());
-            if (request.summary() != null) {
-                details.put("summary", request.summary());
+            details.put("sourceStage", proposal.sourceStage().name());
+            details.put("targetStage", proposal.targetStage().name());
+            details.put("reason", proposal.reason());
+            if (proposal.summary() != null) {
+                details.put("summary", proposal.summary());
             }
-            if (request.planDelta() != null) {
-                details.put("planDelta", request.planDelta());
+            if (proposal.planDelta() != null) {
+                details.put("planDelta", proposal.planDelta());
             }
             details.putAll(extraDetails);
             taskStore(session).appendEvent(taskId, new LongRunningTaskEvent(
@@ -258,7 +243,7 @@ public final class LongRunningController {
                     taskId,
                     session.sessionId(),
                     effectiveStage(session).name(),
-                    request.reason(),
+                    proposal.reason(),
                     success,
                     message,
                     Map.copyOf(details)));
@@ -270,14 +255,14 @@ public final class LongRunningController {
     private static void appendProgress(
             LongRunningTaskStore store,
             String taskId,
-            LongRunningTransitionRequest request,
+            LongRunningTransitionProposal proposal,
             boolean approved) {
         try {
             String line = "## " + Instant.now() + System.lineSeparator()
-                    + "transition: " + request.sourceStage() + " -> " + request.targetStage() + System.lineSeparator()
-                    + "reason: " + request.reason() + System.lineSeparator()
+                    + "transition: " + proposal.sourceStage() + " -> " + proposal.targetStage() + System.lineSeparator()
+                    + "reason: " + proposal.reason() + System.lineSeparator()
                     + "approved: " + approved + System.lineSeparator()
-                    + (request.summary() == null ? "" : "summary: " + request.summary() + System.lineSeparator())
+                    + (proposal.summary() == null ? "" : "summary: " + proposal.summary() + System.lineSeparator())
                     + System.lineSeparator();
             store.appendProgress(taskId, line);
         } catch (RuntimeException ignored) {
@@ -292,34 +277,26 @@ public final class LongRunningController {
     private static void appendControllerEvent(
             ConversationSession session,
             String event,
-            LongRunningTransitionRequest request,
+            LongRunningTransitionProposal proposal,
             Map<String, String> extraFields) {
-        session.addControllerEvent("long-running", controllerEventFields(session, event, request, extraFields));
-    }
-
-    private static void enqueueControllerEvent(
-            ConversationSession session,
-            String event,
-            LongRunningTransitionRequest request,
-            Map<String, String> extraFields) {
-        session.enqueueControllerEvent("long-running", controllerEventFields(session, event, request, extraFields));
+        session.addControllerEvent("long-running", controllerEventFields(session, event, proposal, extraFields));
     }
 
     private static LinkedHashMap<String, String> controllerEventFields(
             ConversationSession session,
             String event,
-            LongRunningTransitionRequest request,
+            LongRunningTransitionProposal proposal,
             Map<String, String> extraFields) {
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
         fields.put("event", event);
         fields.put("task", safe(session.longRunningTaskId()));
-        fields.put("transition", request.sourceStage() + " -> " + request.targetStage());
-        fields.put("reason", request.reason());
-        if (request.summary() != null) {
-            fields.put("summary", request.summary());
+        fields.put("transition", proposal.sourceStage() + " -> " + proposal.targetStage());
+        fields.put("reason", proposal.reason());
+        if (proposal.summary() != null) {
+            fields.put("summary", proposal.summary());
         }
-        if (request.planDelta() != null) {
-            fields.put("plan_delta", request.planDelta());
+        if (proposal.planDelta() != null) {
+            fields.put("plan_delta", proposal.planDelta());
         }
         fields.putAll(extraFields);
         return fields;

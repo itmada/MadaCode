@@ -108,6 +108,66 @@ class QueryEngineTest {
     }
 
     @Test
+    void yieldToRuntimeToolResultStopsTurnBeforeNextModelIteration() {
+        ExclusiveYieldTool yieldTool = new ExclusiveYieldTool();
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(yieldTool);
+        List<ToolCall> toolCalls = List.of(new ToolCall(
+                "toolu_yield",
+                yieldTool.name(),
+                input("start")));
+        ScriptedApiClient apiClient = new ScriptedApiClient()
+                .enqueue(response("requesting start", toolCalls, StopReason.TOOL_USE))
+                .enqueue(response("should not be requested", List.of(), StopReason.END_TURN));
+        ConversationSession session = new ConversationSession();
+        session.loadDeferredTool(yieldTool.name());
+
+        TurnResult result = engine(apiClient, registry).runTurn(session, "start");
+
+        assertEquals(FinishReason.COMPLETED, result.finishReason());
+        assertEquals("runtime owns next step", result.finalText());
+        assertEquals(1, result.iterations());
+        assertEquals(1, apiClient.calls.size());
+        assertEquals(List.of("start"), yieldTool.executedValues);
+    }
+
+    @Test
+    void mustRunAloneToolMakesWholeBatchFailWithoutExecutingAnyTool() {
+        ExclusiveYieldTool yieldTool = new ExclusiveYieldTool();
+        EchoTool echoTool = new EchoTool();
+        ToolRegistry registry = new ToolRegistry();
+        registry.register(yieldTool);
+        registry.register(echoTool);
+        List<ToolCall> toolCalls = List.of(
+                new ToolCall("toolu_yield", yieldTool.name(), input("start")),
+                new ToolCall("toolu_echo", "echo", input("after")));
+        ScriptedApiClient apiClient = new ScriptedApiClient()
+                .enqueue(response("bad batch", toolCalls, StopReason.TOOL_USE))
+                .enqueue(response("saw failure", List.of(), StopReason.END_TURN));
+        ConversationSession session = new ConversationSession();
+        session.loadDeferredTool(yieldTool.name());
+        session.loadDeferredTool(echoTool.name());
+
+        TurnResult result = engine(apiClient, registry).runTurn(session, "start");
+
+        assertEquals(FinishReason.COMPLETED, result.finishReason());
+        assertEquals(2, result.iterations());
+        assertTrue(yieldTool.executedValues.isEmpty());
+        assertTrue(echoTool.executedValues.isEmpty());
+        Message toolResultMessage = session.messages().get(3);
+        ContentBlock.ToolResultBlock first =
+                assertInstanceOf(ContentBlock.ToolResultBlock.class,
+                        toolResultMessage.contentBlocks().get(0));
+        ContentBlock.ToolResultBlock second =
+                assertInstanceOf(ContentBlock.ToolResultBlock.class,
+                        toolResultMessage.contentBlocks().get(1));
+        assertFalse(first.success());
+        assertFalse(second.success());
+        assertEquals("exclusive_yield must be called alone", first.content());
+        assertEquals("exclusive_yield must be called alone", second.content());
+    }
+
+    @Test
     void reachingMaxIterationsAppendsSystemWarningAndReturnsMaxIterations() {
         EchoTool echoTool = new EchoTool();
         ToolRegistry registry = new ToolRegistry();
@@ -362,6 +422,63 @@ class QueryEngineTest {
     }
 
     private record EchoInput(String value) {
+    }
+
+    private static final class ExclusiveYieldTool implements Tool<EchoInput> {
+        private final List<String> executedValues = new ArrayList<>();
+
+        @Override
+        public String name() {
+            return "exclusive_yield";
+        }
+
+        @Override
+        public String description() {
+            return "Test exclusive runtime handoff.";
+        }
+
+        @Override
+        public Class<EchoInput> inputType() {
+            return EchoInput.class;
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return false;
+        }
+
+        @Override
+        public boolean mustRunAlone() {
+            return true;
+        }
+
+        @Override
+        public String runAloneFailureMessage() {
+            return "exclusive_yield must be called alone";
+        }
+
+        @Override
+        public ObjectNode inputSchema(ObjectMapper mapper) {
+            ObjectNode schema = mapper.createObjectNode();
+            schema.put("type", "object");
+            ObjectNode properties = mapper.createObjectNode();
+            ObjectNode value = mapper.createObjectNode();
+            value.put("type", "string");
+            properties.set("value", value);
+            schema.set("properties", properties);
+            schema.putArray("required").add("value");
+            return schema;
+        }
+
+        @Override
+        public ToolResult execute(EchoInput input, ToolUseContext context) {
+            executedValues.add(input.value());
+            return new ToolResult(
+                    name(),
+                    true,
+                    "runtime owns next step",
+                    ToolResult.TurnControl.YIELD_TO_RUNTIME);
+        }
     }
 
     private static final class RecordingListener implements SessionListener {

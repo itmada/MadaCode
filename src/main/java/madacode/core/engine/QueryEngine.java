@@ -189,7 +189,7 @@ public class QueryEngine {
             long iterStart = System.nanoTime();
 
             // Recalculate visible tools and system prompt each iteration so that
-            // stage changes within a turn (e.g. longrun_task_update completing a
+            // stage changes within a turn (e.g. longrun_environment_update completing a
             // task) are reflected in subsequent model requests.
             var visibleTools = toolAccessResolver.visibleTools(toolRegistry.tools(), ctx.toolAccessScope());
             String systemPrompt = systemPromptBuilder.build(
@@ -247,6 +247,17 @@ public class QueryEngine {
             session.addMessage(Message.user(toolResultBlocks));
             session.flushPendingControllerEvents();
 
+            if (shouldYieldToRuntime(results)) {
+                String finalText = results.stream()
+                        .filter(result -> result.turnControl() == ToolResult.TurnControl.YIELD_TO_RUNTIME)
+                        .map(ToolResult::output)
+                        .findFirst()
+                        .orElse("Tool requested runtime control.");
+                diagnosticEvents.turnCompleted(session, FinishReason.COMPLETED,
+                        iteration + 1, elapsedMs(turnStart));
+                return new TurnResult(finalText, FinishReason.COMPLETED, iteration + 1);
+            }
+
             if (cancel.isCancelled()) {
                 return completeWithCancellation(session, cancel.reason(),
                         iteration + 1, elapsedMs(turnStart));
@@ -274,6 +285,11 @@ public class QueryEngine {
                                                 int iterations, long durationMs) {
         return completeTerminal(session, TerminalOutcome.cancellation(reason),
                 iterations, durationMs);
+    }
+
+    private static boolean shouldYieldToRuntime(List<ToolResult> results) {
+        return results.stream()
+                .anyMatch(result -> result.turnControl() == ToolResult.TurnControl.YIELD_TO_RUNTIME);
     }
 
     private TurnResult completeTerminal(ConversationSession session, TerminalOutcome outcome,

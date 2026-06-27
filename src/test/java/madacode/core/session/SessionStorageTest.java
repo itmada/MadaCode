@@ -26,7 +26,6 @@ class SessionStorageTest {
     void saveAndLoadRoundTripsTranscriptState() {
         Path workingDirectory = tempDir.resolve("workspace");
         Instant createdAt = Instant.parse("2026-06-01T12:00:00Z");
-        Instant requestedAt = Instant.parse("2026-06-01T12:03:00Z");
         ConversationSession session = new ConversationSession(
                 "roundtrip-session",
                 createdAt,
@@ -37,15 +36,6 @@ class SessionStorageTest {
                         Message.assistant(List.of(
                                 new ContentBlock.TextBlock("I will plan it."),
                                 new ContentBlock.ThinkingBlock("private reasoning omitted")))));
-        LongRunningTransitionRequest transitionRequest = new LongRunningTransitionRequest(
-                LongRunningStage.DRAFT,
-                LongRunningStage.RUNNING,
-                "plan_confirmed",
-                "The plan is ready.",
-                "No changes.",
-                requestedAt,
-                "user",
-                false);
 
         session.addInput("first input");
         session.addInput("second input");
@@ -59,7 +49,6 @@ class SessionStorageTest {
         session.setLongRunningReason("Need durable state");
         session.setLongRunningPlanSummary("A concise plan summary");
         session.setLongRunningWorkerSession(true);
-        session.setPendingLongRunningTransitionRequest(transitionRequest);
         session.loadDeferredTool("zeta_tool");
         session.loadDeferredTool("alpha_tool");
 
@@ -84,7 +73,6 @@ class SessionStorageTest {
         assertEquals("Need durable state", restored.longRunningReason());
         assertEquals("A concise plan summary", restored.longRunningPlanSummary());
         assertTrue(restored.isLongRunningWorkerSession());
-        assertEquals(transitionRequest, restored.pendingLongRunningTransitionRequest().orElseThrow());
         assertEquals(session.loadedDeferredTools(), restored.loadedDeferredTools());
     }
 

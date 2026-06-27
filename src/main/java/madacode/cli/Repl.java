@@ -32,7 +32,6 @@ import madacode.tui.theme.Tk;
 import madacode.tui.widget.NotificationCenter;
 import madacode.tui.widget.SessionContext;
 
-import madacode.longrunning.LongRunningController;
 import madacode.longrunning.LongRunningLauncher;
 import madacode.longrunning.LongRunningReplCoordinator;
 import madacode.longrunning.LongRunningRuntime;
@@ -97,7 +96,7 @@ public abstract class Repl {
                 ? config.modeRouter()
                 : new ModeRouter(
                         new CommonModeHandler(turnExecutor),
-                        new LongRunningModeHandler(turnExecutor, this::longRunningTaskStore));
+                        new LongRunningModeHandler(turnExecutor));
         LongRunningRuntime longRunningRuntime = config.longRunningRuntime() != null
                 ? config.longRunningRuntime()
                 : LongRunningReplCoordinator.createRuntime(
@@ -108,9 +107,6 @@ public abstract class Repl {
                         () -> session,
                         config.workerTurnLogRoot(),
                         this::longRunningTaskStore);
-        LongRunningController longRunningController = config.longRunningController() != null
-                ? config.longRunningController()
-                : new LongRunningController(this::longRunningTaskStore);
         this.promptChannel = config.promptChannel() != null
                 ? config.promptChannel()
                 : UnavailablePromptChannel.INSTANCE;
@@ -118,9 +114,6 @@ public abstract class Repl {
                 () -> session,
                 screen,
                 longRunningRuntime,
-                longRunningController,
-                promptChannel,
-                () -> interruptController,
                 prompt -> runManagedTurn(turnExecutor.submit(session, prompt)),
                 this::persistSession,
                 this::longRunningTaskStore);
@@ -167,7 +160,6 @@ public abstract class Repl {
                 yield true;
             }
             case SlashAction.Handled h -> {
-                processPendingLongRunningTransitionRequest();
                 if (h.persistSession()) {
                     persistSession();
                 }
@@ -244,12 +236,18 @@ public abstract class Repl {
                 screen.setCursorVisible(true);
             }
         }
-        processPendingLongRunningTransitionRequest();
+        continueLongRunningWorkflowAfterTurn();
         persistSession();
     }
 
-    private void processPendingLongRunningTransitionRequest() {
-        longRunningCoordinator.processPendingTransitionRequest();
+    private void continueLongRunningWorkflowAfterTurn() {
+        if (session.workflowMode() == madacode.core.session.SessionMode.LONG_RUNNING
+                && session.longRunningStage() == madacode.core.session.LongRunningStage.RUNNING
+                && !longRunningCoordinator.isRuntimeRunning()) {
+            if (longRunningCoordinator.startRuntime()) {
+                screen.commitBlock("[long-running] Worker runtime started; monitor active.");
+            }
+        }
     }
 
     protected final void recordLongRunningControllerEvent(String event, Map<String, String> fields) {
@@ -548,7 +546,6 @@ public abstract class Repl {
             ModeRouter modeRouter,
             LongRunningLauncher launcher,
             LongRunningRuntime longRunningRuntime,
-            LongRunningController longRunningController,
             UserPromptChannel promptChannel,
             PermissionGate permissionGate,
             Path workerTurnLogRoot,
@@ -591,7 +588,6 @@ public abstract class Repl {
             private ModeRouter modeRouter;
             private LongRunningLauncher launcher;
             private LongRunningRuntime longRunningRuntime;
-            private LongRunningController longRunningController;
             private UserPromptChannel promptChannel;
             private PermissionGate permissionGate;
             private Path workerTurnLogRoot;
@@ -619,7 +615,6 @@ public abstract class Repl {
             Builder modeRouter(ModeRouter modeRouter) { this.modeRouter = modeRouter; return this; }
             Builder launcher(LongRunningLauncher launcher) { this.launcher = launcher; return this; }
             Builder longRunningRuntime(LongRunningRuntime longRunningRuntime) { this.longRunningRuntime = longRunningRuntime; return this; }
-            Builder longRunningController(LongRunningController longRunningController) { this.longRunningController = longRunningController; return this; }
             Builder promptChannel(UserPromptChannel promptChannel) { this.promptChannel = promptChannel; return this; }
             Builder permissionGate(PermissionGate permissionGate) { this.permissionGate = permissionGate; return this; }
             Builder workerTurnLogRoot(Path workerTurnLogRoot) { this.workerTurnLogRoot = workerTurnLogRoot; return this; }
@@ -649,7 +644,6 @@ public abstract class Repl {
                         modeRouter,
                         launcher,
                         longRunningRuntime,
-                        longRunningController,
                         promptChannel,
                         permissionGate,
                         workerTurnLogRoot,

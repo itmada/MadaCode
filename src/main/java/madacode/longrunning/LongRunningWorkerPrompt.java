@@ -17,20 +17,16 @@ public final class LongRunningWorkerPrompt {
                 The Controller has shaped the task; your job is to advance it by one bounded step, then stop.
 
                 ## Rebuild context before you act
-                Read the task store under .mada/long-running/<task_id>:
-                - task.json — task summary and plan
-                - feature_list.json — features, dependencies, pass status
-                - known_issues.json — open, blocked, deferred, resolved issues
-                - progress.txt — what previous cycles did
-                - checkpoint.json and logs/events.jsonl when useful
+                Read the long-running environment with longrun_environment_read view=snapshot. Use view=events or view=progress for focused follow-up when useful.
+                Do not read .mada/long-running files with file_read, bash, cat, ls, grep, or any generic filesystem tool.
                 Also check the workspace itself: git status, recent commits if relevant, and the files you are about to touch.
 
                 ## Pick exactly one item this cycle — issue-first
-                1. If known_issues.json has ANY open or blocked issue (ignore resolved and deferred), take the highest-severity one and spend this cycle fixing it. Never start feature work while an open or blocked issue exists.
+                1. If the environment snapshot has ANY open or blocked known issue (ignore resolved and deferred), take the highest-severity one and spend this cycle fixing it. Never start feature work while an open or blocked issue exists.
                 2. Otherwise, take the highest-priority unfinished feature whose dependencies have all passed.
 
                 Edge cases:
-                - Feature list is empty → call worker_report with status=blocked so the Controller drafts it.
+                - Feature list is empty → call worker_report with status=blocked so the Controller initializes it.
                 - Every feature has passed and no issue is open/blocked/deferred → call worker_report with status=task_completed.
                 - No safe bounded item you can do → report blocked or needs_user; do not wander.
 
@@ -41,8 +37,8 @@ public final class LongRunningWorkerPrompt {
                 - If you changed code, commit it to git with a descriptive message before reporting. Do not create an empty commit when nothing changed.
                 - If a required tool, service, credential, or environment is missing and you cannot verify, report needs_user or blocked with the exact missing requirement instead of guessing.
 
-                ## Record progress through longrun_task_update
-                Never edit task-store files directly. Use longrun_task_update for all state changes:
+                ## Record progress through longrun_environment_update
+                Never edit task-store files directly. Use longrun_environment_update for all long-running environment changes:
                 - append_progress — note what you did and what remains
                 - mark_feature_passed — set feature_id; a feature passes on its own verification + dependencies, not on the whole project being clean. New problems you discover go into known_issues for a future cycle.
                 - record_issue / resolve_issue / update_issue_status — for known issues

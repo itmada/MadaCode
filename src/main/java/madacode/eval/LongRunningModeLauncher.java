@@ -1,31 +1,29 @@
 package madacode.eval;
 
+import madacode.cli.UserPromptChannel;
 import madacode.core.engine.QueryEngine;
 import madacode.core.model.FinishReason;
 import madacode.core.session.ConversationSession;
+import madacode.core.session.LongRunningStage;
 import madacode.core.session.SessionMode;
 import madacode.core.turn.TurnResult;
 import madacode.longrunning.LongRunningLauncher;
-import madacode.longrunning.LongRunningController;
-import madacode.longrunning.LongRunningTaskContext;
-import madacode.longrunning.LongRunningTaskInitializer;
 import madacode.longrunning.LongRunningTaskStore;
-import madacode.longrunning.LongRunningTransitions;
-import madacode.core.session.LongRunningStage;
 
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Long-running mode launcher: drives the real autonomous worker lifecycle for large tasks.
  *
  * <p>Flow, all on the production components:
  * <ol>
- *   <li>Seed durable DRAFT state via {@link LongRunningTaskInitializer#ensurePlanningTask}.</li>
- *   <li>Run one planning turn through {@link QueryEngine#runTurn} so the model builds the
- *       feature/issue list the launcher's worker-cycle budget is derived from.</li>
- *   <li>Drive bounded worker cycles via {@link LongRunningLauncher#run}, which transitions
- *       the task to execution and loops {@code workerRunner.run} until terminal or the cycle
- *       cap ({@code maxCycles}).</li>
+ *   <li>Run one planning turn through {@link QueryEngine#runTurn} so the Controller
+ *       initializes the long-running environment and applies RUNNING through the
+ *       interactive state-transition tool.</li>
+ *   <li>Drive bounded worker cycles via {@link LongRunningLauncher#run} until terminal
+ *       or the cycle cap ({@code maxCycles}).</li>
  * </ol>
  *
  * <p>Each worker cycle runs in its own session. Worker token and tool metrics are returned
@@ -45,17 +43,19 @@ public final class LongRunningModeLauncher implements ModeLauncher {
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
 
         LongRunningTaskStore store = new LongRunningTaskStore(dir);
-        LongRunningTaskInitializer initializer = new LongRunningTaskInitializer(
-                store, LongRunningTaskInitializer.TaskIdGenerator::defaultNewTaskId);
-        LongRunningTaskContext task = initializer.ensurePlanningTask(session, evalCase.instruction());
 
-        // The production lifecycle requires DRAFT planning to populate feature_list.json
-        // before the task may transition to RUNNING.
+        // The production lifecycle requires DRAFT planning to initialize the
+        // long-running environment through longrun_environment_update and then
+        // apply RUNNING through longrun_state_transition.
         QueryEngine engine = context.runtime().newEngine(context.budget().maxIterations());
         TurnResult planning;
         try {
             planning = context.runtime().runTurn(
-                    engine, session, evalCase.instruction(), context.remainingTime());
+                    engine,
+                    session,
+                    evalCase.instruction(),
+                    context.remainingTime(),
+                    AutoApprovePromptChannel.INSTANCE);
         } catch (madacode.bootstrap.HeadlessAgentRuntime.HeadlessTurnTimeoutException e) {
             return new LaunchOutcome(
                     EvalResult.ExecutionStatus.TIMED_OUT,
@@ -75,37 +75,28 @@ public final class LongRunningModeLauncher implements ModeLauncher {
                     "plan=" + planning.finishReason().name(),
                     planning.finalText());
         }
-        if (store.readFeatureList(task.taskId()).isEmpty()) {
+        String taskId = session.longRunningTaskId();
+        if (taskId == null || taskId.isBlank()) {
             return new LaunchOutcome(
                     EvalResult.ExecutionStatus.WORKFLOW_FAILED,
                     planningMetrics,
                     "plan=COMPLETED launch=NOT_STARTED",
-                    "planning completed without producing a feature list");
+                    "planning completed without initializing the long-running environment");
+        }
+        if (store.readFeatureList(taskId).isEmpty()) {
+            return new LaunchOutcome(
+                    EvalResult.ExecutionStatus.WORKFLOW_FAILED,
+                    planningMetrics,
+                    "plan=COMPLETED launch=NOT_STARTED",
+                    "planning completed with an empty long-running environment feature list");
         }
 
-        // Apply the same controller-owned transition used by the interactive runtime.
-        // This keeps validation and lifecycle persistence behind one production authority.
-        LongRunningController controller = new LongRunningController();
-        var pending = session.pendingLongRunningTransitionRequest();
-        if (pending.isPresent()) {
-            if (pending.get().targetStage().normalized() != LongRunningStage.RUNNING) {
-                return new LaunchOutcome(
-                        EvalResult.ExecutionStatus.WORKFLOW_FAILED,
-                        planningMetrics,
-                        "plan=COMPLETED launch=NOT_STARTED",
-                        "planning requested unsupported transition to "
-                                + pending.get().targetStage());
-            }
-            controller.applyPendingRequest(session, "eval-harness", null);
-        } else {
-            controller.requestAndApply(
-                    session,
-                    LongRunningStage.RUNNING,
-                    LongRunningTransitions.Trigger.USER_CONFIRMED_START.wire(),
-                    evalCase.instruction(),
-                    null,
-                    "eval-harness",
-                    null);
+        if (session.longRunningStage() != LongRunningStage.RUNNING) {
+            return new LaunchOutcome(
+                    EvalResult.ExecutionStatus.WORKFLOW_FAILED,
+                    planningMetrics,
+                    "plan=COMPLETED launch=NOT_STARTED",
+                    "planning completed without applying RUNNING");
         }
 
         // Drive the real bounded worker-cycle loop to execution.
@@ -124,7 +115,7 @@ public final class LongRunningModeLauncher implements ModeLauncher {
                             }
                         }));
         LongRunningLauncher.LaunchResult result = launcher.run(
-                task.taskId(), dir, session, context.budget().maxWorkerCycles());
+                taskId, dir, session, context.budget().maxWorkerCycles());
 
         String summary = "plan=" + planning.finishReason().name() + " launch=" + result.status().name();
         RunMetrics metrics = planningMetrics.plus(new RunMetrics(
@@ -161,5 +152,34 @@ public final class LongRunningModeLauncher implements ModeLauncher {
             case ALREADY_RUNNING, BLOCKED, FAILED, NEEDS_USER ->
                     EvalResult.ExecutionStatus.WORKFLOW_FAILED;
         };
+    }
+
+    private enum AutoApprovePromptChannel implements UserPromptChannel {
+        INSTANCE;
+
+        @Override
+        public boolean isAvailable() {
+            return true;
+        }
+
+        @Override
+        public Optional<String> chooseOne(String title, List<ChannelOption> options) {
+            return options.isEmpty() ? Optional.empty() : Optional.of(options.getFirst().label());
+        }
+
+        @Override
+        public Optional<List<String>> chooseMany(String title, List<ChannelOption> options) {
+            return Optional.of(options.stream().map(ChannelOption::label).toList());
+        }
+
+        @Override
+        public Optional<String> freeText(String prompt) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean confirm(String prompt) {
+            return true;
+        }
     }
 }

@@ -165,7 +165,8 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
             case "edit", "file_edit" -> "Edit " + fileName(field(input, "file_path"));
             case "write", "file_write" -> "Write " + fileName(field(input, "file_path"));
             case "bash" -> "Run " + firstNonBlank(field(input, "description"), field(input, "command"));
-            case "longrun_task_update" -> "Update task store";
+            case "longrun_environment_read" -> "Read long-running environment";
+            case "longrun_environment_update" -> "Update long-running environment";
             default -> "Use " + firstNonBlank(toolName, "tool");
         };
     }
@@ -233,7 +234,8 @@ public final class LongRunningWorkerMonitorBridge implements SessionListener {
             case "file_read", "read", "grep", "glob" -> "inspect";
             case "edit", "file_edit", "write", "file_write" -> "edit";
             case "bash" -> "bash";
-            case "longrun_task_update" -> "task_update";
+            case "longrun_environment_read" -> "inspect";
+            case "longrun_environment_update" -> "task_update";
             default -> "tool";
         };
     }

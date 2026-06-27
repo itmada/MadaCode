@@ -15,13 +15,10 @@ import java.util.UUID;
 /**
  * Harness-owned initialization component for long-running tasks.
  *
- * <p>This class is the <em>single authority</em> for creating new tasks and
- * repairing partially-initialized session state. It ensures that planning has
- * durable state as soon as the user provides the long-running request, and
- * that RUNNING handoff initializes durable task state before launcher/worker handoff.
- *
- * <p>Neither the model nor the prompt should ever see initialization logic —
- * it is a code-level harness invariant enforced before every execution turn.
+ * <p>This class owns low-level task directory creation and execution handoff.
+ * The Controller reaches creation through {@code longrun_environment_update}
+ * after the user confirms the agreed plan can be initialized. RUNNING handoff
+ * only validates and advances an already-initialized environment.
  */
 public final class LongRunningTaskInitializer {
 
@@ -38,11 +35,8 @@ public final class LongRunningTaskInitializer {
     }
 
     /**
-     * Ensures the session has a durable planning task.
-     *
-     * <p>This is intentionally called before the first DRAFT model turn so
-     * logs, task metadata, and workspace checkpoint files exist even if the
-     * model later asks questions or the process is interrupted.
+     * Creates or restores the durable planning task used by the dedicated
+     * long-running environment tools.
      */
     public LongRunningTaskContext ensurePlanningTask(ConversationSession session, String expandedInput) {
         Objects.requireNonNull(session, "session");
@@ -60,15 +54,14 @@ public final class LongRunningTaskInitializer {
     }
 
     /**
-     * Ensures the session has initialized durable task state for execution handoff.
+     * Validates an initialized task and advances it to RUNNING for execution handoff.
      *
      * <ul>
      *   <li>If the session already has a {@code taskId}, validates the on-disk
      *       task directory and repairs the session's directory/title fields.</li>
-     *   <li>If {@code taskId} is null, creates a fresh task with a unique id,
-     *       writes all default files, and appends an initial progress entry.</li>
-     *   <li>If {@code taskId} is null but {@code taskDirectory} is non-null
-     *       (stale partial state), clears the directory first.</li>
+     *   <li>If {@code taskId} is missing, fails. The Controller must initialize
+     *       the environment through {@code longrun_environment_update} before
+     *       any state transition to RUNNING can be applied.</li>
      * </ul>
      *
      * @param session      the session to initialize (must be LONG_RUNNING mode)
@@ -85,21 +78,12 @@ public final class LongRunningTaskInitializer {
         }
         session.setPlanMode(false);
 
-        // Stale partial state: taskDirectory without taskId — clear and recreate
-        if (session.longRunningTaskId() == null && session.longRunningTaskDirectory() != null) {
-            session.setLongRunningTaskDirectory(null);
+        if (session.longRunningTaskId() == null || session.longRunningTaskId().isBlank()) {
+            throw new IllegalStateException(
+                    "Long-running environment is not initialized. "
+                            + "Use longrun_environment_update action=initialize_environment before RUNNING.");
         }
-
-        if (session.longRunningTaskId() != null) {
-            LongRunningTaskContext context = restoreOrInitializeExecutionTask(session, expandedInput);
-            persistPlanSummary(session);
-            return context;
-        }
-
-        LongRunningTaskContext context = createNewTask(session, expandedInput, "DRAFT", LongRunningStage.DRAFT);
-        context = restoreOrInitializeExecutionTask(session, expandedInput);
-        persistPlanSummary(session);
-        return context;
+        return restoreOrInitializeExecutionTask(session, expandedInput);
     }
 
     private LongRunningTaskContext restorePlanningTask(ConversationSession session) {
@@ -309,23 +293,6 @@ public final class LongRunningTaskInitializer {
                 session.sessionId(),
                 session.longRunningTaskId(),
                 input == null ? "" : input.strip());
-    }
-
-    private void persistPlanSummary(ConversationSession session) {
-        String taskId = session.longRunningTaskId();
-        if (taskId == null || taskId.isBlank()) {
-            return;
-        }
-        StringBuilder plan = new StringBuilder();
-        if (session.longRunningTaskTitle() != null && !session.longRunningTaskTitle().isBlank()) {
-            plan.append("# ").append(session.longRunningTaskTitle().strip()).append("\n\n");
-        }
-        if (session.longRunningPlanSummary() != null && !session.longRunningPlanSummary().isBlank()) {
-            plan.append(session.longRunningPlanSummary().strip()).append("\n");
-        }
-        if (!plan.isEmpty()) {
-            store.writePlanSummary(taskId, plan.toString());
-        }
     }
 
     /**

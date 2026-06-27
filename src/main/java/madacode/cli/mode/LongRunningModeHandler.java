@@ -10,10 +10,9 @@ import java.util.Objects;
 /**
  * Stateful handler for long-running workflow turns.
  *
- * <p>Each user input still runs through the normal QueryEngine turn pipeline,
- * but this handler owns the workflow state transitions around that turn.
- *
- * <p>State transition logic is delegated to {@link LongRunningController}.
+ * <p>Each user input runs through the normal QueryEngine turn pipeline while
+ * the active long-running stage controls whether the Controller may converse
+ * or workers are already running in the monitor.
  */
 public final class LongRunningModeHandler implements ModeHandler {
 
@@ -21,19 +20,6 @@ public final class LongRunningModeHandler implements ModeHandler {
 
     public LongRunningModeHandler(TurnExecutor turnExecutor) {
         this.turnExecutor = Objects.requireNonNull(turnExecutor, "turnExecutor");
-    }
-
-    public LongRunningModeHandler(
-            TurnExecutor turnExecutor,
-            madacode.longrunning.LongRunningController.TaskStoreFactory taskStoreFactory) {
-        this(turnExecutor);
-    }
-
-    LongRunningModeHandler(
-            TurnExecutor turnExecutor,
-            madacode.longrunning.LongRunningController.TaskStoreFactory taskStoreFactory,
-            madacode.longrunning.LongRunningTaskInitializer.TaskIdGenerator taskIdGenerator) {
-        this(turnExecutor);
     }
 
     @Override

@@ -20,13 +20,9 @@ public final class ToolNames {
     // Long-running workflow lifecycle tools. Their capability/stage rules live in
     // madacode.longrunning.LongRunningCapabilityPolicy.
     public static final String WORKER_REPORT = "worker_report";
-    public static final String LONGRUN_TASK_UPDATE = "longrun_task_update";
-    public static final String LONGRUN_PLAN_UPDATE = "longrun_plan_update";
-    public static final String LONGRUN_TASK_SUMMARY_UPDATE = "longrun_task_summary_update";
-    public static final String LONGRUN_FEATURE_LIST_REPLACE = "longrun_feature_list_replace";
-    public static final String LONGRUN_KNOWN_ISSUES_REPLACE = "longrun_known_issues_replace";
-    public static final String LONGRUN_PROGRESS_APPEND = "longrun_progress_append";
-    public static final String LONGRUN_STATE_TRANSITION_REQUEST = "longrun_state_transition_request";
+    public static final String LONGRUN_ENVIRONMENT_READ = "longrun_environment_read";
+    public static final String LONGRUN_ENVIRONMENT_UPDATE = "longrun_environment_update";
+    public static final String LONGRUN_STATE_TRANSITION = "longrun_state_transition";
 
     private ToolNames() {}
 }

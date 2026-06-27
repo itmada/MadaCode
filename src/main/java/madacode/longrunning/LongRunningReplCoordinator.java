@@ -1,12 +1,9 @@
 package madacode.longrunning;
 
-import madacode.cli.InterruptController;
-import madacode.cli.UserPromptChannel;
 import madacode.core.engine.QueryEngine;
 import madacode.core.model.Message;
 import madacode.core.session.ConversationSession;
 import madacode.core.session.LongRunningStage;
-import madacode.core.session.LongRunningTransitionRequest;
 import madacode.core.session.SessionStorage;
 import madacode.permission.ApprovalResponse;
 import madacode.permission.DefaultPermissionGate;
@@ -30,9 +27,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
     private final Supplier<ConversationSession> sessionSupplier;
     private final Screen screen;
     private final LongRunningRuntime runtime;
-    private final LongRunningController controller;
-    private final UserPromptChannel promptChannel;
-    private final Supplier<InterruptController> interruptControllerSupplier;
     private final ControllerTurnRunner controllerTurnRunner;
     private final Runnable persistSession;
     private final LongRunningController.TaskStoreFactory taskStoreFactory;
@@ -47,19 +41,12 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
             Supplier<ConversationSession> sessionSupplier,
             Screen screen,
             LongRunningRuntime runtime,
-            LongRunningController controller,
-            UserPromptChannel promptChannel,
-            Supplier<InterruptController> interruptControllerSupplier,
             ControllerTurnRunner controllerTurnRunner,
             Runnable persistSession,
             LongRunningController.TaskStoreFactory taskStoreFactory) {
         this.sessionSupplier = Objects.requireNonNull(sessionSupplier, "sessionSupplier");
         this.screen = Objects.requireNonNull(screen, "screen");
         this.runtime = runtime;
-        this.controller = Objects.requireNonNull(controller, "controller");
-        this.promptChannel = Objects.requireNonNull(promptChannel, "promptChannel");
-        this.interruptControllerSupplier =
-                Objects.requireNonNull(interruptControllerSupplier, "interruptControllerSupplier");
         this.controllerTurnRunner = Objects.requireNonNull(controllerTurnRunner, "controllerTurnRunner");
         this.persistSession = Objects.requireNonNull(persistSession, "persistSession");
         this.taskStoreFactory = Objects.requireNonNull(taskStoreFactory, "taskStoreFactory");
@@ -157,11 +144,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         while ((prompt = pendingControllerTurns.poll()) != null) {
             controllerTurnRunner.run(prompt);
         }
-    }
-
-    public void processPendingTransitionRequest() {
-        session().pendingLongRunningTransitionRequest()
-                .ifPresent(this::handlePendingTransitionRequest);
     }
 
     public void markInterrupted(String reason) {
@@ -266,31 +248,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
         persistSession.run();
     }
 
-    private void handlePendingTransitionRequest(LongRunningTransitionRequest request) {
-        recordTransitionPromptEvent("transition_confirmation_requested", request);
-        boolean approved = promptChannel.confirm(longRunningTransitionPrompt(request));
-        recordTransitionPromptEvent(
-                approved ? "transition_confirmation_approved" : "transition_confirmation_rejected",
-                request);
-        try {
-            if (approved) {
-                LongRunningController.AppliedTransition applied =
-                        controller.applyPendingRequest(session(), "user", interruptControllerSupplier.get());
-                if (applied.targetStage() == LongRunningStage.RUNNING) {
-                    if (startRuntime()) {
-                        screen.commitBlock(
-                                "[long-running] Worker runtime started; monitor active.");
-                    }
-                }
-            } else {
-                controller.rejectPendingRequest(session(), "user");
-            }
-        } catch (RuntimeException exception) {
-            screen.commitBlock(
-                    "Failed to apply long-running transition: " + exception.getMessage());
-        }
-    }
-
     private Optional<LongRunningStage> stageFromTaskStore(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             return Optional.empty();
@@ -322,18 +279,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
             screen.commitBlock(Tk.errorTag("long-running") + " "
                     + "Failed to mark task INTERRUPT: " + exception.getMessage());
         }
-    }
-
-    private void recordTransitionPromptEvent(
-            String event,
-            LongRunningTransitionRequest request) {
-        LinkedHashMap<String, String> fields = new LinkedHashMap<>();
-        fields.put("transition", request.sourceStage() + " -> " + request.targetStage());
-        fields.put("reason", request.reason());
-        if (request.summary() != null) {
-            fields.put("summary", request.summary());
-        }
-        recordControllerEvent(event, fields);
     }
 
     private LongRunningTaskStore taskStore(ConversationSession session) {
@@ -374,22 +319,6 @@ public final class LongRunningReplCoordinator implements AutoCloseable {
                     : error.getMessage());
         }
         return longRunningResultSummary(completion.result());
-    }
-
-    private static String longRunningTransitionPrompt(LongRunningTransitionRequest request) {
-        LongRunningStage source = request.sourceStage().normalized();
-        LongRunningStage target = request.targetStage().normalized();
-        String suffix = request.summary() == null ? "" : "\n" + request.summary();
-        if (source == LongRunningStage.DRAFT && target == LongRunningStage.RUNNING) {
-            return "Start this long-running task now?" + suffix;
-        }
-        if (source == LongRunningStage.INTERRUPT && target == LongRunningStage.RUNNING) {
-            return "Resume this long-running task now?" + suffix;
-        }
-        if (target.isTerminal()) {
-            return "Mark this long-running task " + target.name() + "?" + suffix;
-        }
-        return "Apply long-running transition " + source + " -> " + target + "?" + suffix;
     }
 
     private static LongRunningTransitions.Trigger interruptTriggerFor(LongRunningLauncher.LaunchStatus status) {

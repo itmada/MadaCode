@@ -3,17 +3,16 @@ package madacode.core.session;
 import java.time.Instant;
 import java.util.Objects;
 
-public record LongRunningTransitionRequest(
+public record LongRunningTransitionProposal(
         LongRunningStage sourceStage,
         LongRunningStage targetStage,
         String reason,
         String summary,
         String planDelta,
         Instant requestedAt,
-        String requestedBy,
-        boolean userConfirmationRequired) {
+        String requestedBy) {
 
-    public LongRunningTransitionRequest {
+    public LongRunningTransitionProposal {
         sourceStage = Objects.requireNonNull(sourceStage, "sourceStage");
         targetStage = Objects.requireNonNull(targetStage, "targetStage");
         reason = normalizeRequired(reason, "reason");
@@ -23,16 +22,16 @@ public record LongRunningTransitionRequest(
         requestedBy = normalize(requestedBy);
     }
 
-    public static LongRunningTransitionRequest of(
+    public static LongRunningTransitionProposal of(
             LongRunningStage sourceStage,
             LongRunningStage targetStage,
             String reason,
             String summary,
             String planDelta,
             String requestedBy) {
-        return new LongRunningTransitionRequest(
+        return new LongRunningTransitionProposal(
                 sourceStage, targetStage, reason, summary, planDelta,
-                Instant.now(), requestedBy, true);
+                Instant.now(), requestedBy);
     }
 
     private static String normalizeRequired(String value, String field) {

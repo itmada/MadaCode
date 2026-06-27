@@ -21,13 +21,12 @@ import java.util.Set;
  *       for visible current-cycle progress; once it has reported (or is not in
  *       the RUNNING stage) it may use nothing.</li>
  *   <li><b>Control-session lifecycle gating</b> ({@link #lifecycleVote}): the
-     *       long-running draft tools and {@code longrun_state_transition_request}
-     *       are exposed to the control session only while the task is DRAFT or
-     *       INTERRUPT; {@code worker_report} and {@code longrun_task_update} are
-     *       worker-only.</li>
+ *       long-running environment tools and {@code longrun_state_transition}
+ *       are exposed to the control session at the stages where they make sense;
+ *       {@code worker_report} is worker-only.</li>
  * </ol>
  *
- * <p>Ordinary control-session tools are not restricted here — the control session is
+ * <p>Ordinary control-session tools are not restricted here; the control session is
  * the main agent and uses the normal capability/exposure rules subject to the
  * permission gate.
  */
@@ -37,7 +36,7 @@ public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPoli
      * The complete set of tools a long-running worker session may use. The
      * worker uses {@code update_plan} only for the visible current execution
      * checklist; durable task-store progress is written through
-     * {@code longrun_task_update}. This set is the single source of truth for
+     * {@code longrun_environment_update}. This set is the single source of truth for
      * worker capability and is pinned by
      * {@code LongRunningCapabilityPolicyTest}. Keep it code-defined unless there is
      * an explicit security review for configurable worker capabilities.
@@ -50,8 +49,9 @@ public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPoli
             ToolNames.FILE_EDIT,
             ToolNames.BASH,
             ToolNames.UPDATE_PLAN,
-            ToolNames.WORKER_REPORT,
-            ToolNames.LONGRUN_TASK_UPDATE);
+            ToolNames.LONGRUN_ENVIRONMENT_READ,
+            ToolNames.LONGRUN_ENVIRONMENT_UPDATE,
+            ToolNames.WORKER_REPORT);
 
     @Override
     public ToolCapabilityProfile sessionProfile(ConversationSession session) {
@@ -87,20 +87,14 @@ public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPoli
         return switch (tool.name()) {
             case ToolNames.WORKER_REPORT -> WorkflowVote.deny(
                     "worker_report is only available in a worker session. Current stage: " + stage);
-            case ToolNames.LONGRUN_TASK_UPDATE -> WorkflowVote.deny(
-                    "longrun_task_update is reserved for the worker session and is not available "
-                            + "in the control session. Current stage: " + stage);
-            case ToolNames.LONGRUN_PLAN_UPDATE,
-                    ToolNames.LONGRUN_TASK_SUMMARY_UPDATE,
-                    ToolNames.LONGRUN_FEATURE_LIST_REPLACE,
-                    ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE,
-                    ToolNames.LONGRUN_PROGRESS_APPEND -> draftOrInterrupt(stage)
-                            ? WorkflowVote.expose()
-                            : WorkflowVote.deny(tool.name() + " is only available in the control session "
-                                    + "while the task is DRAFT or INTERRUPT. Current stage: " + stage);
-            case ToolNames.LONGRUN_STATE_TRANSITION_REQUEST -> draftOrInterrupt(stage)
+            case ToolNames.LONGRUN_ENVIRONMENT_READ -> WorkflowVote.expose();
+            case ToolNames.LONGRUN_ENVIRONMENT_UPDATE -> draftOrInterrupt(stage)
                     ? WorkflowVote.expose()
-                    : WorkflowVote.deny("longrun_state_transition_request is only available in the "
+                    : WorkflowVote.deny(tool.name() + " is only available in the control session "
+                            + "while the task is DRAFT or INTERRUPT. Current stage: " + stage);
+            case ToolNames.LONGRUN_STATE_TRANSITION -> draftOrInterrupt(stage)
+                    ? WorkflowVote.expose()
+                    : WorkflowVote.deny("longrun_state_transition is only available in the "
                             + "control session while the task is DRAFT or INTERRUPT. Current stage: " + stage);
             default -> WorkflowVote.abstain();
         };
@@ -112,12 +106,8 @@ public final class LongRunningCapabilityPolicy implements WorkflowCapabilityPoli
 
     private static boolean isLifecycleTool(String name) {
         return ToolNames.WORKER_REPORT.equals(name)
-                || ToolNames.LONGRUN_TASK_UPDATE.equals(name)
-                || ToolNames.LONGRUN_PLAN_UPDATE.equals(name)
-                || ToolNames.LONGRUN_TASK_SUMMARY_UPDATE.equals(name)
-                || ToolNames.LONGRUN_FEATURE_LIST_REPLACE.equals(name)
-                || ToolNames.LONGRUN_KNOWN_ISSUES_REPLACE.equals(name)
-                || ToolNames.LONGRUN_PROGRESS_APPEND.equals(name)
-                || ToolNames.LONGRUN_STATE_TRANSITION_REQUEST.equals(name);
+                || ToolNames.LONGRUN_ENVIRONMENT_READ.equals(name)
+                || ToolNames.LONGRUN_ENVIRONMENT_UPDATE.equals(name)
+                || ToolNames.LONGRUN_STATE_TRANSITION.equals(name);
     }
 }

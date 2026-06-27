@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
  * lifecycle reason is a typed {@link Trigger}, terminal triggers carry their
  * {@link TerminalOutcome}, and interrupt triggers carry a typed
  * {@link InterruptCause}. Validation, dispatch, lifecycle persistence, and the
- * request-tool schema all derive from this one source so they cannot drift.
+ * state-transition tool schema all derive from this one source so they cannot drift.
  */
 public final class LongRunningTransitions {
 
@@ -206,7 +206,7 @@ public final class LongRunningTransitions {
         return Trigger.fromWire(reason).map(LongRunningTransitions::causeFor).orElse(InterruptCause.OTHER);
     }
 
-    /** Wire reasons offered by the transition request tool schema. */
+    /** Wire reasons offered by the state-transition tool schema. */
     public static String[] requestableReasonWires() {
         return REQUESTABLE.stream().map(Trigger::wire).toArray(String[]::new);
     }
