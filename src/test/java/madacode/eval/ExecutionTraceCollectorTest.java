@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
+import madacode.core.model.ToolAccessEvidence;
 import madacode.core.session.ConversationSession;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +37,10 @@ class ExecutionTraceCollectorTest {
         // so the grandchild is tracked too.
         ConversationSession subAgent = sessionWith(workspace, "sub",
                 toolUse("toolu_s", "file_read", input("path", "secret.key")));
+        subAgent.recordToolAccessEvidence("toolu_s", List.of(new ToolAccessEvidence(
+                workspace.resolve("secret.key").toString(),
+                ToolAccessEvidence.EvidenceSource.RESOLVED_PATH,
+                false)));
         control.registerSubAgent(subAgent);
 
         ConversationSession grandchild = sessionWith(workspace, "grand",
@@ -55,6 +60,12 @@ class ExecutionTraceCollectorTest {
                         .anyMatch(i -> i.name().equals("bash")
                                 && i.phase() == ToolInvocation.Phase.SUBAGENT),
                 "grandchild tool call must be captured via observer propagation");
+        ToolInvocation fileRead = trace.invocations().stream()
+                .filter(i -> i.name().equals("file_read"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(1, fileRead.accessEvidence().size(),
+                "resolved path evidence must follow the tool use into the eval trace");
 
         // toolCalls is reconciled to the full-tree total, not the control-only count of 1.
         assertEquals(3, trace.metrics().toolCalls(),

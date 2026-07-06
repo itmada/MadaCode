@@ -27,16 +27,39 @@ public record EvalCaseReport(
         String id,
         String mode,
         List<String> capabilities,
-        List<EvalResult> attempts) {
+        List<EvalResult> attempts,
+        SkipReason skipReason,
+        String skipDetail,
+        EvalRunManifest skippedManifest,
+        int configuredSamples) {
+
+    public EvalCaseReport(
+            String id,
+            String mode,
+            List<String> capabilities,
+            List<EvalResult> attempts) {
+        this(id, mode, capabilities, attempts, null, "", null,
+                attempts == null ? 0 : attempts.size());
+    }
 
     public EvalCaseReport {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(mode, "mode");
         capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
-        if (attempts == null || attempts.isEmpty()) {
+        attempts = attempts == null ? List.of() : List.copyOf(attempts);
+        skipDetail = skipDetail == null ? "" : skipDetail;
+        if (skipReason == null && attempts.isEmpty()) {
             throw new IllegalArgumentException("case " + id + ": at least one attempt is required");
         }
-        attempts = List.copyOf(attempts);
+        if (skipReason != null) {
+            if (!attempts.isEmpty()) {
+                throw new IllegalArgumentException("case " + id + ": skipped reports must not contain attempts");
+            }
+            Objects.requireNonNull(skippedManifest, "skippedManifest");
+            if (configuredSamples <= 0) {
+                throw new IllegalArgumentException("case " + id + ": configuredSamples must be positive");
+            }
+        }
     }
 
     /** Builds a report from the attempts of a single case, deriving identity from the first. */
@@ -45,18 +68,45 @@ public record EvalCaseReport(
         return new EvalCaseReport(first.id(), first.mode(), first.capabilities(), attempts);
     }
 
+    public static EvalCaseReport skipped(
+            EvalCaseLoader.LoadedCase loaded,
+            EvalRunManifest manifest,
+            SkipReason reason,
+            String detail) {
+        EvalCase evalCase = loaded.evalCase();
+        return new EvalCaseReport(
+                evalCase.id(),
+                evalCase.mode(),
+                evalCase.capabilities(),
+                List.of(),
+                Objects.requireNonNull(reason, "reason"),
+                detail,
+                manifest,
+                evalCase.samplesOrDefault());
+    }
+
+    public boolean skipped() {
+        return skipReason != null;
+    }
+
     public int samples() {
-        return attempts.size();
+        return skipped() ? configuredSamples : attempts.size();
     }
 
     /** Attempts that produced a trustworthy capability measurement (not an infra error). */
     public long validAttempts() {
+        if (skipped()) {
+            return 0;
+        }
         return attempts.stream()
                 .filter(a -> a.verdict() != EvalResult.FinalVerdict.INFRA_ERROR)
                 .count();
     }
 
     public long infraErrors() {
+        if (skipped()) {
+            return 0;
+        }
         return attempts.stream()
                 .filter(a -> a.verdict() == EvalResult.FinalVerdict.INFRA_ERROR)
                 .count();
@@ -64,16 +114,25 @@ public record EvalCaseReport(
 
     /** Number of attempts that passed (k). */
     public long passes() {
+        if (skipped()) {
+            return 0;
+        }
         return attempts.stream().filter(EvalResult::passed).count();
     }
 
     /** pass@k: at least one valid attempt passed. */
     public boolean passAtK() {
+        if (skipped()) {
+            return false;
+        }
         return attempts.stream().anyMatch(EvalResult::passed);
     }
 
     /** Strict stability signal: every configured attempt completed as a measured pass. */
     public boolean stable() {
+        if (skipped()) {
+            return false;
+        }
         return infraErrors() == 0 && attempts.stream().allMatch(EvalResult::passed);
     }
 
@@ -88,7 +147,14 @@ public record EvalCaseReport(
         return valid == 0 ? 0.0 : (double) passes() / valid;
     }
 
+    public WilsonInterval passRateWilson95() {
+        return WilsonInterval.of(passes(), validAttempts());
+    }
+
     public PassAtKVerdict passAtKVerdict() {
+        if (skipped()) {
+            return PassAtKVerdict.SKIPPED;
+        }
         if (validAttempts() == 0) {
             return PassAtKVerdict.INFRA_ERROR;
         }
@@ -96,6 +162,9 @@ public record EvalCaseReport(
     }
 
     public GateVerdict gateVerdict() {
+        if (skipped()) {
+            return GateVerdict.SKIPPED;
+        }
         if (validAttempts() == 0) {
             return GateVerdict.INFRA_ERROR;
         }
@@ -109,6 +178,9 @@ public record EvalCaseReport(
 
     /** Summed model/tool/token cost across all attempts (cost is cumulative, not averaged). */
     public RunMetrics totalMetrics() {
+        if (skipped()) {
+            return RunMetrics.ZERO;
+        }
         RunMetrics total = RunMetrics.ZERO;
         for (EvalResult a : attempts) {
             total = total.plus(a.metrics() == null ? RunMetrics.ZERO : a.metrics());
@@ -121,23 +193,35 @@ public record EvalCaseReport(
     }
 
     public long totalDurationMs() {
+        if (skipped()) {
+            return 0;
+        }
         return attempts.stream().mapToLong(EvalResult::durationMs).sum();
     }
 
     /** The manifest is identical across attempts (shared runtime); the first is representative. */
     public EvalRunManifest manifest() {
+        if (skipped()) {
+            return skippedManifest;
+        }
         return attempts.getFirst().manifest();
+    }
+
+    public enum SkipReason {
+        BUDGET
     }
 
     public enum PassAtKVerdict {
         PASS_AT_K,
         FAIL,
-        INFRA_ERROR
+        INFRA_ERROR,
+        SKIPPED
     }
 
     public enum GateVerdict {
         PASS,
         FAIL,
-        INFRA_ERROR
+        INFRA_ERROR,
+        SKIPPED
     }
 }

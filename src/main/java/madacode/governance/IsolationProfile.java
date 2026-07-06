@@ -28,7 +28,8 @@ public record IsolationProfile(
 
     public enum NetworkAccess {
         BLOCKED,
-        ALLOWED
+        ALLOWED,
+        PROXIED
     }
 
     public static IsolationProfile localUnsafe() {
@@ -37,6 +38,33 @@ public record IsolationProfile(
 
     public static IsolationProfile container() {
         return forLevel(IsolationLevel.CONTAINER);
+    }
+
+    /**
+     * Phase-1 eval container profile: the agent and host are isolated enough to hide
+     * judge assets and reap background processes, but network egress is still open
+     * and unobserved. It must not be reported as a trusted measurement.
+     */
+    public static IsolationProfile containerOpenNetwork() {
+        return new IsolationProfile(
+                IsolationLevel.CONTAINER,
+                JudgeVisibility.HIDDEN,
+                HostAccess.BLOCKED,
+                NetworkAccess.ALLOWED,
+                false);
+    }
+
+    /**
+     * Phase-2 eval container profile: the agent has no direct external route and
+     * provider egress is mediated by an allowlist proxy that records observations.
+     */
+    public static IsolationProfile containerProxiedNetwork() {
+        return new IsolationProfile(
+                IsolationLevel.CONTAINER,
+                JudgeVisibility.HIDDEN,
+                HostAccess.BLOCKED,
+                NetworkAccess.PROXIED,
+                true);
     }
 
     public static IsolationProfile forLevel(IsolationLevel level) {

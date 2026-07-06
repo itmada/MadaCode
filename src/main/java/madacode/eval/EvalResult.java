@@ -26,11 +26,52 @@ public record EvalResult(
         RunMetrics metrics,
         String terminalSummary,
         String detail,
-        EvalRunManifest manifest) {
+        EvalRunManifest manifest,
+        AttemptArtifacts artifacts) {
+
+    public EvalResult(
+            String id,
+            String mode,
+            List<String> capabilities,
+            FinalVerdict verdict,
+            HarnessStatus harnessStatus,
+            ExecutionStatus executionStatus,
+            JudgeStatus judgeStatus,
+            List<DimensionScore> dimensions,
+            long executionDurationMs,
+            long judgeDurationMs,
+            RunMetrics metrics,
+            String terminalSummary,
+            String detail,
+            EvalRunManifest manifest) {
+        this(id, mode, capabilities, verdict, harnessStatus, executionStatus, judgeStatus,
+                dimensions, executionDurationMs, judgeDurationMs, metrics, terminalSummary,
+                detail, manifest, AttemptArtifacts.NONE);
+    }
 
     public EvalResult {
         capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
         dimensions = dimensions == null ? List.of() : List.copyOf(dimensions);
+        artifacts = artifacts == null ? AttemptArtifacts.NONE : artifacts;
+    }
+
+    public EvalResult withArtifacts(AttemptArtifacts artifacts) {
+        return new EvalResult(
+                id,
+                mode,
+                capabilities,
+                verdict,
+                harnessStatus,
+                executionStatus,
+                judgeStatus,
+                dimensions,
+                executionDurationMs,
+                judgeDurationMs,
+                metrics,
+                terminalSummary,
+                detail,
+                manifest,
+                artifacts);
     }
 
     public boolean passed() {

@@ -10,10 +10,21 @@ public record Provider(
         URI baseUrl,
         String defaultModel,
         List<Model> models,
-        boolean supportsPromptCaching
+        boolean supportsPromptCaching,
+        ProviderPricing pricing
 ) {
     public Provider(String name, String authToken, URI baseUrl, String defaultModel, List<Model> models) {
-        this(name, authToken, baseUrl, defaultModel, models, false);
+        this(name, authToken, baseUrl, defaultModel, models, false, null);
+    }
+
+    public Provider(
+            String name,
+            String authToken,
+            URI baseUrl,
+            String defaultModel,
+            List<Model> models,
+            boolean supportsPromptCaching) {
+        this(name, authToken, baseUrl, defaultModel, models, supportsPromptCaching, null);
     }
 
     public Provider {

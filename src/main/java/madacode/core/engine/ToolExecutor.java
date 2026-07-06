@@ -5,6 +5,7 @@ import madacode.core.model.FinishReason;
 import madacode.core.model.Message;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.StopReason;
+import madacode.core.model.ToolAccessEvidence;
 import madacode.core.model.ToolCall;
 import madacode.core.model.ToolResult;
 import madacode.core.session.AssistantTurnWriter;
@@ -24,6 +25,7 @@ import madacode.logging.DiagnosticEvents;
 import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
 import madacode.tool.Tool;
+import madacode.tool.ToolNames;
 import madacode.tool.ToolRegistry;
 import madacode.tool.access.ToolAccessResolver;
 import madacode.tool.validation.ToolInputCoercion;
@@ -31,6 +33,9 @@ import madacode.tool.validation.ToolInputValidator;
 import madacode.tool.validation.ValidationResult;
 
 import java.time.Duration;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 public final class ToolExecutor {
@@ -241,10 +246,13 @@ public final class ToolExecutor {
             }
         }
         try {
+            List<ToolAccessEvidence> accessEvidence = resolvedPathEvidence(
+                    tool.name(), effectiveInput, context.workingDirectory());
             @SuppressWarnings({"unchecked", "rawtypes"})
             ToolResult result = ((Tool) tool).execute(typedInput, context);
             long durationMs = elapsedMs(toolStart);
             diagnosticEvents.toolExecutionCompleted(session, tool.name(), result.success(), durationMs);
+            session.recordToolAccessEvidence(toolCall.id(), accessEvidence);
             emitCompleted(session, toolCall.id(), tool.name(), effectiveInput, result, durationMs);
             if (hookManager != null && !tool.bypassesHooks()) {
                 hookManager.runPostToolUse(tool.name(), effectiveInput,
@@ -310,5 +318,65 @@ public final class ToolExecutor {
 
     private static long elapsedMs(long startNanos) {
         return Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
+    }
+
+    private static List<ToolAccessEvidence> resolvedPathEvidence(
+            String toolName,
+            ObjectNode input,
+            Path workingDirectory) {
+        return switch (toolName) {
+            case ToolNames.FILE_READ -> readPathEvidence(input.path("path").asText(null), workingDirectory);
+            case ToolNames.GLOB, ToolNames.GREP -> readPathEvidence(input.path("path").asText(null), workingDirectory);
+            case ToolNames.FILE_EDIT, ToolNames.FILE_WRITE -> writePathEvidence(input.path("file_path").asText(null));
+            default -> List.of();
+        };
+    }
+
+    private static List<ToolAccessEvidence> readPathEvidence(String rawPath, Path workingDirectory) {
+        try {
+            Path normalizedWorkingDirectory = workingDirectory.toAbsolutePath().normalize();
+            if (rawPath == null || rawPath.isBlank()) {
+                return evidenceFor(normalizedWorkingDirectory);
+            }
+            Path raw = Path.of(rawPath);
+            Path target = raw.isAbsolute()
+                    ? raw.normalize()
+                    : normalizedWorkingDirectory.resolve(raw).normalize();
+            return evidenceFor(target);
+        } catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    private static List<ToolAccessEvidence> writePathEvidence(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return List.of();
+        }
+        try {
+            Path path = Path.of(rawPath);
+            if (!path.isAbsolute()) {
+                return List.of();
+            }
+            return evidenceFor(path.normalize());
+        } catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    private static List<ToolAccessEvidence> evidenceFor(Path path) {
+        List<ToolAccessEvidence> evidence = new ArrayList<>(1);
+        evidence.add(new ToolAccessEvidence(
+                trustedPath(path).toString(),
+                ToolAccessEvidence.EvidenceSource.RESOLVED_PATH,
+                false));
+        return List.copyOf(evidence);
+    }
+
+    private static Path trustedPath(Path path) {
+        try {
+            return path.toRealPath();
+        } catch (Exception ignored) {
+            return path.toAbsolutePath().normalize();
+        }
     }
 }

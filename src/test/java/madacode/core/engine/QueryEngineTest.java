@@ -212,6 +212,23 @@ class QueryEngineTest {
                 assertInstanceOf(ContentBlock.TerminalBlock.class, tail.contentBlocks().get(0));
         assertEquals("Model request failed: boom", terminal.message());
         assertEquals(FinishReason.API_ERROR, terminal.reason());
+        assertEquals(madacode.services.api.ApiErrorType.UNKNOWN, result.apiFailure().type());
+        assertFalse(result.apiFailure().retryable());
+    }
+
+    @Test
+    void apiClientExceptionCarriesTransientFailureClassification() {
+        ScriptedApiClient apiClient = new ScriptedApiClient()
+                .enqueue(ApiClientException.http(429, "rate limited"));
+        ConversationSession session = new ConversationSession();
+
+        TurnResult result = engine(apiClient, new ToolRegistry()).runTurn(session, "hello");
+
+        assertEquals(FinishReason.API_ERROR, result.finishReason());
+        assertEquals(madacode.services.api.ApiErrorType.RATE_LIMIT, result.apiFailure().type());
+        assertTrue(result.apiFailure().retryable());
+        assertTrue(result.apiFailure().transientProviderFailure());
+        assertEquals(429, result.apiFailure().statusCode());
     }
 
     @Test

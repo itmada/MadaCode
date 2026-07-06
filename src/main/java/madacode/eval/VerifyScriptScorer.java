@@ -27,6 +27,7 @@ public final class VerifyScriptScorer implements Scorer {
     public DimensionScore score(EvalCase evalCase, ScoringContext context) {
         EvalExecutionEnvironment.VerifyOutcome outcome =
                 context.environment().runVerify(context.budget());
+        context.evidenceRecorder().recordVerifyOutcome(outcome);
         String detail = "exit=" + outcome.exitCode() + "\n" + outcome.output();
         EvalResult.JudgeStatus status = switch (outcome.status()) {
             case PASSED -> EvalResult.JudgeStatus.PASS;

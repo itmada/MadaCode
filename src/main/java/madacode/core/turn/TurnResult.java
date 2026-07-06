@@ -1,14 +1,17 @@
 package madacode.core.turn;
 
 import madacode.core.model.FinishReason;
-import madacode.core.model.TokenUsage;
-import madacode.core.session.ConversationSession;
-import madacode.core.session.Subscription;
+import madacode.services.api.ApiFailureClassification;
 
 public record TurnResult(
         String finalText,
         FinishReason finishReason,
-        int iterations) {
+        int iterations,
+        ApiFailureClassification apiFailure) {
+
+    public TurnResult(String finalText, FinishReason finishReason, int iterations) {
+        this(finalText, finishReason, iterations, null);
+    }
 
     public boolean completed() {
         return finishReason == FinishReason.COMPLETED;

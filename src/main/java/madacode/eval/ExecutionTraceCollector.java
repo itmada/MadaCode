@@ -93,6 +93,7 @@ public final class ExecutionTraceCollector {
                             toolUse.name(),
                             toolUse.input().toString(),
                             results.getOrDefault(toolUse.id(), ""),
+                            session.toolAccessEvidence(toolUse.id()),
                             phase,
                             nextOrdinal++));
                 }

@@ -72,8 +72,11 @@ public final class LongRunningModeLauncher implements ModeLauncher {
             return new LaunchOutcome(
                     executionStatus(planning.finishReason()),
                     planningMetrics,
-                    "plan=" + planning.finishReason().name(),
-                    planning.finalText());
+                    "plan=" + terminalSummary(planning),
+                    detail(planning),
+                    planning.finalText(),
+                    true,
+                    planning.apiFailure());
         }
         String taskId = session.longRunningTaskId();
         if (taskId == null || taskId.isBlank()) {
@@ -152,6 +155,18 @@ public final class LongRunningModeLauncher implements ModeLauncher {
             case ALREADY_RUNNING, BLOCKED, FAILED, NEEDS_USER ->
                     EvalResult.ExecutionStatus.WORKFLOW_FAILED;
         };
+    }
+
+    private static String terminalSummary(TurnResult turn) {
+        return turn.apiFailure() == null
+                ? turn.finishReason().name()
+                : turn.finishReason().name() + " " + turn.apiFailure().detail();
+    }
+
+    private static String detail(TurnResult turn) {
+        return turn.apiFailure() == null
+                ? turn.finalText()
+                : turn.finalText() + "\n" + turn.apiFailure().detail();
     }
 
     private enum AutoApprovePromptChannel implements UserPromptChannel {

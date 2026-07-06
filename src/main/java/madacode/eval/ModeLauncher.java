@@ -1,6 +1,7 @@
 package madacode.eval;
 
 import madacode.core.session.ConversationSession;
+import madacode.services.api.ApiFailureClassification;
 
 /**
  * Launches one eval case through a specific workflow mode's <em>real</em> entry point,
@@ -35,14 +36,15 @@ public interface ModeLauncher {
             String terminalSummary,
             String detail,
             String finalText,
-            boolean quiescent) {
+            boolean quiescent,
+            ApiFailureClassification apiFailure) {
 
         public LaunchOutcome(
                 EvalResult.ExecutionStatus status,
                 RunMetrics metrics,
                 String terminalSummary,
                 String detail) {
-            this(status, metrics, terminalSummary, detail, detail, true);
+            this(status, metrics, terminalSummary, detail, detail, true, null);
         }
 
         public LaunchOutcome(
@@ -51,7 +53,21 @@ public interface ModeLauncher {
                 String terminalSummary,
                 String detail,
                 boolean quiescent) {
-            this(status, metrics, terminalSummary, detail, detail, quiescent);
+            this(status, metrics, terminalSummary, detail, detail, quiescent, null);
+        }
+
+        public LaunchOutcome(
+                EvalResult.ExecutionStatus status,
+                RunMetrics metrics,
+                String terminalSummary,
+                String detail,
+                String finalText,
+                boolean quiescent) {
+            this(status, metrics, terminalSummary, detail, finalText, quiescent, null);
+        }
+
+        public boolean transientProviderFailure() {
+            return apiFailure != null && apiFailure.transientProviderFailure();
         }
     }
 }

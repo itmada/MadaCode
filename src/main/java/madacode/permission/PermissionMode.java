@@ -60,6 +60,12 @@ public enum PermissionMode {
             return Optional.empty();
         }
         String normalized = raw.strip().toLowerCase(Locale.ROOT).replace('_', '-');
+        if ("accept-edits".equals(normalized)) {
+            return Optional.of(EDIT);
+        }
+        if ("bypass".equals(normalized)) {
+            return Optional.of(BYPASS);
+        }
         return Arrays.stream(values())
                 .filter(mode -> mode.id.equals(normalized))
                 .findFirst();

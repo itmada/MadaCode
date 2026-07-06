@@ -6,6 +6,7 @@ import madacode.agent.AgentRegistry;
 import madacode.agent.AgentRunner;
 import madacode.agent.BuiltInAgentLoader;
 import madacode.core.model.MetaEvent;
+import madacode.core.model.ToolAccessEvidence;
 import madacode.core.model.ToolCall;
 import madacode.core.model.ToolResult;
 import madacode.core.session.ConversationSession;
@@ -18,6 +19,7 @@ import madacode.permission.PermissionDecision;
 import madacode.permission.PermissionGate;
 import madacode.services.api.ApiClient;
 import madacode.tool.AgentTool;
+import madacode.tool.FileReadTool;
 import madacode.tool.Tool;
 import madacode.tool.ToolRegistry;
 import madacode.tool.ToolVisibility;
@@ -28,6 +30,7 @@ import madacode.tool.validation.ToolInputValidator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -288,6 +291,27 @@ class ToolExecutorTest {
         assertTrue(hookManager.preHookRan);
         assertTrue(hookManager.postHookRan);
         assertEquals(List.of("reached", "started", "execute", "result", "completed"), listener.events);
+    }
+
+    @Test
+    void recordsResolvedPathEvidenceForFileTools() throws Exception {
+        Path file = tempDir.resolve("secret.key");
+        Files.writeString(file, "secret");
+        FileReadTool tool = new FileReadTool();
+        RecordingListener listener = new RecordingListener();
+        ToolUseContext context = context(listener, tool);
+        ObjectNode input = mapper.createObjectNode().put("path", "secret.key");
+
+        ToolResult result = executorFor(tool, PermissionGate.permissive(), null).execute(
+                call(tool.name(), input),
+                context);
+
+        assertTrue(result.success());
+        List<ToolAccessEvidence> evidence = context.session().toolAccessEvidence("toolu_1");
+        assertEquals(1, evidence.size());
+        assertEquals(file.toRealPath().toString(), evidence.getFirst().path());
+        assertEquals(ToolAccessEvidence.EvidenceSource.RESOLVED_PATH, evidence.getFirst().source());
+        assertFalse(evidence.getFirst().heuristic());
     }
 
     private ToolExecutor executorFor(Tool<?> tool, PermissionGate permissionGate, HookManager hookManager) {

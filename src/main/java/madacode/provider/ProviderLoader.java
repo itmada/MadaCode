@@ -132,6 +132,12 @@ public final class ProviderLoader {
             if (provider.supportsPromptCaching()) {
                 providerNode.put("supportsPromptCaching", true);
             }
+            if (provider.pricing() != null) {
+                var pricingNode = mapper.createObjectNode();
+                pricingNode.put("inputUsdPerMillion", provider.pricing().inputUsdPerMillion());
+                pricingNode.put("outputUsdPerMillion", provider.pricing().outputUsdPerMillion());
+                providerNode.set("pricing", pricingNode);
+            }
             var modelsNode = mapper.createArrayNode();
             for (Model model : provider.models()) {
                 var modelNode = mapper.createObjectNode();
@@ -153,7 +159,7 @@ public final class ProviderLoader {
         // Now we know the name; refine context for nested errors.
         String providerCtx = "provider '" + name + "'";
 
-        String authToken = text(n, "authToken", providerCtx);
+        String authToken = authToken(n, providerCtx);
         URI baseUrl;
         try {
             baseUrl = URI.create(text(n, "baseUrl", providerCtx));
@@ -174,11 +180,52 @@ public final class ProviderLoader {
         }
 
         boolean supportsPromptCaching = n.path("supportsPromptCaching").asBoolean(false);
+        ProviderPricing pricing = parsePricing(n.get("pricing"), providerCtx);
         try {
-            return new Provider(name, authToken, baseUrl, defaultModel, models, supportsPromptCaching);
+            return new Provider(
+                    name,
+                    authToken,
+                    baseUrl,
+                    defaultModel,
+                    models,
+                    supportsPromptCaching,
+                    pricing);
         } catch (IllegalArgumentException e) {
             throw new ProviderException(providerCtx + ": " + e.getMessage());
         }
+    }
+
+    private ProviderPricing parsePricing(JsonNode node, String context) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isObject()) {
+            throw new ProviderException("pricing in " + context + " must be an object");
+        }
+        try {
+            return new ProviderPricing(
+                    pricingNumber(node, context, "inputUsdPerMillion", "input", "inputPerMillionUsd"),
+                    pricingNumber(node, context, "outputUsdPerMillion", "output", "outputPerMillionUsd"));
+        } catch (IllegalArgumentException e) {
+            throw new ProviderException("pricing in " + context + ": " + e.getMessage());
+        }
+    }
+
+    private double pricingNumber(JsonNode node, String context, String canonical, String... aliases) {
+        JsonNode value = node.get(canonical);
+        if (value == null) {
+            for (String alias : aliases) {
+                value = node.get(alias);
+                if (value != null) {
+                    break;
+                }
+            }
+        }
+        if (value == null || !value.isNumber()) {
+            throw new ProviderException("pricing in " + context
+                    + " must declare numeric '" + canonical + "'");
+        }
+        return value.asDouble();
     }
 
     private Model parseModel(JsonNode n, String context) {
@@ -238,5 +285,41 @@ public final class ProviderLoader {
             throw new ProviderException("Missing or blank '" + field + "' in " + context);
         }
         return v.asText();
+    }
+
+    private static String authToken(JsonNode obj, String context) {
+        JsonNode literal = obj.get("authToken");
+        JsonNode envRef = obj.get("authTokenEnv");
+        if (literal != null && envRef != null) {
+            throw new ProviderException(context + " must declare only one of 'authToken' or 'authTokenEnv'");
+        }
+        if (literal != null) {
+            if (!literal.isTextual() || literal.asText().isBlank()) {
+                throw new ProviderException("Missing or blank 'authToken' in " + context);
+            }
+            return literal.asText();
+        }
+        if (envRef == null || !envRef.isTextual() || envRef.asText().isBlank()) {
+            throw new ProviderException("Missing or blank 'authToken' in " + context);
+        }
+        String envName = envRef.asText().strip();
+        String value = firstNonBlank(System.getenv(envName), System.getProperty(envName));
+        if (value == null) {
+            throw new ProviderException("Environment variable '" + envName
+                    + "' declared by authTokenEnv in " + context + " is not set");
+        }
+        return value;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 }

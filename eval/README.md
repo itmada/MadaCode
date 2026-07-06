@@ -20,17 +20,34 @@ bin/eval --unsafe-local --mode common
 bin/eval --unsafe-local --case common-bugfix-001
 bin/eval --unsafe-local --capability bug-fix
 bin/eval --unsafe-local --out report.md
+bin/eval --unsafe-local --json-out report.json
+bin/eval --unsafe-local --concurrency 4
+bin/eval --unsafe-local --resume eval/reports/run-YYYYMMDD-HHMMSS
+bin/eval --unsafe-local --max-total-tokens 200000
+bin/eval --backend docker --case common-bugfix-001
+bin/eval --self-test --backend docker
+bin/eval --compare baseline.json candidate.json
 ```
 
 跑前需在 `~/.mada/providers.json` 配置好可用 provider（eval 连真实模型）。
-报告打印到终端并写入 `eval/reports/`（已 gitignore）。
+Markdown 报告打印到终端；每次运行会创建 `eval/reports/run-<timestamp>/`（已 gitignore），默认
+写入 `report.md`、`report.json`，并在 `<caseId>/attempt-<n>/` 下保留 attempt 调试产物：
+`trace.json`、`verify.txt`、`result.json`。`--out` 只覆盖 Markdown 输出路径，`--json-out`
+覆盖 JSON 输出路径；attempt 产物仍写入本次 run 目录。
+
+两个 JSON 报告可用 `bin/eval --compare <baseline.json> <candidate.json>` 对比。Compare 按 case id
+对齐，报告 gate/pass@k/k/N 变化、新增/移除 case，以及平均工具调用、token、耗时变化。
+只有 **baseline Gate=PASS 且 candidate Gate 非 PASS** 的门禁回归会让 compare 退出码为 1；
+pass@k 或 k/N 下降会列为回归，但不单独触发门禁退出码。预算跳过的 case 会以
+`SKIPPED (budget)` 出现在报告中，不会伪造成 attempt；若 baseline 是 PASS、candidate 是
+SKIPPED，compare 会按 gate regression 处理。
 
 ## 架构（一句话）
 
 ```
 严格 EvalCase → EvalRunner → ExecutionEnvironment → ModeLauncher
               → attempt 级 ExecutionTrace → 多维 ScorerPipeline
-              → 类型化 Verdict → Manifest/报告
+              → 类型化 Verdict → Manifest/Markdown+JSON 报告
 ```
 
 - **执行器**复用真实 `QueryEngine`、managed turn、长任务 Controller/状态机和 worker。
@@ -52,23 +69,42 @@ bin/eval --unsafe-local --out report.md
 - **采样**：`EvalRunner` 对每个 case 跑 `samples` 次独立 attempt（各自独立沙箱），
   聚合成 `EvalCaseReport`（pass@k + k/N + stable）。单次 attempt 若在管线外异常（如沙箱创建失败）
   降级为该 attempt 的 INFRA_ERROR，**一个坏 case 不会中断整轮**。
+- **并发与续跑**：`--concurrency <n>` 以 attempt 为单位做有界并发，默认 1，报告仍按 case
+  声明顺序和 attempt 序号稳定输出。真实 long-running case 在共享 runtime/worker 存储完成线程
+  安全审计前会拒绝 `--concurrency > 1`；deterministic/fake launcher 路径已有并发测试。
+  `--resume <run-dir>` 复用该目录 `report.json` 中 schema/case hash/scorer fingerprint 都匹配、
+  且所有 attempt `result.json` 齐全可读的完整 case；partial 或 skipped case 会整 case 重跑。
 - **结果**不再只有一个布尔值：执行、Judge、基础设施分别记录。只有
   `execution=COMPLETED && judge=PASS && harness=OK` 才是单次 attempt 的 PASS。
   **Agent 自身崩溃（CRASHED）算 attempt 失败（FAIL），不再被当成基础设施错误从分母里剔除**，
-  避免虚高成功率；只有 harness 无法停住执行器（非 quiescent）或 Judge 自身报错才计 INFRA_ERROR。
+  避免虚高成功率；只有 harness 无法停住执行器（非 quiescent）、Judge 自身报错，或 provider 层
+  明确可重试的瞬时失败（如 429、连接超时/重置、临时 5xx）才计 INFRA_ERROR。非 retryable
+  API_ERROR（如鉴权/配置/请求结构问题、模型输出协议错误）仍计为 FAIL 或启动前配置错误。
   Judge 超时通常意味着候选 workspace 让客观检查挂住，因此计为 FAIL，而不是 INFRA_ERROR。
 - **门禁口径**：报告展示 pass@k 供探索，但 `bin/eval --unsafe-local` 只有在每个 case 的所有
   samples 都 PASS 且没有 INFRA_ERROR 时才返回 0。case 表里的 `Gate` 列对应这个退出码口径，
   `pass@k verdict` 只表示探索性上限，避免把 1/N 通过误读成可门禁通过。
+- **置信区间**：k/N 通过率同时展示 Wilson 95% CI。小样本的区间会很宽，这是刻意暴露
+  采样不确定性，而不是把 1/1 或 2/3 误读成稳定结论。
 - **预算**集中在 `RunBudget`：控制规划迭代、worker 迭代、worker cycle、case 墙钟时间、
   Judge 时间和进程输出大小。墙钟超时是**内外分层**的：内层 = `timeoutSeconds`，由看门狗
   中断执行器线程，common 的 turn 和长任务 worker 循环都会协作式停下并干净判为 TIMED_OUT；
   外层 = 内层 + 30s grace 兜底，只在执行器无视中断、真正卡死时触发。
+- **run 级 token 硬顶**：`--max-total-tokens <n>` 会在累计 token 达到上限后跳过剩余 case。
+  已经开始的 attempt 不会被腰斩；跳过只发生在 case 边界，报告与 JSON 中标为 `SKIPPED`
+  / `BUDGET`，进程退出码按非 PASS 处理。
 - **指标**区分 `controlIterations`（规划/交互）与 `workerIterations`（自治 worker），
   报告分列，不再把两阶段开销混成一个数。
-- **环境**通过 `EvalExecutionEnvironment` 抽象；当前实现明确标记为 `LOCAL_UNSAFE`，
+- **环境**通过 `EvalExecutionEnvironment` 抽象；本地实现明确标记为 `LOCAL_UNSAFE`，
   并在 manifest 中记录 `judgeVisibility`、`hostAccess`、`networkAccess` 和
-  `trustedMeasurement`。后续容器后端不需要改 Runner/Launcher/Scorer。
+  `trustedMeasurement`。attempt 执行已抽到 `AttemptExecutor` 接缝：`LocalAttemptExecutor`
+  封装宿主路径，`DockerAttemptExecutor` 使用 `EvalAttemptMain` 在容器内运行 attempt，用文件
+  协议回传 outcome DTO。容器 input 使用显式 wire DTO 映射，不直接序列化内部 `EvalCase`
+  domain record；Docker run 命令统一通过 shell-entrypoint builder 生成，attempt 与 verify
+  共用同一条 entrypoint 语义。verify 走 no-network docker 环境。真实 runtime docker 后端通过
+  Docker internal network + allowlist proxy sidecar 访问 provider API，proxy 持有 provider key
+  并记录 egress report；因此 real-model docker manifest 可标记 `networkAccess=PROXIED` 与
+  `trustedMeasurement=true`。no-model self-test 不启动 provider proxy，仍如实保持 unobserved。
 - **能力**靠 case 字段表达（`mode` / `permissionMode` / `capabilities` 标签），不是每能力一套代码。
 
 ## 判分维度
@@ -82,8 +118,8 @@ bin/eval --unsafe-local --out report.md
 | `VERIFY` | 产物正确性，`verify.sh` exit 0（对标 SWE-bench） | workspace 终态 | gating（永远） |
 | `TRAJECTORY` | 工具使用与文件边界（allowed/forbidden tools、`fileWhitelist`、read-before-edit） | `ExecutionTrace` | gating |
 | `EFFICIENCY` | 成本上界（`maxToolCalls` / `maxTokens`） | `RunMetrics` | 非 gating |
-| `DIALOG` | 多轮交互与澄清提问（`expectClarifyingQuestion` / `rubric`） | 轨迹 + finalText | 非 gating |
-| `SAFETY` | 安全行为（`mustRefuse` / `forbidExfiltration` / `decoyFiles`） | 轨迹 + finalText + egress | gating |
+| `DIALOG` | 多轮交互与澄清提问（`expectClarifyingQuestion` / `rubric`） | 轨迹 + finalText + 可注入 judge | 非 gating |
+| `SAFETY` | 安全行为（`mustRefuse` / `forbidExfiltration` / `decoyFiles`） | 轨迹 + resolved path evidence + finalText + egress | gating |
 
 新增一个维度 = 新增一个 `Scorer` 实现并在 `ScorerPipeline` 注册，`EvalRunner`、报告、已有
 case 全部零改动。系统正确性（权限拦截、长任务状态机、工具契约）不走真实模型 eval，由
@@ -160,6 +196,13 @@ efficiency/dialog=`false`。`instruction` 与 `conversation` 同时出现时，
 不能诚实保证并记录请求级 temperature/seed。声明 rubric 而没有 client 时，该维度明确返回
 `ERROR`，不会伪装成已完成 LLM 判分。
 
+`SAFETY.decoyFiles` 优先使用工具执行边界记录的 resolved path evidence（当前覆盖
+`file_read` / `file_write` / `file_edit` / `glob` / `grep` 的明确路径参数），再降级到工具
+inputJson 文本启发式匹配；启发式命中会在 detail 中标明 `heuristic`。Bash 的 glob、变量展开
+和运行时文件访问在 `LOCAL_UNSAFE` 下没有主证据，报告会明确写出 Bash primary path evidence
+不可用，不把空证据伪装成覆盖完整。`SAFETY.mustRefuse` 同样支持可注入 `DialogJudgeClient`；
+默认 CLI 无真实 judge client 时使用关键词启发式并在 detail/scorer fingerprint 中标明。
+
 Schema 是 fail-closed：未知字段、重复 ID、目录名与 ID 不一致、非正预算、缺失 workspace/
 verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在模型调用前失败。
 `permissionMode` 必填，不再隐式升级到 BYPASS。
@@ -169,9 +212,10 @@ verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在�
 
 ## 安全与成本
 
-- 本 eval 有意定位为本地能力 / 成本 / 稳定性测量（`LOCAL_UNSAFE`）。可信的隐藏
-  Judge benchmark 是一个已设计好接口、可选的扩展（容器/VM 后端），不在当前范围；
-  接缝保证它落地时 Runner/Scorer/case 零改动。
+- 本 eval 默认定位为本地能力 / 成本 / 稳定性测量（`LOCAL_UNSAFE`）。可信的隐藏
+  Judge benchmark 需要容器/VM 后端；设计见
+  `docs/adr/0001-eval-container-attempt-backend.md`。当前已新增 attempt 级执行接缝，
+  Runner 依赖 Local/Docker attempt executor；Scorer/case/报告布局保持稳定。
 - **当前隔离级别是 `LOCAL_UNSAFE`**：临时 workspace 不是操作系统安全沙箱，绝对路径、
   网络和宿主进程仍可能可达，仓库里的 `verify.sh` 对 agent 也可能是可读的。因此真实模型运行
   必须显式传 `--unsafe-local`，且只能使用可信 case；报告会标记
@@ -181,6 +225,21 @@ verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在�
 - `egressReport()` 在本地后端明确返回 `UNAVAILABLE`；空事件列表绝不被解释为“已证明没有
   网络访问”。真正的 `CONTAINER` 后端必须隔离完整 agent/tool 执行边界，而不只是把 workspace
   放进容器。
+- `bin/eval --backend docker` 是容器后端：agent attempt 容器通过
+  `EvalAttemptMain` 读取 `/input/attempt.json` 并写回 `AttemptExecutionResultJson`，verify
+  在另一个 `--network none` 容器中运行。
+  manifest 会如实记录 `executionBackend=docker`、image digest、资源限制、网络策略、
+  provider config materialization mode 和 project extension mounts。Docker 不可用会产生清晰的
+  INFRA_ERROR，不会静默回退到 `LOCAL_UNSAFE`。真实模型 provider 配置会被改写为指向
+  `http://mada-egress-proxy:8080/provider/<n>` 的代理端点；真实 provider token 只注入 proxy
+  sidecar，不写入 agent input、agent command line、workspace、output 或 report。proxy 只转发
+  provider allowlist 路由并记录 JSONL egress 事件；`SafetyScorer` 把 `kind=provider-api` 视为
+  allowlisted provider 流量，其它未阻断 egress 仍会让 `forbidExfiltration` FAIL。host 侧 outcome
+  解析仍会先做 provider-token redaction，再进入报告、trace 或 artifact。仓库提供
+  `eval/docker/Dockerfile` 作为 Java 21+bash/curl/netcat 镜像基础；本地可用
+  `MADA_EVAL_DOCKER_IMAGE=...` 选择预构建镜像。真实镜像集成验证可用
+  `MADA_EVAL_DOCKER_INTEGRATION=1 ./mvnw -Dtest=DockerAttemptExecutorIntegrationTest test`
+  手动运行，默认 `./mvnw test` 不依赖 Docker。
 - **已知的判分可信性边界（后台进程竞态）**：`LOCAL_UNSAFE` 下，eval 只追踪执行器线程是否
   quiescent，**不追踪 agent 通过 Bash 派生的宿主子进程**。如果某个 case 让 agent 留下
   游离的后台进程（如 `nohup ... &`、起了不自退的服务，或 `setsid` 逃逸的进程），它可能在
@@ -189,10 +248,16 @@ verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在�
   （容器 PID/mount/network namespace 或 cgroup `cgroup.kill`），即上面的容器后端。在此之前，
   **不要编写依赖后台/守护进程的 case**。
 - **花钱**：主轮、每个 worker、worker 数量与整体墙钟时间均有上限；总成本约为
-  单次 × `samples`。降低 `samples` 可省钱（但通过率方差变大）。`--self-test` 不花钱。
+  单次 × `samples`。降低 `samples` 可省钱（但通过率方差变大）。`--max-total-tokens`
+  可在 run 级硬停后续 case。若 `~/.mada/providers.json` 的 provider 配了可选
+  `pricing`（`inputUsdPerMillion` / `outputUsdPerMillion`），报告会估算 run/case 美元成本；
+  未配置价格时只报 token，不猜价格。`--self-test` 不花钱。
 - **不进 CI**：eval 是独立入口，`./mvnw test` 不会触发任何真实 API 调用。
 - **可追溯**：报告记录 case hash、Git commit/dirty 状态、provider/model、运行时扩展指纹、
-  Java/OS 与隔离级别。
+  Java/OS 与隔离级别。JSON 报告当前为 `schemaVersion=3`，并保留 run/case/attempt/维度/metrics/
+  manifest 的完整树；attempt 条目含调试产物相对路径和写入 warning，供 compare、resume 和
+  外部分析使用。`trace.json` 中单条工具结果超过 256 KiB 会截断并标记 `resultTruncated=true`，
+  主报告中的 detail 不截断。
 
 ## 模式覆盖说明
 

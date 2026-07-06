@@ -142,7 +142,8 @@ public final class DialogJudgeScorer implements Scorer {
     }
 
     private static String formatJudgmentDetail(DialogJudgeClient.Judgment judgment) {
-        return "rubric: " + judgment.status();
+        return "rubric: " + judgment.status()
+                + (judgment.rationale().isBlank() ? "" : " - " + judgment.rationale());
     }
 
     private static String joinDetails(String first, String second) {

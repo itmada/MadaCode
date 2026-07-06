@@ -18,6 +18,7 @@ import madacode.core.turn.TurnRunner;
 
 import madacode.services.api.ApiClient;
 import madacode.services.api.ApiClientException;
+import madacode.services.api.ApiFailureClassification;
 import madacode.services.api.ApiMessageProjection;
 import madacode.services.compact.CompactPlanner;
 import madacode.hook.HookManager;
@@ -211,8 +212,9 @@ public class QueryEngine {
                     if (cancel.isCancelled()) {
                         return completeWithCancellation(session, cancel.reason(), iteration + 1, elapsedMs(turnStart));
                     }
+                    ApiFailureClassification failure = ApiFailureClassification.classify(e);
                     return completeWithApiError(session, "Model request failed: " + e.getMessage(),
-                            iteration + 1, elapsedMs(turnStart));
+                            iteration + 1, elapsedMs(turnStart), failure);
                 } catch (CancellationException e) {
                     writer.abandon();
                     return completeWithCancellation(session, e.getMessage(), iteration + 1, elapsedMs(turnStart));
@@ -222,7 +224,7 @@ public class QueryEngine {
                         return completeWithCancellation(session, cancel.reason(), iteration + 1, elapsedMs(turnStart));
                     }
                     return completeWithApiError(session, "Unexpected model request failure: " + e.getMessage(),
-                            iteration + 1, elapsedMs(turnStart));
+                            iteration + 1, elapsedMs(turnStart), null);
                 }
                 writer.commit();
             }
@@ -275,9 +277,13 @@ public class QueryEngine {
 
     // ---- Private helpers -------------------------------------------------
 
-    private TurnResult completeWithApiError(ConversationSession session, String message,
-                                            int iterations, long durationMs) {
-        return completeTerminal(session, TerminalOutcome.apiError(message),
+    private TurnResult completeWithApiError(
+            ConversationSession session,
+            String message,
+            int iterations,
+            long durationMs,
+            ApiFailureClassification apiFailure) {
+        return completeTerminal(session, TerminalOutcome.apiError(message, apiFailure),
                 iterations, durationMs);
     }
 
@@ -299,14 +305,15 @@ public class QueryEngine {
             session.fireMetaEvent(new MetaEvent.Error(outcome.message(), outcome.finishReason()));
         }
         diagnosticEvents.turnCompleted(session, outcome.finishReason(), iterations, durationMs);
-        return new TurnResult(outcome.message(), outcome.finishReason(), iterations);
+        return new TurnResult(outcome.message(), outcome.finishReason(), iterations, outcome.apiFailure());
     }
 
     private record TerminalOutcome(String message,
                                    FinishReason finishReason,
-                                   boolean fireErrorMetaEvent) {
-        private static TerminalOutcome apiError(String message) {
-            return new TerminalOutcome(message, FinishReason.API_ERROR, true);
+                                   boolean fireErrorMetaEvent,
+                                   ApiFailureClassification apiFailure) {
+        private static TerminalOutcome apiError(String message, ApiFailureClassification apiFailure) {
+            return new TerminalOutcome(message, FinishReason.API_ERROR, true, apiFailure);
         }
 
         private static TerminalOutcome cancellation(String reason) {
@@ -317,7 +324,7 @@ public class QueryEngine {
             String message = fromPermission
                     ? "(Permission denied)"
                     : "(Cancelled" + (reason == null ? "" : ": " + reason) + ")";
-            return new TerminalOutcome(message, finishReason, !fromPermission);
+            return new TerminalOutcome(message, finishReason, !fromPermission, null);
         }
     }
 

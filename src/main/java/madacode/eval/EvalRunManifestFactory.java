@@ -20,7 +20,26 @@ final class EvalRunManifestFactory {
             IsolationProfile isolationProfile,
             String scorerFingerprint,
             Instant startedAt) {
+        return capture(
+                projectDir,
+                loaded,
+                runtime,
+                isolationProfile,
+                scorerFingerprint,
+                startedAt,
+                EvalBackendManifest.localUnsafe());
+    }
+
+    static EvalRunManifest capture(
+            Path projectDir,
+            EvalCaseLoader.LoadedCase loaded,
+            HeadlessAgentRuntime runtime,
+            IsolationProfile isolationProfile,
+            String scorerFingerprint,
+            Instant startedAt,
+            EvalBackendManifest backend) {
         GitState git = gitState(projectDir);
+        EvalBackendManifest safeBackend = backend == null ? EvalBackendManifest.localUnsafe() : backend;
         return new EvalRunManifest(
                 startedAt,
                 loaded.caseHash(),
@@ -35,6 +54,13 @@ final class EvalRunManifestFactory {
                 isolationProfile.hostAccess().name(),
                 isolationProfile.networkAccess().name(),
                 isolationProfile.trustedMeasurement(),
+                safeBackend.executionBackend(),
+                safeBackend.containerImage(),
+                safeBackend.containerImageDigest(),
+                safeBackend.resourceLimits(),
+                safeBackend.networkPolicy(),
+                safeBackend.providerConfigMaterialization(),
+                safeBackend.projectExtensionMounts(),
                 System.getProperty("java.version", "(unknown)"),
                 System.getProperty("os.name", "(unknown)") + " "
                         + System.getProperty("os.version", ""));

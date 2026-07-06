@@ -5,6 +5,7 @@ import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
 import madacode.core.model.MetaEvent;
 import madacode.core.model.TokenUsage;
+import madacode.core.model.ToolAccessEvidence;
 
 import madacode.governance.CapabilityProfile;
 import madacode.governance.CapabilityProfiles;
@@ -29,6 +30,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -84,6 +87,8 @@ public class ConversationSession {
     private final ReadFileState readFileState = new ReadFileState();
     private final AtomicReference<Set<String>> loadedDeferredToolsRef =
             new AtomicReference<>(Set.of());
+    private final ConcurrentMap<String, List<ToolAccessEvidence>> toolAccessEvidence =
+            new ConcurrentHashMap<>();
     // Notified when this session spawns a sub-agent child session. Defaults to a
     // no-op so production paths are unaffected; an observer (e.g. the eval trace
     // collector) propagates to descendants via registerSubAgent so the whole
@@ -340,6 +345,20 @@ public class ConversationSession {
 
     public ReadFileState readFileState() {
         return readFileState;
+    }
+
+    public void recordToolAccessEvidence(String toolUseId, List<ToolAccessEvidence> evidence) {
+        if (toolUseId == null || toolUseId.isBlank() || evidence == null || evidence.isEmpty()) {
+            return;
+        }
+        toolAccessEvidence.put(toolUseId, List.copyOf(evidence));
+    }
+
+    public List<ToolAccessEvidence> toolAccessEvidence(String toolUseId) {
+        if (toolUseId == null || toolUseId.isBlank()) {
+            return List.of();
+        }
+        return toolAccessEvidence.getOrDefault(toolUseId, List.of());
     }
 
     public Set<String> loadedDeferredTools() {

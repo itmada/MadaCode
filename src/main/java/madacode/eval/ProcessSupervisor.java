@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +22,15 @@ import java.util.concurrent.TimeUnit;
 public final class ProcessSupervisor {
 
     public Outcome run(List<String> command, Path workingDirectory, Duration timeout, int maxOutputBytes) {
+        return run(command, workingDirectory, timeout, maxOutputBytes, Map.of());
+    }
+
+    public Outcome run(
+            List<String> command,
+            Path workingDirectory,
+            Duration timeout,
+            int maxOutputBytes,
+            Map<String, String> environment) {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(workingDirectory, "workingDirectory");
         Objects.requireNonNull(timeout, "timeout");
@@ -35,10 +45,13 @@ public final class ProcessSupervisor {
         ExecutorService reader = Executors.newSingleThreadExecutor(
                 Thread.ofVirtual().name("mada-eval-process-output-", 0).factory());
         try {
-            process = new ProcessBuilder(command)
+            ProcessBuilder builder = new ProcessBuilder(command)
                     .directory(workingDirectory.toFile())
-                    .redirectErrorStream(true)
-                    .start();
+                    .redirectErrorStream(true);
+            if (environment != null && !environment.isEmpty()) {
+                builder.environment().putAll(environment);
+            }
+            process = builder.start();
             BoundedOutput output = new BoundedOutput(maxOutputBytes);
             Process spawned = process;
             Future<?> drain = reader.submit(() -> drain(spawned.getInputStream(), output));
@@ -63,6 +76,37 @@ public final class ProcessSupervisor {
             return new Outcome(Status.INTERRUPTED, -1, "process interrupted", false);
         } finally {
             reader.shutdownNow();
+        }
+    }
+
+    public ManagedProcess start(
+            List<String> command,
+            Path workingDirectory,
+            int maxOutputBytes,
+            Map<String, String> environment) {
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(workingDirectory, "workingDirectory");
+        if (command.isEmpty()) {
+            throw new IllegalArgumentException("command must not be empty");
+        }
+        if (maxOutputBytes <= 0) {
+            throw new IllegalArgumentException("maxOutputBytes must be positive");
+        }
+        try {
+            ProcessBuilder builder = new ProcessBuilder(command)
+                    .directory(workingDirectory.toFile())
+                    .redirectErrorStream(true);
+            if (environment != null && !environment.isEmpty()) {
+                builder.environment().putAll(environment);
+            }
+            Process process = builder.start();
+            BoundedOutput output = new BoundedOutput(maxOutputBytes);
+            ExecutorService reader = Executors.newSingleThreadExecutor(
+                    Thread.ofVirtual().name("mada-eval-process-output-", 0).factory());
+            Future<?> drain = reader.submit(() -> drain(process.getInputStream(), output));
+            return new ManagedProcess(process, output, reader, drain);
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to start process: " + e.getMessage(), e);
         }
     }
 
@@ -115,6 +159,60 @@ public final class ProcessSupervisor {
     public record Outcome(Status status, int exitCode, String output, boolean outputTruncated) {
         public boolean succeeded() {
             return status == Status.EXITED && exitCode == 0;
+        }
+    }
+
+    public static final class ManagedProcess implements AutoCloseable {
+        private final Process process;
+        private final BoundedOutput output;
+        private final ExecutorService reader;
+        private final Future<?> drain;
+
+        private ManagedProcess(
+                Process process,
+                BoundedOutput output,
+                ExecutorService reader,
+                Future<?> drain) {
+            this.process = process;
+            this.output = output;
+            this.reader = reader;
+            this.drain = drain;
+        }
+
+        public boolean isAlive() {
+            return process.isAlive();
+        }
+
+        public Outcome await(Duration timeout) {
+            try {
+                boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                if (!finished) {
+                    return new Outcome(Status.TIMED_OUT, -1, output.text(), output.truncated());
+                }
+                awaitDrain(drain);
+                return new Outcome(Status.EXITED, process.exitValue(), output.text(), output.truncated());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new Outcome(Status.INTERRUPTED, -1, "process interrupted", false);
+            }
+        }
+
+        public String output() {
+            return output.text();
+        }
+
+        @Override
+        public void close() {
+            if (process.isAlive()) {
+                destroyProcessTree(process);
+            }
+            try {
+                awaitDrain(drain);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                reader.shutdownNow();
+            }
         }
     }
 

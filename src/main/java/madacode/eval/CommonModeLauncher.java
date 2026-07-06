@@ -55,10 +55,11 @@ public final class CommonModeLauncher implements ModeLauncher {
             return new LaunchOutcome(
                     executionStatus(turn.finishReason()),
                     RunMetrics.fromSession(session, totalIterations),
-                    turn.finishReason().name(),
-                    turn.finalText(),
+                    terminalSummary(turn),
+                    detail(turn),
                     finalText,
-                    true);
+                    true,
+                    turn.apiFailure());
         } catch (madacode.bootstrap.HeadlessAgentRuntime.HeadlessTurnTimeoutException e) {
             return new LaunchOutcome(
                     EvalResult.ExecutionStatus.TIMED_OUT,
@@ -89,5 +90,17 @@ public final class CommonModeLauncher implements ModeLauncher {
             case PERMISSION_CANCELLED -> EvalResult.ExecutionStatus.PERMISSION_DENIED;
             case CANCELLED -> EvalResult.ExecutionStatus.CANCELLED;
         };
+    }
+
+    private static String terminalSummary(TurnResult turn) {
+        return turn.apiFailure() == null
+                ? turn.finishReason().name()
+                : turn.finishReason().name() + " " + turn.apiFailure().detail();
+    }
+
+    private static String detail(TurnResult turn) {
+        return turn.apiFailure() == null
+                ? turn.finalText()
+                : turn.finalText() + "\n" + turn.apiFailure().detail();
     }
 }

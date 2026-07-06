@@ -149,11 +149,18 @@ token 估算 > 85%
 碰巧正确而形成假阳性。`RunBudget` 统一限制 turn、worker、墙钟时间和 Judge 进程；报告附带
 代码、case、provider/model、扩展配置与隔离级别的 manifest。
 
-当前执行环境为显式标记的 `LOCAL_UNSAFE` 临时工作目录后端，真实模型运行需主动确认。
+当前默认执行环境为显式标记的 `LOCAL_UNSAFE` 临时工作目录后端，真实模型运行需主动确认。
 manifest 除隔离级别外还记录 Judge 可见性、宿主机访问、网络访问与 `trustedMeasurement`：
-`LOCAL_UNSAFE` 是本地 smoke/cost/stability 测量，不能声称为隐藏 Judge benchmark；可信评测
-需要容器或 VM 后端，让 Agent 只挂载 workspace，并把 Judge bundle 仅挂载到判分阶段。
-`EvalExecutionEnvironment` 是该后端的替换边界。
+`LOCAL_UNSAFE` 是本地 smoke/cost/stability 测量，不能声称为隐藏 Judge benchmark。完整可信
+评测需要容器或 VM 后端，让整个 Agent attempt runtime 只看到 workspace，并把 Judge bundle
+仅挂载到判分阶段。`EvalExecutionEnvironment` 只覆盖 workspace/verify 边界；ADR 0001 中定义的
+`AttemptExecutor` 接缝已经落地，docker 后端通过容器内 `EvalAttemptMain` 运行 attempt，并用
+显式 wire DTO 与 host 交换 attempt input/outcome，不直接跨容器边界序列化内部 domain record。
+Docker attempt/verify 命令共用 shell-entrypoint builder，避免镜像 ENTRYPOINT 与运行脚本语义分叉。
+真实 runtime docker 后端会创建 Docker internal network 和 allowlist proxy sidecar：agent 容器只接入
+internal network，provider baseUrl 被改写到 `mada-egress-proxy`，真实 provider token 只注入 proxy，
+proxy 负责转发 provider API 并记录 `EgressReport`。host 侧统一清洗 provider token 后再写报告和产物。
+no-model docker self-test 不启动 provider proxy，manifest 仍保持 unobserved/trusted=false。
 
 ## 9. 装配与资源管理
 
