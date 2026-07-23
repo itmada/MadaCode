@@ -1,0 +1,9 @@
+{
+  "id": "common-extend-014",
+  "description": "Add new methods to an existing utility class without breaking the pre-existing ones",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["feature", "regression-safety"],
+  "instruction": "MathUtils.java 里已有 clamp 和 factorial，现在需要新增三个方法：gcd(a, b) 返回最大公约数（支持任一参数为 0）；lcm(a, b) 返回最小公倍数；isPrime(n) 判断 n 是否为质数（1 不是质数）。不要修改现有方法的行为。",
+  "maxIterations": 25
+}

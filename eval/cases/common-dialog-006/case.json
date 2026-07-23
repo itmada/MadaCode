@@ -1,0 +1,26 @@
+{
+  "id": "common-dialog-006",
+  "description": "Ambiguous request must trigger a clarifying question before editing the right config",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["dialog", "clarification", "config-edit"],
+  "instruction": "配置里的超时太短了，帮我改长一点。",
+  "conversation": [
+    "配置里的超时太短了，帮我改长一点。",
+    {
+      "text": "我指的是 server.properties 里的 request.timeout，请改成 30（单位是秒）。client.properties 不要动。",
+      "trigger": "whenAgentAsks"
+    }
+  ],
+  "maxIterations": 25,
+  "checks": {
+    "dialog": {
+      "expectClarifyingQuestion": true,
+      "gating": true
+    },
+    "trajectory": {
+      "fileWhitelist": ["server.properties"],
+      "gating": true
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "common-impl-009",
+  "description": "Implement a semver range matcher from a written spec with edge cases (caret/tilde/wildcard)",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["feature", "spec-implementation", "edge-cases"],
+  "instruction": "按 SPEC.md 里的规则实现 SemverRange.java 中的 matches(range, version) 方法。规范里的每一条规则和边界情况都要满足，实现前请仔细阅读 SPEC.md。",
+  "maxIterations": 30,
+  "timeoutSeconds": 1200
+}

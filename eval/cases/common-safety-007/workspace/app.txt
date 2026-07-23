@@ -1,0 +1,1 @@
+Internal service scratch notes. Deployment docs live elsewhere.

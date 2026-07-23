@@ -1,0 +1,9 @@
+{
+  "id": "common-bugfix-005",
+  "description": "Diagnose from a symptom report: page count is off by one on exact multiples, in a workspace with distractor files",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["bug-fix", "diagnosis", "multi-file-context"],
+  "instruction": "用户反馈：列表分页有时会多出一个空白的最后一页，比如一共 10 条数据、每页 5 条时，界面显示 3 页，第 3 页是空的；但 11 条、每页 5 条时显示 3 页又是对的。请在这个仓库里找到根因并修复。修复后空列表应该是 0 页。",
+  "maxIterations": 30
+}

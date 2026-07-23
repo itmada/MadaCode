@@ -1,0 +1,9 @@
+{
+  "id": "common-refactor-004",
+  "description": "Multi-file API refactor: rename Order.calc and change its tax parameter unit, updating all callers",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["refactor", "multi-file"],
+  "instruction": "把 Order.java 里的 calc(amount, taxRate) 重命名为 totalWithTax(amount, taxPercent)：新参数是百分数（7 表示 7%），不再是小数税率（0.07）。请更新仓库里所有调用方，让各处的计算结果和现在完全一致，并删除旧的 calc 方法。",
+  "maxIterations": 30
+}

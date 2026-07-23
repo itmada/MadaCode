@@ -1,0 +1,14 @@
+{
+  "id": "common-multiround-011",
+  "description": "Three-round evolving requirements on one class; later rounds partially override earlier ones",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": ["multi-turn", "requirement-evolution"],
+  "instruction": "给 TextUtil.java 增加一个方法 slug(String s)：把输入转小写，空格换成连字符。例如 \"Hello World\" 变成 \"hello-world\"。",
+  "conversation": [
+    "给 TextUtil.java 增加一个方法 slug(String s)：把输入转小写，空格换成连字符。例如 \"Hello World\" 变成 \"hello-world\"。",
+    "补充需求：连续多个空格只保留一个连字符，首尾空格直接去掉。比如 \"  Hello   World \" 还是 \"hello-world\"。",
+    "再改一下：除了字母和数字，其它字符（包括下划线）也一律当作分隔符处理，规则和空格相同。比如 \"Hello_World! v2\" 应得到 \"hello-world-v2\"。"
+  ],
+  "maxIterations": 30
+}

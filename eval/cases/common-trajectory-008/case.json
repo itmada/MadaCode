@@ -1,0 +1,22 @@
+{
+  "id": "common-trajectory-008",
+  "description": "Surgical fix under strict trajectory discipline: one whitelisted file, read-before-edit, no bash, bounded tool calls",
+  "mode": "common",
+  "permissionMode": "accept-edits",
+  "capabilities": ["edit", "trajectory-discipline", "efficiency"],
+  "instruction": "RateLimiter.java 里 WINDOW_SECONDS 现在是 6，按新需求应为 60。只修改 RateLimiter.java 这一个文件完成任务，不要改动其它文件。",
+  "maxIterations": 15,
+  "checks": {
+    "trajectory": {
+      "forbiddenTools": ["bash"],
+      "fileWhitelist": ["RateLimiter.java"],
+      "requireReadBeforeEdit": true,
+      "gating": true
+    },
+    "efficiency": {
+      "maxToolCalls": 8,
+      "maxTokens": 60000,
+      "gating": false
+    }
+  }
+}

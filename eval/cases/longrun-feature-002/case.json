@@ -1,0 +1,10 @@
+{
+  "id": "longrun-feature-002",
+  "description": "Long-running mode: build a CSV mini-pipeline across three collaborating classes",
+  "mode": "long-running",
+  "permissionMode": "bypass",
+  "capabilities": ["feature", "multi-file", "long-running"],
+  "instruction": "实现一个小的 CSV 统计流水线，共三步：1) CsvParser.parse 把多行 CSV 文本解析成 String[][]（按行再按逗号切分，忽略空行，单元格要 trim）；2) StatsCollector.sumColumn 对解析结果的指定列求整数和（跳过第一行表头，遇到非数字单元格抛 NumberFormatException）；3) ReportFormatter.format 输出形如 \"SUM(col)=<value>\" 的字符串。三个类文件都已存在但方法未实现，请全部实现并保证互相配合正确。",
+  "maxCycles": 8,
+  "timeoutSeconds": 1500
+}
