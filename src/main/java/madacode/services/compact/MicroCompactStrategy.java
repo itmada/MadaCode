@@ -10,7 +10,13 @@ import java.util.Optional;
 
 public class MicroCompactStrategy implements CompactStrategy {
 
-    private static final String TRUNCATION_MARKER = "[... ";
+    /**
+     * Reserved space for the truncation marker so head + marker + tail never
+     * exceeds {@code maxChars}. The marker template is fixed except for the
+     * digit count of the omitted length (logarithmic), so 50 covers any
+     * realistic content size without needing a precise circular calculation.
+     */
+    private static final int TRUNCATION_MARKER_BUDGET = 50;
 
     private final TokenEstimator estimator;
 
@@ -31,15 +37,27 @@ public class MicroCompactStrategy implements CompactStrategy {
         int beforeTokens = estimator.estimate(session.messages());
         List<Message> rewritten = new ArrayList<>();
         boolean changed = false;
+        int blocksTruncated = 0;
+        int messagesKept = 0;
 
         for (Message m : session.messages()) {
             List<ContentBlock> blocks = new ArrayList<>();
+            boolean messageChanged = false;
             for (ContentBlock b : m.contentBlocks()) {
-                blocks.add(truncateIfNeeded(b, budget.microMaxResultChars()));
-                if (b != blocks.getLast()) changed = true;
+                ContentBlock next = truncateIfNeeded(b, budget.microMaxResultChars());
+                blocks.add(next);
+                if (b != next) {
+                    changed = true;
+                    messageChanged = true;
+                    blocksTruncated++;
+                }
             }
-            rewritten.add(blocks.equals(m.contentBlocks())
-                    ? m : rebuildMessage(m, blocks));
+            if (messageChanged) {
+                rewritten.add(rebuildMessage(m, blocks));
+            } else {
+                rewritten.add(m);
+                messagesKept++;
+            }
         }
 
         if (!changed) {
@@ -48,7 +66,10 @@ public class MicroCompactStrategy implements CompactStrategy {
 
         session.replaceMessages(rewritten);
         int afterTokens = estimator.estimate(rewritten);
-        return Optional.of(new CompactResult(true, beforeTokens, afterTokens, 0, 0, name()));
+        // Micro truncates tool-result content in place; it does not drop messages.
+        // "summarized" = truncated tool-result blocks; "kept" = untouched messages.
+        return Optional.of(new CompactResult(
+                true, beforeTokens, afterTokens, blocksTruncated, messagesKept, name()));
     }
 
     private ContentBlock truncateIfNeeded(ContentBlock block, int maxChars) {
@@ -59,9 +80,12 @@ public class MicroCompactStrategy implements CompactStrategy {
         if (content.length() <= maxChars) {
             return block;
         }
-        // Keep head and tail
-        int head = maxChars * 3 / 4;
-        int tail = maxChars / 4;
+        // Reserve marker budget first so the final string stays within maxChars.
+        // available < maxChars < content.length() here, so head + tail is always
+        // strictly less than content.length() — substring bounds are always valid.
+        int available = Math.max(0, maxChars - TRUNCATION_MARKER_BUDGET);
+        int head = available * 3 / 4;
+        int tail = available / 4;
         String truncated = content.substring(0, head)
                 + "\n\n[... " + (content.length() - head - tail) + " chars truncated ...]\n\n"
                 + content.substring(content.length() - tail);

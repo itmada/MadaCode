@@ -40,16 +40,24 @@ public class FullCompactStrategy implements CompactStrategy {
                                          CompactBudget budget,
                                          CancellationToken cancellationToken) {
         List<Message> all = session.messages();
+        if (all.isEmpty()) {
+            return Optional.empty();
+        }
         int beforeTokens = estimator.estimate(all);
+
+        // Only a leading SYSTEM message is exempt from summarization. If the
+        // transcript does not start with SYSTEM (e.g. a hand-edited JSONL),
+        // index 0 participates in compact/keep like any other message.
+        int compactStart = all.getFirst().role() == MessageRole.SYSTEM ? 1 : 0;
 
         // Find split point: from the tail, find the K-th USER message
         // that does NOT contain tool_result blocks (a "real user question")
-        int split = findSplitPoint(all, budget.keepRecentRounds());
-        if (split <= 1) {
+        int split = findSplitPoint(all, budget.keepRecentRounds(), compactStart);
+        if (split <= compactStart) {
             return Optional.empty();
         }
 
-        List<Message> toCompact = List.copyOf(all.subList(1, split)); // skip initial system
+        List<Message> toCompact = List.copyOf(all.subList(compactStart, split));
         List<Message> toKeep = List.copyOf(all.subList(split, all.size()));
 
         if (toCompact.size() < MIN_COMPACTABLE) {
@@ -97,9 +105,11 @@ public class FullCompactStrategy implements CompactStrategy {
             return Optional.empty();
         }
 
-        // Build new message list: [system init, compact boundary, ...toKeep]
+        // Build new message list: [optional system init, compact boundary, ...toKeep]
         List<Message> rebuilt = new ArrayList<>();
-        rebuilt.add(all.getFirst()); // system init
+        if (compactStart == 1) {
+            rebuilt.add(all.getFirst());
+        }
         rebuilt.add(Message.user(
                 "[CompactBoundary: " + toCompact.size() + " messages summarized]\n" + summary));
         rebuilt.addAll(toKeep);
@@ -108,7 +118,7 @@ public class FullCompactStrategy implements CompactStrategy {
         session.replaceMessages(rebuilt);
         return Optional.of(new CompactResult(
                 true, beforeTokens, afterTokens,
-                toCompact.size(), toKeep.size() + 1, name()));
+                toCompact.size(), toKeep.size() + compactStart, name()));
     }
 
     /**
@@ -123,13 +133,15 @@ public class FullCompactStrategy implements CompactStrategy {
      * tool sequences would never compact and the session would grow past
      * the API context limit.
      *
+     * @param compactStart the first index eligible for compaction — 1 to skip a
+     *                      leading SYSTEM message, 0 if there is none.
      * @return the index (inclusive) of the split point in {@code messages},
      *         or 0 if there are no real-user messages to anchor a split.
      */
-    int findSplitPoint(List<Message> messages, int keepRounds) {
+    int findSplitPoint(List<Message> messages, int keepRounds, int compactStart) {
         for (int rounds = Math.max(1, keepRounds); rounds >= 1; rounds--) {
             int found = 0;
-            for (int i = messages.size() - 1; i >= 1; i--) { // skip sys[0]
+            for (int i = messages.size() - 1; i >= compactStart; i--) {
                 Message m = messages.get(i);
                 if (m.role() == MessageRole.USER && !hasToolResult(m)) {
                     found++;
