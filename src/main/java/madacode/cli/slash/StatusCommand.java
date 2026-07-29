@@ -13,7 +13,9 @@ final class StatusCommand implements SlashCommand {
         ctx.screen().scrollback(Tk.dim("cwd") + " " + ctx.session().workingDirectory());
         ctx.screen().scrollback(Tk.dim("session") + " " + ctx.session().sessionId()
                 + "  " + ctx.session().title());
-        ctx.screen().scrollback(Tk.dim("messages") + " " + ctx.session().messages().size());
+        ctx.screen().scrollback(Tk.dim("messages") + " " + ctx.session().transcriptMessages().size());
+        ctx.screen().scrollback(Tk.dim("context messages") + " "
+                + ctx.session().modelContextMessages().size());
         String model = ctx.providerRegistry() == null ? "(unknown)" : ctx.providerRegistry().active().currentModel().name();
         ctx.screen().scrollback(Tk.dim("model") + " " + model);
         String mode = SessionMode.from(ctx.session()).id();

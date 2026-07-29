@@ -14,8 +14,7 @@ public final class LongRunningControlSessionFactory {
     }
 
     public ConversationSession create(Path workingDirectory) {
-        ConversationSession session = new ConversationSession(workingDirectory);
-        session.replaceMessages(java.util.List.of(Message.system(
+        ConversationSession session = new ConversationSession(workingDirectory, java.util.List.of(Message.system(
                 "Long-running draft is ready. Please describe the task requirements in detail, including the goal, scope, constraints, expected result, and any steps that must or must not be taken. Workers will start only after you confirm RUNNING.")));
         session.setWorkflowMode(SessionMode.LONG_RUNNING);
         session.setPlanMode(false);

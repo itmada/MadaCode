@@ -65,7 +65,7 @@ public class ToolProtocolTest {
         assertEquals(2, result.iterations());
         assertEquals("hello", tool.capturedInput.path("value").asText());
 
-        Message assistantToolMessage = session.messages().get(2);
+        Message assistantToolMessage = session.transcriptMessages().get(2);
         ContentBlock block = assistantToolMessage.contentBlocks().get(1);
         ContentBlock.ToolUseBlock toolUseBlock = assertInstanceOf(ContentBlock.ToolUseBlock.class, block);
         assertEquals("hello", toolUseBlock.input().path("value").asText());
@@ -103,7 +103,7 @@ public class ToolProtocolTest {
         assertEquals(FinishReason.COMPLETED, result.finishReason());
         assertEquals(2, result.iterations());
         assertNull(capture.capturedInput);
-        Message toolResults = session.messages().get(3);
+        Message toolResults = session.transcriptMessages().get(3);
         ContentBlock.ToolResultBlock captureResult =
                 assertInstanceOf(ContentBlock.ToolResultBlock.class, toolResults.contentBlocks().get(1));
         assertFalse(captureResult.success());

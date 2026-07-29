@@ -34,13 +34,13 @@ public class MicroCompactStrategy implements CompactStrategy {
                                          CompactBudget budget,
                                          madacode.core.turn.CancellationToken cancellationToken) {
         // CPU-only / a few millis — cancellation token ignored intentionally.
-        int beforeTokens = estimator.estimate(session.messages());
+        int beforeTokens = estimator.estimate(session.modelContextMessages());
         List<Message> rewritten = new ArrayList<>();
         boolean changed = false;
         int blocksTruncated = 0;
         int messagesKept = 0;
 
-        for (Message m : session.messages()) {
+        for (Message m : session.modelContextMessages()) {
             List<ContentBlock> blocks = new ArrayList<>();
             boolean messageChanged = false;
             for (ContentBlock b : m.contentBlocks()) {
@@ -64,7 +64,7 @@ public class MicroCompactStrategy implements CompactStrategy {
             return Optional.empty();
         }
 
-        session.replaceMessages(rewritten);
+        session.replaceModelContext(rewritten);
         int afterTokens = estimator.estimate(rewritten);
         // Micro truncates tool-result content in place; it does not drop messages.
         // "summarized" = truncated tool-result blocks; "kept" = untouched messages.

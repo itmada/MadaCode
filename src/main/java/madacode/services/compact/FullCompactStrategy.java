@@ -39,7 +39,7 @@ public class FullCompactStrategy implements CompactStrategy {
     public Optional<CompactResult> apply(ConversationSession session,
                                          CompactBudget budget,
                                          CancellationToken cancellationToken) {
-        List<Message> all = session.messages();
+        List<Message> all = session.modelContextMessages();
         if (all.isEmpty()) {
             return Optional.empty();
         }
@@ -115,7 +115,7 @@ public class FullCompactStrategy implements CompactStrategy {
         rebuilt.addAll(toKeep);
 
         int afterTokens = estimator.estimate(rebuilt);
-        session.replaceMessages(rebuilt);
+        session.replaceModelContext(rebuilt);
         return Optional.of(new CompactResult(
                 true, beforeTokens, afterTokens,
                 toCompact.size(), toKeep.size() + compactStart, name()));

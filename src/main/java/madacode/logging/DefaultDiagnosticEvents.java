@@ -29,7 +29,7 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
     public void turnStarted(ConversationSession session, Integer maxIterations) {
         String limit = maxIterations == null ? "unbounded" : maxIterations.toString();
         emit(session, "turn_started sessionId=%s maxIterations=%s messages=%d cwd=%s"
-                .formatted(session.sessionId(), limit, session.messages().size(), session.workingDirectory()));
+                .formatted(session.sessionId(), limit, session.transcriptMessages().size(), session.workingDirectory()));
     }
 
     @Override
@@ -49,7 +49,7 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
             int iterations,
             long durationMs) {
         emit(session, "turn_completed sessionId=%s finishReason=%s iterations=%d durationMs=%d messages=%d"
-                .formatted(session.sessionId(), finishReason, iterations, durationMs, session.messages().size()));
+                .formatted(session.sessionId(), finishReason, iterations, durationMs, session.transcriptMessages().size()));
     }
 
     @Override
@@ -96,13 +96,13 @@ public final class DefaultDiagnosticEvents implements DiagnosticEvents {
     @Override
     public void transcriptSaved(ConversationSession session, Path path) {
         emit(session, "transcript_saved sessionId=%s path=%s messages=%d"
-                .formatted(session.sessionId(), path, session.messages().size()));
+                .formatted(session.sessionId(), path, session.transcriptMessages().size()));
     }
 
     @Override
     public void transcriptLoaded(ConversationSession session, Path path) {
         emit(session, "transcript_loaded sessionId=%s path=%s messages=%d"
-                .formatted(session.sessionId(), path, session.messages().size()));
+                .formatted(session.sessionId(), path, session.transcriptMessages().size()));
     }
 
     @Override

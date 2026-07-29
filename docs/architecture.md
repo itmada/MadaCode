@@ -22,13 +22,12 @@ REPL（cli）读取输入 / ESC 取消
 **数据与事件流**——所有消息和事件汇入 `ConversationSession`（core/session），再分两路：
 
 ```text
-ConversationSession（消息流 = 唯一事实源）
-  ├→ SessionEventBus 广播 → render / tui 实时渲染
-  │     （流式文本、工具卡片、压缩记录都走这条订阅路）
-  └→ JSONL 持久化 → 会话列表 / --resume 断点恢复
+ConversationSession（双视图会话状态）
+  ├→ 完整 transcript（只追加） → SessionEventBus / render / TUI / JSONL / --resume
+  └→ model context（可压缩） → token 估算 / compact / 下一次模型请求
 ```
 
-设计基调：**一切事件收敛为消息流**。工具结果、用户取消、压缩记录、错误终态，最终都以消息形式进入同一条会话流——UI 渲染、持久化、断点恢复因此只需要面对一种数据结构。
+设计基调：**可见历史与模型上下文分离**。工具结果、用户取消、压缩提示、错误终态都会进入只追加的完整 transcript，供 UI 渲染、持久化和断点恢复使用；compact 仅替换模型上下文，因而不会删除用户可审计的原始历史。
 
 ---
 
@@ -90,7 +89,7 @@ ConversationSession（消息流 = 唯一事实源）
 
 ## 3. 上下文压缩：单阈值 + 渐进式策略链
 
-[services/compact](../src/main/java/madacode/services/compact/)：每轮模型调用前，`TokenEstimator` 估算当前消息流 token，超过 **85% 软阈值**（`CompactBudget`）则按序尝试策略链：
+[services/compact](../src/main/java/madacode/services/compact/)：每轮模型调用前，`TokenEstimator` 估算 model context token，超过 **85% 软阈值**（`CompactBudget`）则按序尝试策略链：
 
 ```text
 token 估算 > 85%
@@ -99,7 +98,7 @@ token 估算 > 85%
 ```
 
 - 压缩本身可能调用模型（耗时数秒），全程响应取消令牌，可安全中止。
-- 每次压缩在消息流中留下审计记录：`[compact] 120k → 40k via micro (87 summarized, 12 kept)`。
+- 每次压缩在完整 transcript 中留下审计记录：`[compact] 120k → 40k via micro (87 summarized, 12 kept)`；摘要边界只留在 model context，不会取代 TUI 的历史。
 - 也可通过 `/compact` 命令强制触发（`forceCompact`）。
 
 ## 4. Sub-Agent：递归调度与父子事件边界

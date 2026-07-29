@@ -254,7 +254,7 @@ public class LongRunningWorkerRunner {
 
     private static int countToolCalls(ConversationSession session) {
         int count = 0;
-        for (Message message : session.messages()) {
+        for (Message message : session.transcriptMessages()) {
             for (ContentBlock block : message.contentBlocks()) {
                 if (block instanceof ContentBlock.ToolUseBlock) {
                     count++;

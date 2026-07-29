@@ -23,18 +23,18 @@ public class CompactPlanner {
     }
 
     public boolean shouldCompact(ConversationSession session) {
-        return budget.isOverSoft(estimator.estimate(session.messages()));
+        return budget.isOverSoft(estimator.estimate(session.modelContextMessages()));
     }
 
     /**
      * Automatic compaction: only runs when over the soft limit, and stops as
-     * soon as the transcript is back under it. Returns {@code true} if it
+     * soon as the model context is back under it. Returns {@code true} if it
      * reached the target, {@code false} if the budget was already fine or no
      * combination of strategies could get under the soft limit.
      */
     public boolean planAndApply(ConversationSession session, Consumer<MetaEvent> eventSink,
                                 CancellationToken cancellationToken) {
-        if (!budget.isOverSoft(estimator.estimate(session.messages()))) {
+        if (!budget.isOverSoft(estimator.estimate(session.modelContextMessages()))) {
             return false;
         }
         return runStrategies(session, eventSink, cancellationToken, true);
@@ -53,7 +53,7 @@ public class CompactPlanner {
     /**
      * Shared compaction loop for {@link #planAndApply} and {@link #forceCompact}.
      * With {@code stopWhenUnderSoft} the loop keeps applying strategies until the
-     * transcript drops under the soft limit (automatic); otherwise the first
+     * model context drops under the soft limit (automatic); otherwise the first
      * strategy that produces a result wins (forced).
      *
      * <p>Emits exactly one {@code CompactStarted}, one {@code CompactCompleted}
@@ -63,7 +63,7 @@ public class CompactPlanner {
      */
     private boolean runStrategies(ConversationSession session, Consumer<MetaEvent> eventSink,
                                   CancellationToken cancellationToken, boolean stopWhenUnderSoft) {
-        int est = estimator.estimate(session.messages());
+        int est = estimator.estimate(session.modelContextMessages());
         eventSink.accept(new MetaEvent.CompactStarted(est, budget.softLimit()));
 
         for (CompactStrategy strategy : strategies) {
@@ -89,7 +89,7 @@ public class CompactPlanner {
                 if (!stopWhenUnderSoft) {
                     return true;
                 }
-                if (!budget.isOverSoft(estimator.estimate(session.messages()))) {
+                if (!budget.isOverSoft(estimator.estimate(session.modelContextMessages()))) {
                     return true;
                 }
             }

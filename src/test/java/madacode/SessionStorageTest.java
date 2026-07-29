@@ -68,7 +68,7 @@ public class SessionStorageTest {
                 .resolveSibling(session.sessionId() + ".state.json").toFile());
         assertEquals(6, transcriptLines.size());
         assertEquals("madacode-session-jsonl", header.path("format").asText());
-        assertEquals(10, header
+        assertEquals(11, header
                 .path("schemaVersion")
                 .asInt());
         assertEquals("web_fetch", state.path("loadedDeferredTools").path(0).asText());
@@ -84,11 +84,11 @@ public class SessionStorageTest {
         assertEquals(session.permissionMode(), restored.permissionMode());
         assertEquals(session.longRunningStage(), restored.longRunningStage());
         assertEquals(session.loadedDeferredTools(), restored.loadedDeferredTools());
-        assertEquals(session.messages().size(), restored.messages().size());
+        assertEquals(session.transcriptMessages().size(), restored.transcriptMessages().size());
 
-        for (int i = 0; i < session.messages().size(); i++) {
-            Message expected = session.messages().get(i);
-            Message actual = restored.messages().get(i);
+        for (int i = 0; i < session.transcriptMessages().size(); i++) {
+            Message expected = session.transcriptMessages().get(i);
+            Message actual = restored.transcriptMessages().get(i);
             assertEquals(expected.role(), actual.role());
             assertIterableEquals(expected.contentBlocks(), actual.contentBlocks());
         }
@@ -121,7 +121,7 @@ public class SessionStorageTest {
         ConversationSession restored = storage.load("legacy-session");
 
         assertEquals("legacy-session", restored.sessionId());
-        assertEquals(1, restored.messages().size());
+        assertEquals(1, restored.transcriptMessages().size());
         assertEquals(false, restored.isPlanMode());
         assertEquals(SessionMode.COMMON, restored.workflowMode());
         assertEquals(PermissionMode.DEFAULT, restored.permissionMode());
@@ -399,9 +399,9 @@ public class SessionStorageTest {
 
         ConversationSession restored = storage.load("legacy-controller-event");
 
-        assertEquals(3, restored.messages().size());
-        assertEquals(MessageKind.CONTROLLER_EVENT, restored.messages().get(2).kind());
-        assertEquals("[controller-event][runtime]\nevent: resumed", restored.messages().get(2).content());
+        assertEquals(3, restored.transcriptMessages().size());
+        assertEquals(MessageKind.CONTROLLER_EVENT, restored.transcriptMessages().get(2).kind());
+        assertEquals("[controller-event][runtime]\nevent: resumed", restored.transcriptMessages().get(2).content());
     }
 
     private ObjectNode toolInput() {
@@ -426,7 +426,7 @@ public class SessionStorageTest {
         storage.save(session);
         ConversationSession restored = storage.load(session.sessionId());
 
-        Message restoredAssistant = restored.messages().get(1);
+        Message restoredAssistant = restored.transcriptMessages().get(1);
         assertEquals(2, restoredAssistant.contentBlocks().size());
         assertTrue(restoredAssistant.contentBlocks().get(0) instanceof ContentBlock.ThinkingBlock);
         ContentBlock.ThinkingBlock tb = (ContentBlock.ThinkingBlock) restoredAssistant.contentBlocks().get(0);
@@ -499,7 +499,7 @@ public class SessionStorageTest {
         ConversationSession restored = storage.load("v4-session");
 
         assertTrue(restored.currentPlan().isEmpty());
-        assertEquals(2, restored.messages().size());
+        assertEquals(2, restored.transcriptMessages().size());
     }
 
     @Test
@@ -518,6 +518,6 @@ public class SessionStorageTest {
                 java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
 
         ConversationSession restored = storage.load("partial-line-session");
-        assertEquals(2, restored.messages().size());
+        assertEquals(2, restored.transcriptMessages().size());
     }
 }

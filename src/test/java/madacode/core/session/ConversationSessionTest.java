@@ -31,7 +31,7 @@ class ConversationSessionTest {
         session.addMessage(Message.assistant("assistant reply"));
         session.addMessage(Message.assistant("second assistant reply"));
 
-        List<Message> messages = session.messages();
+        List<Message> messages = session.transcriptMessages();
         assertEquals("first user input", textOf(messages.get(2)));
         assertEquals("second user input", textOf(messages.get(3)));
         assertEquals("assistant reply", textOf(messages.get(4)));
@@ -50,7 +50,7 @@ class ConversationSessionTest {
         assertTrue(exception.getMessage().contains("assistant stream is open"));
         handle.abandon();
         session.addMessage(Message.user("new input"));
-        assertEquals("new input", textOf(session.messages().getLast()));
+        assertEquals("new input", textOf(session.transcriptMessages().getLast()));
     }
 
     @Test
@@ -64,7 +64,7 @@ class ConversationSessionTest {
                         "tool", "read_file",
                         "status", "completed\nwith output"));
 
-        List<Message> messages = session.messages();
+        List<Message> messages = session.transcriptMessages();
         assertEquals(3, messages.size());
         assertMessage(messages.get(1), MessageRole.USER, "real user prompt");
         assertEquals(MessageRole.USER, messages.get(2).role());
@@ -81,11 +81,11 @@ class ConversationSessionTest {
         session.enqueueControllerEvent("first", linkedMap("value", "one"));
         session.enqueueControllerEvent("second", linkedMap("value", "two"));
 
-        assertEquals(2, session.messages().size());
+        assertEquals(2, session.transcriptMessages().size());
 
         session.flushPendingControllerEvents();
 
-        List<Message> messages = session.messages();
+        List<Message> messages = session.transcriptMessages();
         assertEquals(4, messages.size());
         assertEquals(MessageKind.CONTROLLER_EVENT, messages.get(2).kind());
         assertTrue(textOf(messages.get(2)).startsWith("[controller-event][first]\ntime: "));
@@ -95,7 +95,7 @@ class ConversationSessionTest {
         assertTrue(textOf(messages.get(3)).contains("\nvalue: two"));
 
         session.flushPendingControllerEvents();
-        assertEquals(4, session.messages().size());
+        assertEquals(4, session.transcriptMessages().size());
     }
 
     @Test
@@ -110,7 +110,7 @@ class ConversationSessionTest {
     @Test
     void resetDiscardsBufferedStreamAndFiresResetEvent() {
         ConversationSession session = new ConversationSession();
-        int reservedIndex = session.messages().size();
+        int reservedIndex = session.transcriptMessages().size();
         List<String> events = new ArrayList<>();
         session.eventBus().addListener(new SessionListener() {
             @Override public void onAssistantTextChunk(int index, String chunk) { events.add("chunk:" + chunk); }
@@ -127,6 +127,63 @@ class ConversationSessionTest {
         assertEquals(
                 List.of("chunk:partial-from-failed-attempt", "reset:" + reservedIndex, "chunk:clean-retry-output"),
                 events);
+        assertEquals(session.transcriptMessages(), session.modelContextMessages());
+    }
+
+    @Test
+    void replacingModelContextPreservesTranscriptAndAppendsToBothViews() {
+        ConversationSession session = new ConversationSession();
+        session.addMessage(Message.user("original"));
+
+        session.replaceModelContext(List.of(
+                Message.system("Session initialized."),
+                Message.user("summary")));
+        session.addMessage(Message.assistant("new reply"));
+
+        assertEquals(List.of("Session initialized.", "original", "new reply"),
+                session.transcriptMessages().stream().map(Message::content).toList());
+        assertEquals(List.of("Session initialized.", "summary", "new reply"),
+                session.modelContextMessages().stream().map(Message::content).toList());
+        assertTrue(session.hasModelContextSnapshot());
+    }
+
+    @Test
+    void listenerIndicesAlwaysFollowTheTranscriptAfterContextCompaction() {
+        ConversationSession session = new ConversationSession();
+        List<Integer> appended = new ArrayList<>();
+        List<Integer> finalized = new ArrayList<>();
+        session.eventBus().addListener(new SessionListener() {
+            @Override public void onMessageAppended(int index, Message message) { appended.add(index); }
+            @Override public void onAssistantStreamFinalized(int index) { finalized.add(index); }
+        });
+
+        session.addMessage(Message.user("archived prompt"));
+        session.replaceModelContext(List.of(Message.system("Session initialized."), Message.user("summary")));
+        session.addMessage(Message.user("next prompt"));
+        StreamingAssistantHandle stream = session.beginAssistantStream();
+        stream.appendText("streamed reply");
+        stream.finalizeAndAppend();
+
+        assertEquals(List.of(1, 2), appended);
+        assertEquals(List.of(3), finalized);
+        assertEquals(4, session.transcriptMessages().size());
+        assertEquals(4, session.modelContextMessages().size());
+    }
+
+    @Test
+    void replayUsesTheCompleteTranscriptAfterContextCompaction() {
+        ConversationSession session = new ConversationSession();
+        session.addMessage(Message.user("archived prompt"));
+        session.replaceModelContext(List.of(Message.system("Session initialized."), Message.user("summary")));
+        List<String> replayed = new ArrayList<>();
+
+        session.replay(new SessionListener() {
+            @Override public void onMessageAppended(int index, Message message) {
+                replayed.add(message.content());
+            }
+        });
+
+        assertEquals(List.of("Session initialized.", "archived prompt"), replayed);
     }
 
     @Test

@@ -64,8 +64,8 @@ public class ConversationSession {
     private final String sessionId;
     private final Instant createdAt;
     private final Path workingDirectory;
-    private final AtomicReference<List<Message>> messagesRef =
-            new AtomicReference<>(List.of());
+    private final AtomicReference<HistoryState> historyRef =
+            new AtomicReference<>(HistoryState.empty());
     private final AtomicReference<List<Message>> pendingControllerEventsRef =
             new AtomicReference<>(List.of());
     private final AtomicReference<CurrentPlan> currentPlanRef =
@@ -83,7 +83,6 @@ public class ConversationSession {
     private volatile StreamingAssistantHandle currentStream;
     private volatile Thread writerThread;
     private volatile int persistedMessageCount;
-    private volatile boolean transcriptRewriteRequired;
     private final ReadFileState readFileState = new ReadFileState();
     private final AtomicReference<Set<String>> loadedDeferredToolsRef =
             new AtomicReference<>(Set.of());
@@ -106,6 +105,11 @@ public class ConversationSession {
         this(UUID.randomUUID().toString(), Instant.now(), workingDirectory,
                 List.of(Message.system("Session initialized.")),
                 List.of());
+    }
+
+    public ConversationSession(Path workingDirectory, List<Message> initialMessages) {
+        this(UUID.randomUUID().toString(), Instant.now(), workingDirectory,
+                initialMessages, List.of());
     }
 
     public ConversationSession(
@@ -131,25 +135,29 @@ public class ConversationSession {
         if (initial.isEmpty()) {
             initial = List.of(Message.system("Session initialized."));
         }
-        this.messagesRef.set(initial);
+        this.historyRef.set(HistoryState.initial(initial));
         this.inputHistoryRef.set(List.copyOf(Objects.requireNonNull(inputHistory, "inputHistory")));
     }
 
     /**
-     * Replace the full message list (e.g. after a compaction pass).
+     * Replace only the compactable model-context projection.
      *
-     * <p>Cumulative {@link #tokenUsage()} is intentionally <em>not</em> reset
-     * here: it is a session-wide cost tally consumed by {@code /cost}, and
-     * compaction rewriting the transcript must not erase prior usage. The live
-     * context-window gauge is computed separately (per-response
-     * {@code TokenReport}s and a content estimator), so it is unaffected.
-     * Callers that genuinely want a fresh tally must call
-     * {@link #resetTokenUsage()} explicitly.
+     * <p>The append-only transcript is intentionally untouched. This method is
+     * used by compaction; it does not emit a message event because no new
+     * user-visible transcript entry was created.
      */
-    public void replaceMessages(List<Message> newMessages) {
+    public void replaceModelContext(List<Message> newMessages) {
         assertWriterThread();
-        messagesRef.set(List.copyOf(newMessages));
-        transcriptRewriteRequired = true;
+        replaceModelContextSnapshot(newMessages);
+    }
+
+    /**
+     * Restores a persisted model-context snapshot before the session is exposed
+     * to its turn owner. Loading must not claim writer-thread ownership because
+     * the following turn may run on a different thread.
+     */
+    void restoreModelContextSnapshot(List<Message> restoredMessages) {
+        replaceModelContextSnapshot(restoredMessages);
     }
 
     public void addMessage(Message message) {
@@ -217,7 +225,9 @@ public class ConversationSession {
     /** Append a streamed message silently — listeners receive
      *  onAssistantStreamFinalized instead. */
     void appendStreamedMessage(Message message) {
-        messagesRef.set(append(messagesRef.get(), message));
+        assertWriterThread();
+        HistoryState current = historyRef.get();
+        historyRef.set(current.append(message));
         currentStream = null;
     }
 
@@ -269,7 +279,7 @@ public class ConversationSession {
 
     /** Replay all current messages into a listener without firing transient events. */
     public void replay(SessionListener listener) {
-        List<Message> snapshot = messagesRef.get();
+        List<Message> snapshot = transcriptMessages();
         for (int i = 0; i < snapshot.size(); i++) {
             listener.onMessageAppended(i, snapshot.get(i));
         }
@@ -335,7 +345,7 @@ public class ConversationSession {
         if (currentStream != null) {
             throw new IllegalStateException("stream already open");
         }
-        currentStream = new StreamingAssistantHandle(this, messagesRef.get().size());
+        currentStream = new StreamingAssistantHandle(this, transcriptMessages().size());
         return currentStream;
     }
 
@@ -416,21 +426,27 @@ public class ConversationSession {
         return workingDirectory;
     }
 
-    public List<Message> messages() {
-        return messagesRef.get();
+    /** Complete append-only session record used for UI, persistence, and audit. */
+    public List<Message> transcriptMessages() {
+        return historyRef.get().transcriptMessages();
+    }
+
+    /** Compactable projection sent to the model on the next request. */
+    public List<Message> modelContextMessages() {
+        return historyRef.get().modelContextMessages();
+    }
+
+    /** Whether the model context must be persisted independently of the transcript. */
+    public boolean hasModelContextSnapshot() {
+        return historyRef.get().modelContextSnapshotRequired();
     }
 
     int persistedMessageCount() {
         return persistedMessageCount;
     }
 
-    boolean transcriptRewriteRequired() {
-        return transcriptRewriteRequired;
-    }
-
     void markMessagesPersisted(int messageCount) {
         this.persistedMessageCount = Math.max(0, messageCount);
-        this.transcriptRewriteRequired = false;
     }
 
     public List<String> inputHistory() {
@@ -446,7 +462,7 @@ public class ConversationSession {
     }
 
     public String title() {
-        return messagesRef.get().stream()
+        return transcriptMessages().stream()
                 .filter(m -> m.role() == MessageRole.USER)
                 .filter(m -> !m.isControllerEvent())
                 .map(ConversationSession::firstText)
@@ -466,10 +482,46 @@ public class ConversationSession {
 
     private void appendMessageWithoutStreamCheck(Message message) {
         assertWriterThread();
-        List<Message> snapshot = messagesRef.get();
-        int index = snapshot.size();
-        messagesRef.set(append(snapshot, message));
+        HistoryState snapshot = historyRef.get();
+        int index = snapshot.transcriptMessages().size();
+        historyRef.set(snapshot.append(message));
         eventBus.fireMessageAppended(index, message);
+    }
+
+    private void replaceModelContextSnapshot(List<Message> newMessages) {
+        HistoryState current = historyRef.get();
+        historyRef.set(current.withModelContext(List.copyOf(
+                Objects.requireNonNull(newMessages, "newMessages"))));
+    }
+
+    private record HistoryState(
+            List<Message> transcriptMessages,
+            List<Message> modelContextMessages,
+            boolean modelContextSnapshotRequired) {
+
+        private HistoryState {
+            transcriptMessages = List.copyOf(transcriptMessages);
+            modelContextMessages = List.copyOf(modelContextMessages);
+        }
+
+        static HistoryState empty() {
+            return new HistoryState(List.of(), List.of(), false);
+        }
+
+        static HistoryState initial(List<Message> messages) {
+            return new HistoryState(messages, messages, false);
+        }
+
+        HistoryState append(Message message) {
+            return new HistoryState(
+                    ConversationSession.append(transcriptMessages, message),
+                    ConversationSession.append(modelContextMessages, message),
+                    modelContextSnapshotRequired);
+        }
+
+        HistoryState withModelContext(List<Message> messages) {
+            return new HistoryState(transcriptMessages, messages, true);
+        }
     }
 
     private void assertWriterThread() {

@@ -170,12 +170,6 @@ public abstract class Repl {
                 persistSession();
                 yield true;
             }
-            case SlashAction.ReplayAll r -> {
-                turnRenderer.reset();
-                metaEventRenderer.reset();
-                historyPrinter.printAll(session.messages());
-                yield true;
-            }
             case SlashAction.Exit e -> {
                 persistSession();
                 yield false;
@@ -350,7 +344,7 @@ public abstract class Repl {
     }
 
     private Optional<String> latestProposedPlanText() {
-        List<Message> messages = session.messages();
+        List<Message> messages = session.transcriptMessages();
         for (int i = messages.size() - 1; i >= 0; i--) {
             Message message = messages.get(i);
             if (message.role() == MessageRole.ASSISTANT) {
@@ -428,7 +422,7 @@ public abstract class Repl {
         } else {
             renderSwitchedSessionHeader(newSession);
         }
-        historyPrinter.printAll(newSession.messages());
+        historyPrinter.printAll(newSession.transcriptMessages());
     }
 
     protected void onSessionReplaced(ConversationSession newSession, boolean fresh) {}

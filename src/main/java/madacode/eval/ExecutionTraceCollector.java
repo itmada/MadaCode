@@ -73,11 +73,11 @@ public final class ExecutionTraceCollector {
             return;
         }
         int cursor = sessionCursors.getOrDefault(session, 0);
-        List<Message> messages = session.messages();
+        List<Message> messages = session.transcriptMessages();
         if (cursor >= messages.size()) {
             return;
         }
-        Map<String, String> results = toolResults(session.messages());
+        Map<String, String> results = toolResults(session.transcriptMessages());
         for (Message message : messages.subList(cursor, messages.size())) {
             if (phase == ToolInvocation.Phase.CONTROL
                     && message.role() == MessageRole.USER

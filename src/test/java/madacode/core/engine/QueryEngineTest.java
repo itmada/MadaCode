@@ -63,6 +63,24 @@ class QueryEngineTest {
     }
 
     @Test
+    void modelRequestsUseCompactedContextWhileTranscriptRetainsOriginalMessages() {
+        ScriptedApiClient apiClient = new ScriptedApiClient()
+                .enqueue(response("done", List.of(), StopReason.END_TURN));
+        ConversationSession session = new ConversationSession();
+        session.addMessage(Message.user("original request"));
+        session.replaceModelContext(List.of(
+                Message.system("Session initialized."),
+                Message.user("summary of original request")));
+
+        engine(apiClient, new ToolRegistry()).runTurn(session, "current request");
+
+        assertEquals(List.of("summary of original requestcurrent request"),
+                apiClient.calls.getFirst().messages().stream().map(Message::content).toList());
+        assertEquals(List.of("Session initialized.", "original request", "current request", "done"),
+                session.transcriptMessages().stream().map(Message::content).toList());
+    }
+
+    @Test
     void toolCallsAppendOrderedToolResultBlocksThenEnterNextModelIteration() {
         EchoTool echoTool = new EchoTool();
         ToolRegistry registry = new ToolRegistry();
@@ -84,7 +102,7 @@ class QueryEngineTest {
         assertEquals(List.of("first", "second"), echoTool.executedValues);
         assertEquals(2, apiClient.calls.size());
 
-        Message toolResultMessage = session.messages().get(3);
+        Message toolResultMessage = session.transcriptMessages().get(3);
         assertEquals(MessageRole.USER, toolResultMessage.role());
         assertEquals(2, toolResultMessage.contentBlocks().size());
 
@@ -102,9 +120,9 @@ class QueryEngineTest {
         assertEquals("echo:second", secondResult.content());
         assertTrue(secondResult.success());
 
-        assertEquals(session.messages().subList(1, 4), apiClient.calls.get(1).messages());
-        assertEquals(MessageRole.ASSISTANT, session.messages().get(2).role());
-        assertEquals("final", session.messages().get(4).content());
+        assertEquals(session.modelContextMessages().subList(1, 4), apiClient.calls.get(1).messages());
+        assertEquals(MessageRole.ASSISTANT, session.transcriptMessages().get(2).role());
+        assertEquals("final", session.transcriptMessages().get(4).content());
     }
 
     @Test
@@ -154,7 +172,7 @@ class QueryEngineTest {
         assertEquals(2, result.iterations());
         assertTrue(yieldTool.executedValues.isEmpty());
         assertTrue(echoTool.executedValues.isEmpty());
-        Message toolResultMessage = session.messages().get(3);
+        Message toolResultMessage = session.transcriptMessages().get(3);
         ContentBlock.ToolResultBlock first =
                 assertInstanceOf(ContentBlock.ToolResultBlock.class,
                         toolResultMessage.contentBlocks().get(0));
@@ -191,7 +209,7 @@ class QueryEngineTest {
         assertEquals(FinishReason.MAX_ITERATIONS, result.finishReason());
         assertEquals("(Reached max iterations: 1)", result.finalText());
         assertEquals(1, result.iterations());
-        Message tail = session.messages().getLast();
+        Message tail = session.transcriptMessages().getLast();
         assertEquals(MessageRole.SYSTEM, tail.role());
         assertEquals("(Reached max iterations: 1)", tail.content());
     }
@@ -206,7 +224,7 @@ class QueryEngineTest {
 
         assertEquals(FinishReason.API_ERROR, result.finishReason());
         assertEquals("Model request failed: boom", result.finalText());
-        Message tail = session.messages().getLast();
+        Message tail = session.transcriptMessages().getLast();
         assertEquals(MessageRole.ASSISTANT, tail.role());
         ContentBlock.TerminalBlock terminal =
                 assertInstanceOf(ContentBlock.TerminalBlock.class, tail.contentBlocks().get(0));
@@ -294,7 +312,7 @@ class QueryEngineTest {
         assertEquals("(Permission denied)", result.finalText());
         assertTrue(echoTool.executedValues.isEmpty());
 
-        Message toolResultMessage = session.messages().get(3);
+        Message toolResultMessage = session.transcriptMessages().get(3);
         ContentBlock.ToolResultBlock firstResult =
                 assertInstanceOf(ContentBlock.ToolResultBlock.class,
                         toolResultMessage.contentBlocks().get(0));

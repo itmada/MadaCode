@@ -16,6 +16,5 @@ public sealed interface SlashAction {
             this(session, false);
         }
     }
-    record ReplayAll() implements SlashAction {}
     record Exit() implements SlashAction {}
 }

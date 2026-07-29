@@ -32,7 +32,6 @@ public final class SlashCommandRegistry {
         commands.add(new CostCommand());
         commands.add(new StatusCommand());
         commands.add(new ProviderCommand());
-        commands.add(new ReplayAllCommand());
         if (skillRegistry != null) {
             commands.add(new SkillsCommand(skillRegistry));
         }

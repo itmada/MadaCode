@@ -61,7 +61,7 @@ public record RunMetrics(
      */
     public static RunMetrics fromSession(ConversationSession session, int controlIterations) {
         int toolCalls = 0;
-        for (Message message : session.messages()) {
+        for (Message message : session.transcriptMessages()) {
             for (ContentBlock block : message.contentBlocks()) {
                 if (block instanceof ContentBlock.ToolUseBlock) {
                     toolCalls++;

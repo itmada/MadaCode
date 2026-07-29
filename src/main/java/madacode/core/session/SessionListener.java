@@ -38,7 +38,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  * </ul>
  *
  * <p>Implementations MUST be thread-safe. State reads on the originating
- * session inside a callback (e.g. {@link ConversationSession#messages()}) are
+ * session inside a callback (e.g. {@link ConversationSession#transcriptMessages()}) are
  * safe and return a stable immutable snapshot — there is no need to
  * defensively copy.
  */

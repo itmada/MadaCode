@@ -198,7 +198,7 @@ public final class JLineRepl extends Repl {
         try {
             loadHistory();
             persistSession();
-            replayRecentSession();
+            replaySessionTranscript();
 
             while (true) {
                 drainLongRunningRuntimeCompletions();
@@ -545,16 +545,8 @@ public final class JLineRepl extends Repl {
         screen.commitBlock(Tk.dim(line));
     }
 
-    private void replayRecentSession() {
-        List<Message> messages = session.messages();
-        if (messages.size() <= 50) {
-            historyPrinter.printAll(messages);
-            return;
-        }
-        int omitted = messages.size() - 20;
-        screen.commitBlock(
-                Tk.dim("[" + omitted + " earlier messages omitted, use /replay-all to show]"));
-        historyPrinter.printFrom(messages, omitted);
+    private void replaySessionTranscript() {
+        historyPrinter.printAll(session.transcriptMessages());
     }
 
     private static void runInlineBash(String command, Screen screen, Path cwd) throws IOException {

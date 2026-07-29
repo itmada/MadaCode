@@ -174,27 +174,29 @@ public final class SessionStorage {
 
     private void saveTranscript(ConversationSession session) throws IOException {
         Path jsonl = jsonlPath(session.sessionId());
-        List<Message> messages = session.messages();
+        List<Message> messages = session.transcriptMessages();
         int persistedCount = session.persistedMessageCount();
-        boolean canAppend = Files.isRegularFile(jsonl)
-                && !session.transcriptRewriteRequired()
-                && persistedCount <= messages.size();
-
-        if (!canAppend) {
-            rewriteTranscript(jsonl, session);
+        if (!Files.isRegularFile(jsonl)) {
+            writeNewTranscript(jsonl, session);
             session.markMessagesPersisted(messages.size());
             return;
+        }
+
+        if (persistedCount > messages.size()) {
+            throw new SessionStorageException(
+                    "Persisted transcript count exceeds append-only transcript for session "
+                            + session.sessionId());
         }
 
         appendMessages(jsonl, messages.subList(persistedCount, messages.size()));
         session.markMessagesPersisted(messages.size());
     }
 
-    private void rewriteTranscript(Path target, ConversationSession session) throws IOException {
+    private void writeNewTranscript(Path target, ConversationSession session) throws IOException {
         AtomicFiles.writeAtomically(target, tempFile -> {
             try (OutputStream out = Files.newOutputStream(tempFile, StandardOpenOption.TRUNCATE_EXISTING)) {
                 writeJsonLine(out, transcriptHeader(session));
-                for (Message message : session.messages()) {
+                for (Message message : session.transcriptMessages()) {
                     writeJsonLine(out, transcriptMessage(message));
                 }
             }
@@ -238,7 +240,7 @@ public final class SessionStorage {
     private ConversationSession loadLegacySession(Path legacyPath) throws IOException {
         JsonNode root = mapper.readTree(legacyPath.toFile());
         ConversationSession session = deserializeLegacySession(root);
-        session.markMessagesPersisted(session.messages().size());
+        session.markMessagesPersisted(session.transcriptMessages().size());
         return session;
     }
 
@@ -299,11 +301,16 @@ public final class SessionStorage {
         if (!Files.isRegularFile(statePath)) {
             return Optional.empty();
         }
-        JsonNode root = mapper.readTree(statePath.toFile());
-        if (!(root instanceof ObjectNode objectNode)) {
-            throw new SessionStorageException("Session state file must be an object");
+        try {
+            JsonNode root = mapper.readTree(statePath.toFile());
+            if (root instanceof ObjectNode objectNode) {
+                return Optional.of(objectNode);
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // The sidecar is auxiliary state. Preserve and load the durable
+            // transcript when a previous state write was interrupted or corrupt.
         }
-        return Optional.of(objectNode);
+        return Optional.empty();
     }
 
     private void applyState(ConversationSession session, Optional<ObjectNode> stateNode) {
@@ -335,6 +342,8 @@ public final class SessionStorage {
         }
         session.replaceLoadedDeferredTools(loadedDeferredTools);
 
+        restoreModelContext(session, state);
+
         if (workflowMode == SessionMode.LONG_RUNNING) {
             session.setLongRunningStage(readLongRunningStage(state, workflowMode));
             session.setLongRunningTaskId(optionalText(state, "longRunningTaskId"));
@@ -343,6 +352,37 @@ public final class SessionStorage {
             session.setLongRunningReason(optionalText(state, "longRunningReason"));
             session.setLongRunningPlanSummary(optionalText(state, "longRunningPlanSummary"));
             session.setLongRunningWorkerSession(state.path("longRunningWorkerSession").asBoolean(false));
+        }
+    }
+
+    private void restoreModelContext(ConversationSession session, ObjectNode state) {
+        JsonNode contextNode = state.path("modelContext");
+        if (!(contextNode instanceof ObjectNode contextObject)) {
+            return;
+        }
+        JsonNode cursorNode = contextObject.get("transcriptMessageCount");
+        JsonNode messagesNode = contextObject.get("messages");
+        if (cursorNode == null || !cursorNode.canConvertToInt() || !messagesNode.isArray()) {
+            return;
+        }
+
+        int cursor = cursorNode.asInt();
+        List<Message> transcript = session.transcriptMessages();
+        if (cursor < 0 || cursor > transcript.size()
+                || (cursor > 0 && messagesNode.isEmpty())) {
+            return;
+        }
+
+        try {
+            List<Message> restored = new ArrayList<>();
+            for (JsonNode messageNode : messagesNode) {
+                restored.add(deserializeMessage(messageNode));
+            }
+            restored.addAll(transcript.subList(cursor, transcript.size()));
+            session.restoreModelContextSnapshot(restored);
+        } catch (RuntimeException ignored) {
+            // A context snapshot is an optimization. Fall back to the full
+            // append-only transcript when it is invalid or incomplete.
         }
     }
 
@@ -379,7 +419,7 @@ public final class SessionStorage {
         root.put("sessionId", session.sessionId());
         root.put("workflowMode", session.workflowMode().id());
         root.put("permissionMode", session.permissionMode().id());
-        root.put("persistedMessageCount", session.messages().size());
+        root.put("persistedMessageCount", session.transcriptMessages().size());
         if (session.longRunningStage() != null) {
             root.put("longRunningStage", session.longRunningStage().name());
         }
@@ -412,6 +452,16 @@ public final class SessionStorage {
             loadedDeferredToolsNode.add(toolName);
         }
         root.set("loadedDeferredTools", loadedDeferredToolsNode);
+        if (session.hasModelContextSnapshot()) {
+            ObjectNode contextNode = mapper.createObjectNode();
+            contextNode.put("transcriptMessageCount", session.transcriptMessages().size());
+            ArrayNode contextMessages = mapper.createArrayNode();
+            for (Message message : session.modelContextMessages()) {
+                contextMessages.add(serializeMessage(message));
+            }
+            contextNode.set("messages", contextMessages);
+            root.set("modelContext", contextNode);
+        }
         return root;
     }
 
@@ -452,58 +502,16 @@ public final class SessionStorage {
     }
 
     private Optional<SessionSummary> readJsonlSummary(Path path) {
-        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            String headerLine = reader.readLine();
-            if (headerLine == null) {
-                return Optional.empty();
-            }
-            JsonNode header = mapper.readTree(headerLine);
-            if (!HEADER_KIND.equals(header.path("recordType").asText())
-                    || !FORMAT_JSONL.equals(header.path("format").asText())) {
-                return Optional.empty();
-            }
-            String sessionId = requiredText(header, "sessionId");
-            Instant createdAt = Instant.parse(requiredText(header, "createdAt"));
-            Path workingDirectory = Path.of(requiredText(header, "workingDirectory"));
-            int messageCount = readPersistedCountFromState(sessionId).orElseGet(() -> countJsonlMessages(path));
+        try {
+            JsonlTranscript transcript = readJsonlTranscript(path);
             return Optional.of(new SessionSummary(
-                    sessionId,
-                    createdAt,
-                    workingDirectory,
-                    messageCount,
+                    transcript.sessionId(),
+                    transcript.createdAt(),
+                    transcript.workingDirectory(),
+                    transcript.messages().size(),
                     path.toAbsolutePath().normalize(),
                     Files.getLastModifiedTime(path).toInstant()));
         } catch (IOException | RuntimeException exception) {
-            return Optional.empty();
-        }
-    }
-
-    private int countJsonlMessages(Path path) {
-        int count = 0;
-        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            reader.readLine();
-            while (reader.readLine() != null) {
-                count++;
-            }
-            return count;
-        } catch (IOException exception) {
-            throw new SessionStorageException("Failed to count JSONL messages", exception);
-        }
-    }
-
-    private Optional<Integer> readPersistedCountFromState(String sessionId) {
-        Path statePath = statePath(sessionId);
-        if (!Files.isRegularFile(statePath)) {
-            return Optional.empty();
-        }
-        try {
-            JsonNode root = mapper.readTree(statePath.toFile());
-            JsonNode persistedMessageCount = root.get("persistedMessageCount");
-            if (persistedMessageCount != null && persistedMessageCount.canConvertToInt()) {
-                return Optional.of(persistedMessageCount.asInt());
-            }
-            return Optional.empty();
-        } catch (IOException exception) {
             return Optional.empty();
         }
     }

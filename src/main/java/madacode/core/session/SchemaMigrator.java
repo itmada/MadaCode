@@ -19,7 +19,7 @@ import java.util.function.UnaryOperator;
  */
 final class SchemaMigrator {
 
-    static final int CURRENT = 10;
+    static final int CURRENT = 11;
 
     private static final Map<Integer, UnaryOperator<ObjectNode>> STEPS = Map.of(
             1, SchemaMigrator::v1ToV2,
@@ -30,7 +30,8 @@ final class SchemaMigrator {
             6, SchemaMigrator::v6ToV7,
             7, SchemaMigrator::v7ToV8,
             8, SchemaMigrator::v8ToV9,
-            9, SchemaMigrator::v9ToV10
+            9, SchemaMigrator::v9ToV10,
+            10, SchemaMigrator::v10ToV11
     );
 
     private SchemaMigrator() {}
@@ -163,6 +164,11 @@ final class SchemaMigrator {
             }
             rewritten.add(message);
         }
+        return root;
+    }
+
+    // ---- v10 -> v11: model context snapshots live in the sidecar state file ----
+    private static ObjectNode v10ToV11(ObjectNode root) {
         return root;
     }
 

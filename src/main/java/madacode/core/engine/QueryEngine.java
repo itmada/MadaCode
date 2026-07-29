@@ -201,7 +201,7 @@ public class QueryEngine {
             try (AssistantTurnWriter writer = AssistantTurnWriter.open(session)) {
                 try {
                     session.fireMetaEvent(new MetaEvent.ModelRequestStarted());
-                    response = apiClient.send(apiMessageProjection.project(session.messages()), systemPrompt,
+                    response = apiClient.send(apiMessageProjection.project(session.modelContextMessages()), systemPrompt,
                             visibleTools, writer.sink(), cancel);
                     long iterElapsed = elapsedMs(iterStart);
                     diagnosticEvents.modelIterationCompleted(

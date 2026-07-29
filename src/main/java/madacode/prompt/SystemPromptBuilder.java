@@ -130,6 +130,7 @@ public class SystemPromptBuilder {
             String permissionMode,
             String workflowMode,
             String longRunningStage,
+            boolean longRunningWorkerSession,
             String longRunningTaskId,
             String longRunningTaskDirectory,
             String longRunningTaskTitle,
@@ -151,6 +152,7 @@ public class SystemPromptBuilder {
                     null,
                     null,
                     null,
+                    false,
                     null,
                     null,
                     null,
@@ -163,11 +165,12 @@ public class SystemPromptBuilder {
                 visibleTools.stream().map(Tool::name).toList(),
                 cwd == null ? null : cwd.toAbsolutePath().normalize().toString(),
                 session.sessionId(),
-                session.messages().size(),
+                session.transcriptMessages().size(),
                 session.isPlanMode(),
                 session.permissionMode().name(),
                 session.workflowMode().name(),
                 session.longRunningStage() == null ? null : session.longRunningStage().name(),
+                session.isLongRunningWorkerSession(),
                 session.longRunningTaskId(),
                 session.longRunningTaskDirectory(),
                 session.longRunningTaskTitle(),
@@ -259,6 +262,11 @@ public class SystemPromptBuilder {
             List<String> items = new ArrayList<>();
             if (session.isPlanMode()) {
                 items.add(PROMPT_TEXT.text("runtime_mode.plan"));
+            } else if (session.isLongRunningWorkerSession()) {
+                items.add(PROMPT_TEXT.text("runtime_mode.long_running_worker"));
+                if (session.longRunningStage() != null) {
+                    items.add("Long-running stage: " + session.longRunningStage().name() + ".");
+                }
             } else if (session.workflowMode() == madacode.core.session.SessionMode.LONG_RUNNING) {
                 items.add(PROMPT_TEXT.text("runtime_mode.long_running"));
                 if (session.longRunningStage() != null) {

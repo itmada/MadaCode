@@ -1,5 +1,8 @@
 package madacode.core.session;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import madacode.core.model.ContentBlock;
 import madacode.core.model.Message;
 import madacode.core.model.MessageRole;
@@ -11,6 +14,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -60,7 +64,7 @@ class SessionStorageTest {
         assertEquals(session.sessionId(), restored.sessionId());
         assertEquals(createdAt, restored.createdAt());
         assertEquals(workingDirectory.toAbsolutePath().normalize(), restored.workingDirectory());
-        assertMessagesEqual(session.messages(), restored.messages());
+        assertMessagesEqual(session.transcriptMessages(), restored.transcriptMessages());
         assertTrue(restored.currentPlan().isEmpty());
         assertEquals(List.of("first input", "second input"), restored.inputHistory());
         assertEquals(SessionMode.LONG_RUNNING, restored.workflowMode());
@@ -77,7 +81,7 @@ class SessionStorageTest {
     }
 
     @Test
-    void repeatedSaveAppendsOnlyNewMessagesUnlessTranscriptWasRewritten() throws Exception {
+    void repeatedSaveKeepsTranscriptAppendOnlyWhenModelContextIsCompacted() throws Exception {
         SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
         ConversationSession session = new ConversationSession(
                 "append-session",
@@ -102,15 +106,184 @@ class SessionStorageTest {
         }
         assertEquals(initialLines + 1, appendedLines);
 
-        session.replaceMessages(List.of(
+        session.replaceModelContext(List.of(
                 Message.system("Session initialized."),
                 Message.user("compacted")));
         storage.save(session);
-        long rewrittenLines;
+        long compactedLines;
         try (var lines = java.nio.file.Files.lines(storage.transcriptPath(session.sessionId()))) {
-            rewrittenLines = lines.count();
+            compactedLines = lines.count();
         }
-        assertEquals(3, rewrittenLines);
+        assertEquals(appendedLines, compactedLines);
+
+        ConversationSession restored = storage.load(session.sessionId());
+        assertEquals(502, restored.transcriptMessages().size());
+        assertEquals(2, restored.modelContextMessages().size());
+        assertEquals("Session initialized.", restored.modelContextMessages().getFirst().content());
+        assertEquals("compacted", restored.modelContextMessages().getLast().content());
+    }
+
+    @Test
+    void loadAppendsTranscriptTailMissingFromContextSnapshot() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(
+                "tail-recovery",
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized."), Message.user("original")));
+        session.replaceModelContext(List.of(
+                Message.system("Session initialized."), Message.user("summary")));
+        storage.save(session);
+        Path statePath = tempDir.resolve("sessions/tail-recovery.state.json");
+        String staleState = java.nio.file.Files.readString(statePath);
+
+        session.addMessage(Message.assistant("tail"));
+        storage.save(session);
+        java.nio.file.Files.writeString(statePath, staleState);
+
+        ConversationSession restored = storage.load(session.sessionId());
+        assertEquals(List.of("Session initialized.", "summary", "tail"),
+                restored.modelContextMessages().stream().map(Message::content).toList());
+        assertEquals(List.of("Session initialized.", "original", "tail"),
+                restored.transcriptMessages().stream().map(Message::content).toList());
+    }
+
+    @Test
+    void invalidContextSnapshotFallsBackToTranscript() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(
+                "invalid-context",
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized."), Message.user("original")));
+        session.replaceModelContext(List.of(
+                Message.system("Session initialized."), Message.user("summary")));
+        storage.save(session);
+        Path statePath = tempDir.resolve("sessions/invalid-context.state.json");
+        String invalidState = java.nio.file.Files.readString(statePath)
+                .replace("\"transcriptMessageCount\" : 2", "\"transcriptMessageCount\" : 999");
+        java.nio.file.Files.writeString(statePath, invalidState);
+
+        ConversationSession restored = storage.load(session.sessionId());
+        assertEquals(restored.transcriptMessages(), restored.modelContextMessages());
+    }
+
+    @Test
+    void emptyContextSnapshotWithAnAdvancedCursorFallsBackToTranscript() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(
+                "empty-context",
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized."), Message.user("original")));
+        session.replaceModelContext(List.of(
+                Message.system("Session initialized."), Message.user("summary")));
+        storage.save(session);
+
+        Path statePath = tempDir.resolve("sessions/empty-context.state.json");
+        ObjectNode state = (ObjectNode) new ObjectMapper().readTree(java.nio.file.Files.readString(statePath));
+        ((ArrayNode) state.path("modelContext").path("messages")).removeAll();
+        new ObjectMapper().writerWithDefaultPrettyPrinter().writeValue(statePath.toFile(), state);
+
+        ConversationSession restored = storage.load(session.sessionId());
+
+        assertEquals(restored.transcriptMessages(), restored.modelContextMessages());
+    }
+
+    @Test
+    void malformedStateFallsBackToTranscriptAndDefaultAuxiliaryState() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(
+                "malformed-state",
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized."), Message.user("original")));
+        storage.save(session);
+        java.nio.file.Files.writeString(
+                tempDir.resolve("sessions/malformed-state.state.json"), "{ broken state");
+
+        ConversationSession restored = storage.load(session.sessionId());
+
+        assertMessagesEqual(session.transcriptMessages(), restored.transcriptMessages());
+        assertEquals(restored.transcriptMessages(), restored.modelContextMessages());
+        assertEquals(PermissionMode.DEFAULT, restored.permissionMode());
+    }
+
+    @Test
+    void v10StateWithoutModelContextInitializesContextFromTranscript() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(
+                "v10-state",
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized."), Message.user("original")));
+        storage.save(session);
+
+        Path statePath = tempDir.resolve("sessions/v10-state.state.json");
+        ObjectNode state = (ObjectNode) new ObjectMapper().readTree(java.nio.file.Files.readString(statePath));
+        state.put("schemaVersion", 10);
+        state.remove("modelContext");
+        new ObjectMapper().writerWithDefaultPrettyPrinter().writeValue(statePath.toFile(), state);
+
+        ConversationSession restored = storage.load(session.sessionId());
+
+        assertEquals(restored.transcriptMessages(), restored.modelContextMessages());
+    }
+
+    @Test
+    void loadingACompactedSnapshotDoesNotClaimTheNextTurnWriterThread() throws Exception {
+        String previous = System.getProperty("madacode.session.assertWriterThread");
+        System.setProperty("madacode.session.assertWriterThread", "true");
+        try {
+            SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+            ConversationSession session = new ConversationSession(
+                    "writer-thread",
+                    Instant.parse("2026-06-01T12:00:00Z"),
+                    tempDir.resolve("workspace"),
+                    List.of(Message.system("Session initialized."), Message.user("original")));
+            session.replaceModelContext(List.of(
+                    Message.system("Session initialized."), Message.user("summary")));
+            storage.save(session);
+
+            ConversationSession restored = storage.load(session.sessionId());
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            Thread turnThread = new Thread(() -> {
+                try {
+                    restored.addMessage(Message.user("next turn"));
+                } catch (Throwable error) {
+                    failure.set(error);
+                }
+            }, "mada-turn-exec");
+            turnThread.start();
+            turnThread.join();
+
+            assertTrue(failure.get() == null, () -> "unexpected writer-thread failure: " + failure.get());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("madacode.session.assertWriterThread");
+            } else {
+                System.setProperty("madacode.session.assertWriterThread", previous);
+            }
+        }
+    }
+
+    @Test
+    void sessionSummaryCountsTheTranscriptWhenStateIsStale() throws Exception {
+        SessionStorage storage = new SessionStorage(tempDir.resolve("sessions"));
+        ConversationSession session = new ConversationSession(
+                "stale-summary",
+                Instant.parse("2026-06-01T12:00:00Z"),
+                tempDir.resolve("workspace"),
+                List.of(Message.system("Session initialized.")));
+        storage.save(session);
+        Path statePath = tempDir.resolve("sessions/stale-summary.state.json");
+        String staleState = java.nio.file.Files.readString(statePath);
+
+        session.addMessage(Message.user("written before state"));
+        storage.save(session);
+        java.nio.file.Files.writeString(statePath, staleState);
+
+        assertEquals(2, storage.listSessions().getFirst().messageCount());
     }
 
     @Test
