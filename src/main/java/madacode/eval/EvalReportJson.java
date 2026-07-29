@@ -11,7 +11,7 @@ import java.util.List;
 /** Machine-readable eval report renderer. */
 public final class EvalReportJson {
 
-    public static final String SCHEMA_VERSION = "3";
+    public static final String SCHEMA_VERSION = "1";
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
@@ -24,8 +24,15 @@ public final class EvalReportJson {
     }
 
     public static String render(List<EvalCaseReport> reports, EvalCostEstimator costEstimator) {
+        return render(reports, costEstimator, EvalRunProgress.completed(reports.size()));
+    }
+
+    public static String render(
+            List<EvalCaseReport> reports,
+            EvalCostEstimator costEstimator,
+            EvalRunProgress progress) {
         try {
-            return MAPPER.writeValueAsString(from(reports, costEstimator)) + "\n";
+            return MAPPER.writeValueAsString(from(reports, costEstimator, progress)) + "\n";
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("failed to render eval report JSON", e);
         }
@@ -36,19 +43,51 @@ public final class EvalReportJson {
     }
 
     static ReportJson from(List<EvalCaseReport> reports, EvalCostEstimator costEstimator) {
+        return from(reports, costEstimator, EvalRunProgress.completed(reports.size()));
+    }
+
+    static ReportJson from(
+            List<EvalCaseReport> reports,
+            EvalCostEstimator costEstimator,
+            EvalRunProgress progress) {
         EvalRunManifest manifest = reports.isEmpty() ? null : reports.getFirst().manifest();
         EvalCostEstimator estimator = costEstimator == null ? EvalCostEstimator.none() : costEstimator;
         return new ReportJson(
                 SCHEMA_VERSION,
-                runSummary(reports, manifest, estimator),
-                manifest == null ? null : manifestJson(manifest),
+                runSummary(reports, manifest, estimator, progress),
+                manifest == null ? null : environmentJson(manifest),
                 reports.stream().map(report -> caseJson(report, estimator)).toList());
+    }
+
+    public static String renderCase(EvalCaseReport report, EvalCostEstimator costEstimator) {
+        try {
+            return MAPPER.writeValueAsString(caseReportJson(report, costEstimator)) + "\n";
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to render eval case report JSON", e);
+        }
+    }
+
+    static CaseReportJson caseReportJson(
+            EvalCaseReport report,
+            EvalCostEstimator costEstimator) {
+        EvalCostEstimator estimator = costEstimator == null ? EvalCostEstimator.none() : costEstimator;
+        return new CaseReportJson(
+                SCHEMA_VERSION,
+                caseJson(report, estimator),
+                environmentJson(report.manifest()),
+                dimensionAggregates(report),
+                attemptSummaries(report));
+    }
+
+    public static boolean supportsSchemaVersion(String schemaVersion) {
+        return SCHEMA_VERSION.equals(schemaVersion);
     }
 
     private static RunSummaryJson runSummary(
             List<EvalCaseReport> reports,
             EvalRunManifest manifest,
-            EvalCostEstimator estimator) {
+            EvalCostEstimator estimator,
+            EvalRunProgress progress) {
         int totalCases = reports.size();
         long casesPassed = reports.stream().filter(EvalCaseReport::passed).count();
         long stableCases = reports.stream().filter(EvalCaseReport::stable).count();
@@ -80,7 +119,14 @@ public final class EvalReportJson {
                 estimator.estimateReports(reports)
                         .map(EvalReportJson::costEstimateJson)
                         .orElse(null),
-                manifestMismatches(reports, manifest));
+                manifestMismatches(reports, manifest),
+                progress.status().name(),
+                progress.plannedCases(),
+                progress.completedCases(),
+                progress.startedAt().toString(),
+                progress.updatedAt().toString(),
+                progress.currentCaseId(),
+                progress.abortDetail());
     }
 
     private static CaseJson caseJson(EvalCaseReport report, EvalCostEstimator estimator) {
@@ -107,12 +153,18 @@ public final class EvalReportJson {
                         .map(EvalReportJson::costEstimateJson)
                         .orElse(null),
                 report.totalDurationMs(),
-                manifestJson(report.manifest()),
-                report.attempts().stream().map(EvalReportJson::attemptJson).toList());
+                "cases/" + report.id() + "/case-report.json");
     }
 
-    static AttemptJson attemptJson(EvalResult attempt) {
+    static AttemptJson attemptJson(EvalCase evalCase, int attemptNumber, EvalResult attempt) {
+        return attemptJson(evalCase.id(), attemptNumber, attempt);
+    }
+
+    static AttemptJson attemptJson(String caseId, int attemptNumber, EvalResult attempt) {
         return new AttemptJson(
+                SCHEMA_VERSION,
+                caseId,
+                attemptNumber,
                 attempt.verdict().name(),
                 attempt.harnessStatus().name(),
                 attempt.executionStatus().name(),
@@ -124,11 +176,55 @@ public final class EvalReportJson {
                 attempt.terminalSummary(),
                 attempt.detail(),
                 attempt.dimensions().stream().map(EvalReportJson::dimensionJson).toList(),
-                manifestJson(attempt.manifest()),
+                attempt.manifest().startedAt() == null ? null : attempt.manifest().startedAt().toString(),
                 artifactsJson(attempt.artifacts()));
     }
 
-    static EvalCaseReport caseReport(CaseJson evalCase) {
+    private static List<AttemptSummaryJson> attemptSummaries(EvalCaseReport report) {
+        List<AttemptSummaryJson> summaries = new java.util.ArrayList<>();
+        for (int i = 0; i < report.attempts().size(); i++) {
+            EvalResult attempt = report.attempts().get(i);
+            int number = i + 1;
+            String base = "attempts/attempt-" + number + "/";
+            summaries.add(new AttemptSummaryJson(
+                    number,
+                    attempt.verdict().name(),
+                    attempt.executionStatus().name(),
+                    attempt.judgeStatus().name(),
+                    attempt.durationMs(),
+                    metricsJson(attempt.metrics()),
+                    base + "result.json",
+                    base + "trace.json",
+                    base + "verify.txt"));
+        }
+        return List.copyOf(summaries);
+    }
+
+    private static List<DimensionAggregateJson> dimensionAggregates(EvalCaseReport report) {
+        java.util.Map<Dimension, java.util.Map<EvalResult.JudgeStatus, Long>> counts =
+                new java.util.EnumMap<>(Dimension.class);
+        for (EvalResult attempt : report.attempts()) {
+            for (DimensionScore score : attempt.dimensions()) {
+                counts.computeIfAbsent(
+                                score.dimension(),
+                                ignored -> new java.util.EnumMap<>(EvalResult.JudgeStatus.class))
+                        .merge(score.status(), 1L, Long::sum);
+            }
+        }
+        return counts.entrySet().stream()
+                .map(entry -> new DimensionAggregateJson(
+                        entry.getKey().name(),
+                        entry.getValue().getOrDefault(EvalResult.JudgeStatus.PASS, 0L),
+                        entry.getValue().getOrDefault(EvalResult.JudgeStatus.FAIL, 0L),
+                        entry.getValue().getOrDefault(EvalResult.JudgeStatus.ERROR, 0L),
+                        entry.getValue().getOrDefault(EvalResult.JudgeStatus.NOT_RUN, 0L)))
+                .toList();
+    }
+
+    static EvalCaseReport caseReport(
+            CaseReportJson caseReport,
+            List<AttemptJson> attempts) {
+        CaseJson evalCase = caseReport.evalCase();
         if (evalCase.skipped()) {
             return new EvalCaseReport(
                     evalCase.id(),
@@ -137,19 +233,23 @@ public final class EvalReportJson {
                     List.of(),
                     EvalCaseReport.SkipReason.valueOf(evalCase.skipReason()),
                     evalCase.skipDetail(),
-                    evalRunManifest(evalCase.manifest()),
+                    evalRunManifest(
+                            caseReport.environment(),
+                            evalCase.caseHash(),
+                            null),
                     evalCase.samples());
         }
         return new EvalCaseReport(
                 evalCase.id(),
                 evalCase.mode(),
                 evalCase.capabilities(),
-                safeList(evalCase.attempts()).stream()
-                        .map(attempt -> evalResult(evalCase, attempt))
+                safeList(attempts).stream()
+                        .map(attempt -> evalResult(caseReport, attempt))
                         .toList());
     }
 
-    private static EvalResult evalResult(CaseJson evalCase, AttemptJson attempt) {
+    private static EvalResult evalResult(CaseReportJson caseReport, AttemptJson attempt) {
+        CaseJson evalCase = caseReport.evalCase();
         return new EvalResult(
                 evalCase.id(),
                 evalCase.mode(),
@@ -165,8 +265,11 @@ public final class EvalReportJson {
                 attempt.judgeDurationMs(),
                 runMetrics(attempt.metrics()),
                 attempt.terminalSummary(),
-                attempt.detail(),
-                evalRunManifest(attempt.manifest()),
+                attempt.executionDetail(),
+                evalRunManifest(
+                        caseReport.environment(),
+                        evalCase.caseHash(),
+                        attempt.startedAt()),
                 attemptArtifacts(attempt.artifacts()));
     }
 
@@ -248,13 +351,8 @@ public final class EvalReportJson {
                 estimate.totalUsd());
     }
 
-    static ManifestJson manifestJson(EvalRunManifest manifest) {
-        if (manifest == null) {
-            return null;
-        }
-        return new ManifestJson(
-                manifest.startedAt() == null ? null : manifest.startedAt().toString(),
-                manifest.caseHash(),
+    private static EnvironmentJson environmentJson(EvalRunManifest manifest) {
+        return new EnvironmentJson(
                 manifest.gitCommit(),
                 manifest.dirtyWorktree(),
                 manifest.provider(),
@@ -277,33 +375,36 @@ public final class EvalReportJson {
                 manifest.os());
     }
 
-    private static EvalRunManifest evalRunManifest(ManifestJson manifest) {
-        if (manifest == null) {
+    private static EvalRunManifest evalRunManifest(
+            EnvironmentJson environment,
+            String caseHash,
+            String startedAt) {
+        if (environment == null) {
             return null;
         }
         return new EvalRunManifest(
-                manifest.startedAt() == null ? null : Instant.parse(manifest.startedAt()),
-                manifest.caseHash(),
-                manifest.gitCommit(),
-                manifest.dirtyWorktree(),
-                manifest.provider(),
-                manifest.model(),
-                manifest.runtimeFingerprint(),
-                manifest.scorerFingerprint(),
-                manifest.isolation(),
-                manifest.judgeVisibility(),
-                manifest.hostAccess(),
-                manifest.networkAccess(),
-                manifest.trustedMeasurement(),
-                manifest.executionBackend(),
-                manifest.containerImage(),
-                manifest.containerImageDigest(),
-                manifest.resourceLimits(),
-                manifest.networkPolicy(),
-                manifest.providerConfigMaterialization(),
-                manifest.projectExtensionMounts(),
-                manifest.javaVersion(),
-                manifest.os());
+                startedAt == null ? null : Instant.parse(startedAt),
+                caseHash,
+                environment.gitCommit(),
+                environment.dirtyWorktree(),
+                environment.provider(),
+                environment.model(),
+                environment.runtimeFingerprint(),
+                environment.scorerFingerprint(),
+                environment.isolation(),
+                environment.judgeVisibility(),
+                environment.hostAccess(),
+                environment.networkAccess(),
+                environment.trustedMeasurement(),
+                environment.executionBackend(),
+                environment.containerImage(),
+                environment.containerImageDigest(),
+                environment.resourceLimits(),
+                environment.networkPolicy(),
+                environment.providerConfigMaterialization(),
+                environment.projectExtensionMounts(),
+                environment.javaVersion(),
+                environment.os());
     }
 
     private static AttemptArtifactsJson artifactsJson(AttemptArtifacts artifacts) {
@@ -377,8 +478,16 @@ public final class EvalReportJson {
     public record ReportJson(
             String schemaVersion,
             RunSummaryJson run,
-            ManifestJson manifest,
+            EnvironmentJson environment,
             List<CaseJson> cases) {
+    }
+
+    public record CaseReportJson(
+            String schemaVersion,
+            CaseJson evalCase,
+            EnvironmentJson environment,
+            List<DimensionAggregateJson> dimensions,
+            List<AttemptSummaryJson> attempts) {
     }
 
     public record RunSummaryJson(
@@ -395,7 +504,14 @@ public final class EvalReportJson {
             WilsonIntervalJson attemptPassRateWilson95,
             MetricsJson totalMetrics,
             CostEstimateJson costEstimate,
-            List<String> manifestMismatches) {
+            List<String> manifestMismatches,
+            String status,
+            int plannedCases,
+            int completedCases,
+            String startedAt,
+            String updatedAt,
+            String currentCaseId,
+            String abortDetail) {
     }
 
     public record CaseJson(
@@ -419,11 +535,13 @@ public final class EvalReportJson {
             MetricsJson totalMetrics,
             CostEstimateJson costEstimate,
             long totalDurationMs,
-            ManifestJson manifest,
-            List<AttemptJson> attempts) {
+            String caseReportPath) {
     }
 
     public record AttemptJson(
+            String schemaVersion,
+            String caseId,
+            int attemptNumber,
             String verdict,
             String harnessStatus,
             String executionStatus,
@@ -433,10 +551,30 @@ public final class EvalReportJson {
             long durationMs,
             MetricsJson metrics,
             String terminalSummary,
-            String detail,
+            String executionDetail,
             List<DimensionJson> dimensions,
-            ManifestJson manifest,
+            String startedAt,
             AttemptArtifactsJson artifacts) {
+    }
+
+    public record AttemptSummaryJson(
+            int number,
+            String verdict,
+            String executionStatus,
+            String judgeStatus,
+            long durationMs,
+            MetricsJson metrics,
+            String resultPath,
+            String tracePath,
+            String verifyPath) {
+    }
+
+    public record DimensionAggregateJson(
+            String dimension,
+            long pass,
+            long fail,
+            long error,
+            long notRun) {
     }
 
     public record DimensionJson(
@@ -485,9 +623,7 @@ public final class EvalReportJson {
             List<String> warnings) {
     }
 
-    public record ManifestJson(
-            String startedAt,
-            String caseHash,
+    public record EnvironmentJson(
             String gitCommit,
             boolean dirtyWorktree,
             String provider,
@@ -509,4 +645,5 @@ public final class EvalReportJson {
             String javaVersion,
             String os) {
     }
+
 }

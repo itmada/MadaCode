@@ -9,7 +9,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.TreeMap;
 
 /** Compares two machine-readable eval reports. */
@@ -103,7 +102,7 @@ public final class EvalReportCompare {
     }
 
     private static void requireSchemaVersion(EvalReportJson.ReportJson report, String label) {
-        if (!Objects.equals(EvalReportJson.SCHEMA_VERSION, report.schemaVersion())) {
+        if (!EvalReportJson.supportsSchemaVersion(report.schemaVersion())) {
             throw new IllegalArgumentException(label + " schemaVersion "
                     + report.schemaVersion()
                     + " is not supported; expected "

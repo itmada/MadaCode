@@ -67,7 +67,10 @@ class EvalReportJsonTest {
                 List.of(report),
                 EvalCostEstimator.fromProviderFile(providersFile)));
 
-        assertEquals("3", root.path("schemaVersion").asText());
+        assertEquals("1", root.path("schemaVersion").asText());
+        assertEquals("COMPLETED", root.path("run").path("status").asText());
+        assertEquals(1, root.path("run").path("plannedCases").asInt());
+        assertEquals(1, root.path("run").path("completedCases").asInt());
         assertEquals(1, root.path("run").path("totalCases").asInt());
         assertEquals(1, root.path("run").path("casesPassed").asInt());
         assertEquals(1, root.path("run").path("stableCases").asInt());
@@ -75,12 +78,10 @@ class EvalReportJsonTest {
         assertEquals(100, root.path("run").path("totalMetrics").path("tokenUsage").path("totalTokens").asInt());
         assertEquals(21, root.path("run").path("attemptPassRateWilson95").path("lowerPercent").asInt());
         assertTrue(root.path("run").path("costEstimate").path("totalUsd").asDouble() > 0.0);
-        assertEquals("2026-06-19T00:00:00Z", root.path("manifest").path("startedAt").asText());
-        assertEquals("casehash", root.path("manifest").path("caseHash").asText());
-        assertEquals("provider-a", root.path("manifest").path("provider").asText());
-        assertEquals("model-b", root.path("manifest").path("model").asText());
-        assertTrue(root.path("manifest").path("dirtyWorktree").asBoolean());
-        assertEquals("LOCAL_UNSAFE", root.path("manifest").path("isolation").asText());
+        assertEquals("provider-a", root.path("environment").path("provider").asText());
+        assertEquals("model-b", root.path("environment").path("model").asText());
+        assertTrue(root.path("environment").path("dirtyWorktree").asBoolean());
+        assertEquals("LOCAL_UNSAFE", root.path("environment").path("isolation").asText());
 
         JsonNode caseNode = root.path("cases").get(0);
         assertEquals("case-1", caseNode.path("id").asText());
@@ -92,11 +93,23 @@ class EvalReportJsonTest {
         assertEquals(46, caseNode.path("totalDurationMs").asLong());
         assertEquals("feature", caseNode.path("capabilities").get(0).asText());
         assertTrue(!caseNode.path("skipped").asBoolean());
+        assertEquals("cases/case-1/case-report.json", caseNode.path("caseReportPath").asText());
+        assertTrue(caseNode.path("attempts").isMissingNode());
 
-        JsonNode attemptNode = caseNode.path("attempts").get(0);
+        JsonNode caseReport = mapper.readTree(EvalReportJson.renderCase(
+                report,
+                EvalCostEstimator.fromProviderFile(providersFile)));
+        assertEquals(1, caseReport.path("attempts").size());
+        assertEquals("attempts/attempt-1/result.json",
+                caseReport.path("attempts").get(0).path("resultPath").asText());
+        assertEquals(1, caseReport.path("dimensions").size());
+
+        JsonNode attemptNode = mapper.valueToTree(EvalReportJson.attemptJson(
+                evalCase(), 1, report.attempts().getFirst()));
+        assertEquals("1", attemptNode.path("schemaVersion").asText());
         assertEquals("PASS", attemptNode.path("verdict").asText());
         assertEquals("COMPLETED", attemptNode.path("executionStatus").asText());
-        assertEquals(detail, attemptNode.path("detail").asText());
+        assertEquals(detail, attemptNode.path("executionDetail").asText());
         assertEquals(46, attemptNode.path("durationMs").asLong());
         assertEquals(4, attemptNode.path("metrics").path("toolCalls").asInt());
         assertEquals("VERIFY", attemptNode.path("dimensions").get(0).path("dimension").asText());
@@ -122,7 +135,6 @@ class EvalReportJsonTest {
         assertEquals(1, root.path("run").path("skippedCases").asInt());
         assertEquals(0, root.path("run").path("attemptTotal").asInt());
         assertEquals(3, caseNode.path("samples").asInt());
-        assertTrue(caseNode.path("attempts").isEmpty());
         assertTrue(caseNode.path("skipped").asBoolean());
         assertEquals("BUDGET", caseNode.path("skipReason").asText());
         assertEquals("SKIPPED", caseNode.path("gateVerdict").asText());
@@ -151,8 +163,17 @@ class EvalReportJsonTest {
                 manifest());
         EvalCaseReport original = EvalCaseReport.of(List.of(attempt));
 
+        EvalReportJson.CaseReportJson caseReport;
+        try {
+            caseReport = mapper.readValue(
+                    EvalReportJson.renderCase(original, EvalCostEstimator.none()),
+                    EvalReportJson.CaseReportJson.class);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
         EvalCaseReport hydrated = EvalReportJson.caseReport(
-                EvalReportJson.from(List.of(original)).cases().getFirst());
+                caseReport,
+                List.of(EvalReportJson.attemptJson(evalCase(), 1, attempt)));
 
         assertEquals(original.id(), hydrated.id());
         assertEquals(original.gateVerdict(), hydrated.gateVerdict());
@@ -178,5 +199,11 @@ class EvalReportJsonTest {
                 false,
                 "21",
                 "Mac OS X");
+    }
+
+    private static EvalCase evalCase() {
+        return new EvalCase(
+                "case-1", "desc", "common", "default", List.of("feature"), "run",
+                false, 1, 1, 1, 1, 30, 30, 1024, null, EvalChecks.NONE, List.of());
     }
 }

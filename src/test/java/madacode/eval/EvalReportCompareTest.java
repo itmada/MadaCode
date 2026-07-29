@@ -152,7 +152,6 @@ class EvalReportCompareTest {
                         new EvalReportJson.TokenUsageJson(0, totalTokens, 0, 0, totalTokens)),
                 null,
                 totalDurationMs,
-                null,
-                List.of());
+                "cases/" + id + "/case-report.json");
     }
 }

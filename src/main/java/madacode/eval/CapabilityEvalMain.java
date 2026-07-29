@@ -2,9 +2,6 @@ package madacode.eval;
 
 import madacode.bootstrap.HeadlessAgentRuntime;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.time.ZoneId;
@@ -23,7 +20,7 @@ import java.util.List;
  *   bin/eval --unsafe-local --mode &lt;mode&gt;
  *   bin/eval --unsafe-local --capability &lt;tag&gt;
  *   bin/eval --cases-dir &lt;path&gt;   override the cases directory (default: ./eval/cases)
- *   bin/eval --out &lt;file&gt;         write the report to a file
+ *   bin/eval --out &lt;file&gt;         write the HTML report to a file
  *   bin/eval --json-out &lt;file&gt;    write the JSON report to a file
  *   bin/eval --max-total-tokens &lt;n&gt; skip remaining cases after the run reaches n tokens
  *   bin/eval --concurrency &lt;n&gt;    run attempts with bounded parallelism
@@ -75,6 +72,12 @@ public final class CapabilityEvalMain {
         EvalCostEstimator costEstimator = EvalCostEstimator.fromDefaultProviderConfig(projectDir);
         ScorerPipeline scorers = defaultScorerPipeline();
         EvalResumeStore resumeStore = opts.resumeDir == null ? null : EvalResumeStore.open(opts.resumeDir);
+        EvalReportCheckpointStore reportStore = new EvalReportCheckpointStore(
+                targets.runDir(),
+                targets.htmlOut(),
+                targets.jsonOut(),
+                costEstimator,
+                selected.size());
 
         if (opts.selfTest) {
             List<EvalCaseReport> results = runSelfTest(
@@ -84,11 +87,9 @@ public final class CapabilityEvalMain {
                     opts.concurrency,
                     scorers,
                     resumeStore,
-                    opts.backend);
-            String report = EvalReport.render(results, costEstimator);
-            String jsonReport = EvalReportJson.render(results, costEstimator);
-            System.out.println(report);
-            writeReports(targets, report, jsonReport);
+                    opts.backend,
+                    reportStore);
+            printRunSummary(results);
             // A self-test passes when each case matches its explicit expectation.
             boolean ok = true;
             for (EvalCaseReport r : results) {
@@ -126,11 +127,9 @@ public final class CapabilityEvalMain {
                 opts.concurrency,
                 scorers,
                 resumeStore,
-                opts.backend);
-        String report = EvalReport.render(results, costEstimator);
-        String jsonReport = EvalReportJson.render(results, costEstimator);
-        System.out.println(report);
-        writeReports(targets, report, jsonReport);
+                opts.backend,
+                reportStore);
+        printRunSummary(results);
 
         long gateFailures = results.stream()
                 .filter(r -> r.gateVerdict() != EvalCaseReport.GateVerdict.PASS)
@@ -171,14 +170,15 @@ public final class CapabilityEvalMain {
             int concurrency,
             ScorerPipeline scorers,
             EvalResumeStore resumeStore,
-            EvalBackend backend) {
+            EvalBackend backend,
+            EvalReportCheckpointStore reportStore) {
         if (backend == EvalBackend.DOCKER) {
             EvalRunner runner = new EvalRunner(
                     null,
                     scorers,
                     new DockerAttemptExecutor(null, scorers.reproducibilityFingerprint()),
                     artifactWriter);
-            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers);
+            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore);
         }
         ModeLauncherRegistry registry = new ModeLauncherRegistry();
         cases.stream()
@@ -191,7 +191,7 @@ public final class CapabilityEvalMain {
                 scorers,
                 Sandbox::of,
                 artifactWriter);
-        return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers);
+        return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore);
     }
 
     private static List<EvalCaseReport> runWithModel(
@@ -202,7 +202,8 @@ public final class CapabilityEvalMain {
             int concurrency,
             ScorerPipeline scorers,
             EvalResumeStore resumeStore,
-            EvalBackend backend) {
+            EvalBackend backend,
+            EvalReportCheckpointStore reportStore) {
         ModeLauncherRegistry registry = ModeLauncherRegistry.defaults();
         cases.forEach(evalCase -> registry.resolve(evalCase.evalCase().mode()));
         try (HeadlessAgentRuntime runtime = HeadlessAgentRuntime.create(projectDir)) {
@@ -218,7 +219,7 @@ public final class CapabilityEvalMain {
                             scorers,
                             Sandbox::of,
                             artifactWriter);
-            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers);
+            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore);
         }
     }
 
@@ -228,29 +229,45 @@ public final class CapabilityEvalMain {
             EvalRunLimit runLimit,
             int concurrency,
             EvalResumeStore resumeStore,
-            ScorerPipeline scorers) {
+            ScorerPipeline scorers,
+            EvalReportCheckpointStore reportStore) {
         List<EvalCaseReport> reports = new java.util.ArrayList<>();
         RunMetrics accumulated = RunMetrics.ZERO;
         String scorerFingerprint = scorers.reproducibilityFingerprint();
-        for (EvalCaseLoader.LoadedCase loaded : cases) {
-            java.util.Optional<EvalCaseReport> resumed = resumeStore == null
-                    ? java.util.Optional.empty()
-                    : resumeStore.reusableCase(loaded, scorerFingerprint);
-            EvalCaseReport report;
-            if (resumed.isPresent()) {
-                report = resumed.get();
-            } else if (runLimit.shouldSkipNextCase(accumulated)) {
-                report = runner.skippedCase(
-                        loaded,
-                        EvalCaseReport.SkipReason.BUDGET,
-                        runLimit.skipDetail(accumulated));
-            } else {
-                report = runner.runCase(loaded, concurrency);
+        try {
+            for (int caseIndex = 0; caseIndex < cases.size(); caseIndex++) {
+                EvalCaseLoader.LoadedCase loaded = cases.get(caseIndex);
+                java.util.Optional<EvalCaseReport> resumed = resumeStore == null
+                        ? java.util.Optional.empty()
+                        : resumeStore.reusableCase(loaded, scorerFingerprint);
+                EvalCaseReport report;
+                if (resumed.isPresent()) {
+                    report = resumed.get();
+                } else if (runLimit.shouldSkipNextCase(accumulated)) {
+                    report = runner.skippedCase(
+                            loaded,
+                            EvalCaseReport.SkipReason.BUDGET,
+                            runLimit.skipDetail(accumulated));
+                } else {
+                    report = runner.runCase(loaded, concurrency);
+                }
+                reports.add(report);
+                accumulated = accumulated.plus(report.totalMetrics());
+                String nextCaseId = caseIndex + 1 < cases.size()
+                        ? cases.get(caseIndex + 1).evalCase().id()
+                        : null;
+                reportStore.caseCompleted(report, List.copyOf(reports), nextCaseId);
             }
-            reports.add(report);
-            accumulated = accumulated.plus(report.totalMetrics());
+            reportStore.completed(List.copyOf(reports));
+            return reports;
+        } catch (RuntimeException e) {
+            try {
+                reportStore.aborted(List.copyOf(reports), e);
+            } catch (RuntimeException checkpointFailure) {
+                e.addSuppressed(checkpointFailure);
+            }
+            throw e;
         }
-        return reports;
     }
 
     private static void validateConcurrency(
@@ -280,25 +297,10 @@ public final class CapabilityEvalMain {
                 new SafetyScorer());
     }
 
-    private static void writeReports(ReportTargets targets, String markdown, String json) {
-        try {
-            Files.createDirectories(targets.runDir());
-            createParent(targets.markdownOut());
-            createParent(targets.jsonOut());
-            Files.writeString(targets.markdownOut(), markdown);
-            Files.writeString(targets.jsonOut(), json);
-            System.out.println("Report written to " + targets.markdownOut());
-            System.out.println("JSON report written to " + targets.jsonOut());
-            System.out.println("Attempt artifacts written under " + targets.runDir());
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to write reports", e);
-        }
-    }
-
-    private record ReportTargets(Path runDir, Path markdownOut, Path jsonOut) {
+    private record ReportTargets(Path runDir, Path htmlOut, Path jsonOut) {
         static ReportTargets resolve(
                 Path projectDir,
-                Path explicitMarkdownOut,
+                Path explicitHtmlOut,
                 Path explicitJsonOut,
                 Path resumeDir) {
             Path runDir = resumeDir == null
@@ -307,9 +309,18 @@ public final class CapabilityEvalMain {
                     : resumeDir.toAbsolutePath().normalize();
             return new ReportTargets(
                     runDir,
-                    explicitMarkdownOut == null ? runDir.resolve("report.md") : explicitMarkdownOut,
+                    explicitHtmlOut == null ? runDir.resolve("report.html") : explicitHtmlOut,
                     explicitJsonOut == null ? runDir.resolve("report.json") : explicitJsonOut);
         }
+    }
+
+    private static void printRunSummary(List<EvalCaseReport> reports) {
+        long stable = reports.stream().filter(EvalCaseReport::stable).count();
+        long passAtK = reports.stream().filter(EvalCaseReport::passed).count();
+        long skipped = reports.stream().filter(EvalCaseReport::skipped).count();
+        System.out.println("Eval 完成：稳定通过 " + stable + "/" + reports.size()
+                + "，pass@k 通过 " + passAtK + "/" + reports.size()
+                + (skipped == 0 ? "" : "，跳过 " + skipped));
     }
 
     private record Options(
@@ -401,19 +412,7 @@ public final class CapabilityEvalMain {
     }
 
     private static void writeText(Path out, String content, String successPrefix) {
-        try {
-            createParent(out);
-            Files.writeString(out, content);
-            System.out.println(successPrefix + out);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to write " + out, e);
-        }
-    }
-
-    private static void createParent(Path path) throws IOException {
-        Path parent = path.toAbsolutePath().getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
+        EvalReportCheckpointStore.atomicWrite(out, content);
+        System.out.println(successPrefix + out);
     }
 }

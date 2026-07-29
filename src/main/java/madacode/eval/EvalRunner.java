@@ -276,8 +276,13 @@ public final class EvalRunner {
             EvalResult.JudgeStatus judgeStatus = aggregateJudgeStatus(dimensions);
             EvalResult.FinalVerdict verdict =
                     verdict(harnessStatus, outcome.status(), judgeStatus, outcome.transientProviderFailure());
-            String detail = "execution: " + outcome.detail()
-                    + "\njudge:\n" + dimensionDetails(dimensions);
+            String detail = outcome.detail();
+            if (outcome.transientProviderFailure() && !dimensions.isEmpty()) {
+                detail = detail + "\n" + dimensions.getFirst().detail();
+            }
+            RunMetrics authoritativeMetrics = trace == null || trace.metrics() == null
+                    ? outcome.metrics()
+                    : trace.metrics();
 
             EvalResult result = new EvalResult(
                     evalCase.id(),
@@ -290,7 +295,7 @@ public final class EvalRunner {
                     dimensions,
                     execution.executionDurationMs(),
                     judgeDurationMs,
-                    outcome.metrics(),
+                    authoritativeMetrics,
                     outcome.terminalSummary(),
                     detail,
                     execution.manifest());
@@ -377,14 +382,6 @@ public final class EvalRunner {
             return EvalResult.JudgeStatus.FAIL;
         }
         return EvalResult.JudgeStatus.PASS;
-    }
-
-    private static String dimensionDetails(List<DimensionScore> dimensions) {
-        return dimensions.stream()
-                .map(score -> score.dimension() + "=" + score.status()
-                        + (score.gating() ? " [gating]" : "")
-                        + "\n" + score.detail())
-                .collect(java.util.stream.Collectors.joining("\n"));
     }
 
     private static String errorMessage(Throwable throwable) {

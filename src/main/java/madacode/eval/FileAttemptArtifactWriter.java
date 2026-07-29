@@ -31,7 +31,10 @@ public final class FileAttemptArtifactWriter implements AttemptArtifactWriter {
             AttemptEvidence evidence,
             EvalResult result) {
         String caseDirName = sanitize(evalCase.id());
-        Path attemptDir = runDir.resolve(caseDirName).resolve("attempt-" + attemptNumber);
+        Path attemptDir = runDir.resolve("cases")
+                .resolve(caseDirName)
+                .resolve("attempts")
+                .resolve("attempt-" + attemptNumber);
         List<String> files = List.of(
                 relative(attemptDir.resolve("trace.json")),
                 relative(attemptDir.resolve("verify.txt")),
@@ -58,15 +61,18 @@ public final class FileAttemptArtifactWriter implements AttemptArtifactWriter {
         AttemptArtifacts artifacts = new AttemptArtifacts(relative(attemptDir), files, warnings);
         writeFile(
                 attemptDir.resolve("result.json"),
-                json(EvalReportJson.attemptJson(result.withArtifacts(artifacts))),
+                json(EvalReportJson.attemptJson(
+                        evalCase,
+                        attemptNumber,
+                        result.withArtifacts(artifacts))),
                 warnings);
         return new AttemptArtifacts(relative(attemptDir), files, warnings);
     }
 
     private void writeFile(Path path, String content, List<String> warnings) {
         try {
-            Files.writeString(path, content);
-        } catch (IOException e) {
+            EvalReportCheckpointStore.atomicWrite(path, content);
+        } catch (UncheckedIOException e) {
             warnings.add("failed to write " + relative(path) + ": " + e.getMessage());
         }
     }
@@ -87,8 +93,7 @@ public final class FileAttemptArtifactWriter implements AttemptArtifactWriter {
                     List.of(),
                     List.of(),
                     List.of(),
-                    "",
-                    EvalReportJson.metricsJson(RunMetrics.ZERO));
+                    "");
         }
         return new TraceJson(
                 true,
@@ -96,8 +101,7 @@ public final class FileAttemptArtifactWriter implements AttemptArtifactWriter {
                 trace.fileEffects(),
                 trace.userTurns(),
                 trace.assistantTurns(),
-                trace.finalText(),
-                EvalReportJson.metricsJson(trace.metrics()));
+                trace.finalText());
     }
 
     private static InvocationJson invocationJson(ToolInvocation invocation) {
@@ -140,8 +144,7 @@ public final class FileAttemptArtifactWriter implements AttemptArtifactWriter {
             List<TouchedFile> fileEffects,
             List<String> userTurns,
             List<String> assistantTurns,
-            String finalText,
-            EvalReportJson.MetricsJson metrics) {
+            String finalText) {
     }
 
     private record InvocationJson(

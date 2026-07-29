@@ -19,7 +19,7 @@ bin/eval --self-test          # 只验证沙箱+判分链路，不调模型、�
 bin/eval --unsafe-local --mode common
 bin/eval --unsafe-local --case common-bugfix-001
 bin/eval --unsafe-local --capability bug-fix
-bin/eval --unsafe-local --out report.md
+bin/eval --unsafe-local --out report.html
 bin/eval --unsafe-local --json-out report.json
 bin/eval --unsafe-local --concurrency 4
 bin/eval --unsafe-local --resume eval/reports/run-YYYYMMDD-HHMMSS
@@ -29,11 +29,16 @@ bin/eval --self-test --backend docker
 bin/eval --compare baseline.json candidate.json
 ```
 
-跑前需在 `~/.mada/providers.json` 配置好可用 provider（eval 连真实模型）。
-Markdown 报告打印到终端；每次运行会创建 `eval/reports/run-<timestamp>/`（已 gitignore），默认
-写入 `report.md`、`report.json`，并在 `<caseId>/attempt-<n>/` 下保留 attempt 调试产物：
-`trace.json`、`verify.txt`、`result.json`。`--out` 只覆盖 Markdown 输出路径，`--json-out`
-覆盖 JSON 输出路径；attempt 产物仍写入本次 run 目录。
+跑前需在 `~/.mada/providers.json` 配置好可用 provider（eval 连真实模型）。每次运行会创建
+`eval/reports/run-<timestamp>/`（已 gitignore），默认写入中文可视化 `report.html` 和机器接口
+`report.json`。可视化提供 Run → Case → Attempt → Trace 下钻，保留 Gate、pass@k、k/N、
+Wilson 95% CI、token、成本和耗时等标准指标。Case 诊断页还提供维度聚合、完整 metrics、
+多 Attempt 横向对比、执行环境与可复现性字段；Trace 页按工具时间线、输入/输出、访问证据、
+文件变化、对话和最终回复组织，并支持按需展开完整 `trace.json`，避免大 Trace 阻塞 Case 切换。
+
+每个 case 完成后会先原子写入 `cases/<caseId>/case-report.json`，再原子刷新根报告；
+`cases/<caseId>/attempts/attempt-<n>/` 下原子写入 `result.json`、`trace.json`、`verify.txt`。
+`--out` 和 `--json-out` 会额外导出 HTML/JSON，但 run 目录中的规范报告始终保留。
 
 两个 JSON 报告可用 `bin/eval --compare <baseline.json> <candidate.json>` 对比。Compare 按 case id
 对齐，报告 gate/pass@k/k/N 变化、新增/移除 case，以及平均工具调用、token、耗时变化。
@@ -47,7 +52,7 @@ SKIPPED，compare 会按 gate regression 处理。
 ```
 严格 EvalCase → EvalRunner → ExecutionEnvironment → ModeLauncher
               → attempt 级 ExecutionTrace → 多维 ScorerPipeline
-              → 类型化 Verdict → Manifest/Markdown+JSON 报告
+              → 类型化 Verdict → 分层 JSON + 中文 HTML 报告
 ```
 
 - **执行器**复用真实 `QueryEngine`、managed turn、长任务 Controller/状态机和 worker。
@@ -72,8 +77,10 @@ SKIPPED，compare 会按 gate regression 处理。
 - **并发与续跑**：`--concurrency <n>` 以 attempt 为单位做有界并发，默认 1，报告仍按 case
   声明顺序和 attempt 序号稳定输出。真实 long-running case 在共享 runtime/worker 存储完成线程
   安全审计前会拒绝 `--concurrency > 1`；deterministic/fake launcher 路径已有并发测试。
-  `--resume <run-dir>` 复用该目录 `report.json` 中 schema/case hash/scorer fingerprint 都匹配、
-  且所有 attempt `result.json` 齐全可读的完整 case；partial 或 skipped case 会整 case 重跑。
+  根 `report.json` 记录 `RUNNING` / `COMPLETED` / `ABORTED`、计划和已完成 case 数以及更新时间。
+  `--resume <run-dir>` 使用原子写入的 `cases/<caseId>/case-report.json`；schema/case hash/
+  scorer fingerprint 都匹配、且所有 attempt `result.json`
+  齐全可读的完整 case 才会复用，partial 或 skipped case 会整 case 重跑。
 - **结果**不再只有一个布尔值：执行、Judge、基础设施分别记录。只有
   `execution=COMPLETED && judge=PASS && harness=OK` 才是单次 attempt 的 PASS。
   **Agent 自身崩溃（CRASHED）算 attempt 失败（FAIL），不再被当成基础设施错误从分母里剔除**，
@@ -254,10 +261,10 @@ verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在�
   未配置价格时只报 token，不猜价格。`--self-test` 不花钱。
 - **不进 CI**：eval 是独立入口，`./mvnw test` 不会触发任何真实 API 调用。
 - **可追溯**：报告记录 case hash、Git commit/dirty 状态、provider/model、运行时扩展指纹、
-  Java/OS 与隔离级别。JSON 报告当前为 `schemaVersion=3`，并保留 run/case/attempt/维度/metrics/
-  manifest 的完整树；attempt 条目含调试产物相对路径和写入 warning，供 compare、resume 和
-  外部分析使用。`trace.json` 中单条工具结果超过 256 KiB 会截断并标记 `resultTruncated=true`，
-  主报告中的 detail 不截断。
+  Java/OS 与隔离级别。新报告协议从 `schemaVersion=1` 开始，不兼容实验阶段旧格式：根
+  `report.json` 只保存 Run 与 Case 摘要，`case-report.json` 保存 Case 聚合与 Attempt 摘要，
+  `result.json` 保存单次判定和权威 metrics，`trace.json` 只保存行为证据，避免逐层复制完整对象。
+  `trace.json` 中单条工具结果超过 256 KiB 会截断并标记 `resultTruncated=true`。
 
 ## 模式覆盖说明
 

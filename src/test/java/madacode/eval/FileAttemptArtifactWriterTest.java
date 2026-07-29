@@ -51,28 +51,32 @@ class FileAttemptArtifactWriterTest {
                 new AttemptEvidence(trace, verifyOutcome),
                 result());
 
-        assertEquals("case-1/attempt-2", artifacts.directory());
+        assertEquals("cases/case-1/attempts/attempt-2", artifacts.directory());
         assertTrue(artifacts.warnings().isEmpty());
-        assertTrue(Files.isRegularFile(tempDir.resolve("case-1/attempt-2/trace.json")));
-        assertTrue(Files.isRegularFile(tempDir.resolve("case-1/attempt-2/verify.txt")));
-        assertTrue(Files.isRegularFile(tempDir.resolve("case-1/attempt-2/result.json")));
+        Path attemptDir = tempDir.resolve("cases/case-1/attempts/attempt-2");
+        assertTrue(Files.isRegularFile(attemptDir.resolve("trace.json")));
+        assertTrue(Files.isRegularFile(attemptDir.resolve("verify.txt")));
+        assertTrue(Files.isRegularFile(attemptDir.resolve("result.json")));
 
-        JsonNode traceJson = MAPPER.readTree(tempDir.resolve("case-1/attempt-2/trace.json").toFile());
+        JsonNode traceJson = MAPPER.readTree(attemptDir.resolve("trace.json").toFile());
         JsonNode invocation = traceJson.path("invocations").get(0);
         assertTrue(invocation.path("resultTruncated").asBoolean());
         assertEquals(300_000, invocation.path("originalResultChars").asInt());
         assertTrue(invocation.path("resultJson").asText().length() < 300_000);
         assertEquals("RESOLVED_PATH", invocation.path("accessEvidence").get(0).path("source").asText());
         assertEquals("src/App.java", traceJson.path("fileEffects").get(0).path("relPath").asText());
+        assertTrue(traceJson.path("metrics").isMissingNode());
 
-        String verifyText = Files.readString(tempDir.resolve("case-1/attempt-2/verify.txt"));
+        String verifyText = Files.readString(attemptDir.resolve("verify.txt"));
         assertTrue(verifyText.contains("status=FAILED"));
         assertTrue(verifyText.contains("exitCode=1"));
         assertTrue(verifyText.contains("assertion failed"));
 
-        JsonNode resultJson = MAPPER.readTree(tempDir.resolve("case-1/attempt-2/result.json").toFile());
+        JsonNode resultJson = MAPPER.readTree(attemptDir.resolve("result.json").toFile());
+        assertEquals("1", resultJson.path("schemaVersion").asText());
         assertEquals("PASS", resultJson.path("verdict").asText());
-        assertEquals("case-1/attempt-2", resultJson.path("artifacts").path("directory").asText());
+        assertEquals("cases/case-1/attempts/attempt-2",
+                resultJson.path("artifacts").path("directory").asText());
         assertFalse(resultJson.path("artifacts").path("files").isEmpty());
     }
 

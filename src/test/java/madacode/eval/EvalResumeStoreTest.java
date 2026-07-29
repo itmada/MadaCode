@@ -39,7 +39,9 @@ class EvalResumeStoreTest {
     @Test
     void incompleteAttemptArtifactsCauseCaseToRerun() throws Exception {
         Path runDir = writeRunDir(2);
-        Files.delete(runDir.resolve("case-1/attempt-2/result.json"));
+        Files.move(
+                runDir.resolve("cases/case-1/attempts/attempt-2/result.json"),
+                tempDir.resolve("attempt-2-result.saved.json"));
         EvalResumeStore store = EvalResumeStore.open(runDir);
 
         assertTrue(store.reusableCase(loadedCase("casehash", 2), "scorer-fp").isEmpty());
@@ -63,12 +65,20 @@ class EvalResumeStoreTest {
                 .mapToObj(this::result)
                 .toList());
         Files.writeString(runDir.resolve("report.json"), EvalReportJson.render(List.of(report)));
+        Path caseDir = runDir.resolve("cases/case-1");
+        Files.createDirectories(caseDir);
+        Files.writeString(
+                caseDir.resolve("case-report.json"),
+                EvalReportJson.renderCase(report, EvalCostEstimator.none()));
         for (int i = 1; i <= attempts; i++) {
-            Path attemptDir = runDir.resolve("case-1/attempt-" + i);
+            Path attemptDir = caseDir.resolve("attempts/attempt-" + i);
             Files.createDirectories(attemptDir);
             Files.writeString(
                     attemptDir.resolve("result.json"),
-                    MAPPER.writeValueAsString(EvalReportJson.attemptJson(report.attempts().get(i - 1))));
+                    MAPPER.writeValueAsString(EvalReportJson.attemptJson(
+                            loadedCase("casehash", attempts).evalCase(),
+                            i,
+                            report.attempts().get(i - 1))));
         }
         return runDir;
     }
