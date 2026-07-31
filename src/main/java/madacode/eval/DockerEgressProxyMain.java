@@ -26,7 +26,8 @@ import java.util.concurrent.Executors;
 public final class DockerEgressProxyMain {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Set<String> HOP_BY_HOP_HEADERS = Set.of(
+    private static final Set<String> FORWARDED_HEADER_EXCLUSIONS = Set.of(
+            "authorization",
             "connection",
             "content-length",
             "expect",
@@ -100,7 +101,7 @@ public final class DockerEgressProxyMain {
             HttpRequest.Builder builder = HttpRequest.newBuilder(upstream)
                     .method(exchange.getRequestMethod(), HttpRequest.BodyPublishers.ofByteArray(requestBody));
             exchange.getRequestHeaders().forEach((name, values) -> {
-                if (!HOP_BY_HOP_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+                if (!FORWARDED_HEADER_EXCLUSIONS.contains(name.toLowerCase(Locale.ROOT))) {
                     values.forEach(value -> builder.header(name, value));
                 }
             });
@@ -109,7 +110,7 @@ public final class DockerEgressProxyMain {
             record(upstream.getHost(), false, "kind=provider-api;provider=" + route.name()
                     + ";status=" + response.statusCode());
             response.headers().map().forEach((name, values) -> {
-                if (!HOP_BY_HOP_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+                if (!FORWARDED_HEADER_EXCLUSIONS.contains(name.toLowerCase(Locale.ROOT))) {
                     values.forEach(value -> exchange.getResponseHeaders().add(name, value));
                 }
             });
