@@ -19,6 +19,8 @@ dependency-reduced-pom.xml
 .claude/
 .mada/long-running/
 madacode.md
+通用面试题/
+面试准备/
 
 # OS
 .DS_Store
