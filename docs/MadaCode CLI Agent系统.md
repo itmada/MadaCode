@@ -842,7 +842,7 @@ MadaCode 的 memory 系统其实包含两种不同性质的文件：
 
 - cwd/MADA.md（如果跟前两个不同）            ← cwd-local（当前目录额外约束）
 
-2. **~/.mada/memory/*.md — Agent 自动维护的记忆**
+2. **Agent 自动维护的记忆**（`~/.mada/memory/*.md`）
 
 每条记忆是一个独立 .md 文件，带 frontmatter：
 
