@@ -18,6 +18,7 @@ dependency-reduced-pom.xml
 # Local agent/worktree state
 .claude/
 .mada/long-running/
+madacode.md
 
 # OS
 .DS_Store
@@ -34,3 +35,7 @@ Thumbs.db
 
 # Eval reports (generated)
 eval/reports/
+
+# SWE-bench Multilingual materialization cache / bulky case trees
+eval/_cache/
+eval/cases/swe-*/workspace/

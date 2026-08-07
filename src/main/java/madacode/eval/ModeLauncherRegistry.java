@@ -40,6 +40,7 @@ public final class ModeLauncherRegistry {
     public static ModeLauncherRegistry defaults() {
         return new ModeLauncherRegistry()
                 .register(new CommonModeLauncher())
-                .register(new LongRunningModeLauncher());
+                .register(new LongRunningModeLauncher())
+                .register(new ClaudeCodeModeLauncher());
     }
 }

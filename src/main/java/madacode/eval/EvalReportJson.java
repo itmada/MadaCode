@@ -56,7 +56,10 @@ public final class EvalReportJson {
                 SCHEMA_VERSION,
                 runSummary(reports, manifest, estimator, progress),
                 manifest == null ? null : environmentJson(manifest),
-                reports.stream().map(report -> caseJson(report, estimator)).toList());
+                reports.stream()
+                        .filter(report -> !report.skipped())
+                        .map(report -> caseJson(report, estimator))
+                        .toList());
     }
 
     public static String renderCase(EvalCaseReport report, EvalCostEstimator costEstimator) {
@@ -135,6 +138,9 @@ public final class EvalReportJson {
                 report.mode(),
                 report.capabilities(),
                 report.manifest().caseHash(),
+                report.manifest().caseRepository(),
+                report.manifest().caseBaseCommit(),
+                report.manifest().workspaceProtocol(),
                 report.samples(),
                 report.validAttempts(),
                 report.infraErrors(),
@@ -235,7 +241,7 @@ public final class EvalReportJson {
                     evalCase.skipDetail(),
                     evalRunManifest(
                             caseReport.environment(),
-                            evalCase.caseHash(),
+                            evalCase,
                             null),
                     evalCase.samples());
         }
@@ -268,7 +274,7 @@ public final class EvalReportJson {
                 attempt.executionDetail(),
                 evalRunManifest(
                         caseReport.environment(),
-                        evalCase.caseHash(),
+                        evalCase,
                         attempt.startedAt()),
                 attemptArtifacts(attempt.artifacts()));
     }
@@ -371,20 +377,24 @@ public final class EvalReportJson {
                 manifest.networkPolicy(),
                 manifest.providerConfigMaterialization(),
                 manifest.projectExtensionMounts(),
+                manifest.agent(),
                 manifest.javaVersion(),
-                manifest.os());
+                manifest.os(),
+                manifest.caseRepository(),
+                manifest.caseBaseCommit(),
+                manifest.workspaceProtocol());
     }
 
     private static EvalRunManifest evalRunManifest(
             EnvironmentJson environment,
-            String caseHash,
+            CaseJson evalCase,
             String startedAt) {
         if (environment == null) {
             return null;
         }
         return new EvalRunManifest(
                 startedAt == null ? null : Instant.parse(startedAt),
-                caseHash,
+                evalCase.caseHash(),
                 environment.gitCommit(),
                 environment.dirtyWorktree(),
                 environment.provider(),
@@ -403,8 +413,12 @@ public final class EvalReportJson {
                 environment.networkPolicy(),
                 environment.providerConfigMaterialization(),
                 environment.projectExtensionMounts(),
+                environment.agent(),
                 environment.javaVersion(),
-                environment.os());
+                environment.os(),
+                evalCase.repository(),
+                evalCase.baseCommit(),
+                evalCase.workspaceProtocol());
     }
 
     private static AttemptArtifactsJson artifactsJson(AttemptArtifacts artifacts) {
@@ -519,6 +533,9 @@ public final class EvalReportJson {
             String mode,
             List<String> capabilities,
             String caseHash,
+            String repository,
+            String baseCommit,
+            String workspaceProtocol,
             int samples,
             long validAttempts,
             long infraErrors,
@@ -536,6 +553,56 @@ public final class EvalReportJson {
             CostEstimateJson costEstimate,
             long totalDurationMs,
             String caseReportPath) {
+
+        /** Compatibility constructor for report fixtures without Git source metadata. */
+        public CaseJson(
+                String id,
+                String mode,
+                List<String> capabilities,
+                String caseHash,
+                int samples,
+                long validAttempts,
+                long infraErrors,
+                long passes,
+                double passRate,
+                WilsonIntervalJson passRateWilson95,
+                String passAtKVerdict,
+                String gateVerdict,
+                boolean stable,
+                boolean passed,
+                boolean skipped,
+                String skipReason,
+                String skipDetail,
+                MetricsJson totalMetrics,
+                CostEstimateJson costEstimate,
+                long totalDurationMs,
+                String caseReportPath) {
+            this(
+                    id,
+                    mode,
+                    capabilities,
+                    caseHash,
+                    "",
+                    "",
+                    "workspace-copy",
+                    samples,
+                    validAttempts,
+                    infraErrors,
+                    passes,
+                    passRate,
+                    passRateWilson95,
+                    passAtKVerdict,
+                    gateVerdict,
+                    stable,
+                    passed,
+                    skipped,
+                    skipReason,
+                    skipDetail,
+                    totalMetrics,
+                    costEstimate,
+                    totalDurationMs,
+                    caseReportPath);
+        }
     }
 
     public record AttemptJson(
@@ -642,8 +709,12 @@ public final class EvalReportJson {
             String networkPolicy,
             String providerConfigMaterialization,
             List<String> projectExtensionMounts,
+            String agent,
             String javaVersion,
-            String os) {
+            String os,
+            String caseRepository,
+            String caseBaseCommit,
+            String workspaceProtocol) {
     }
 
 }

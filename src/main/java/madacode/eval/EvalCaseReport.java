@@ -208,7 +208,8 @@ public record EvalCaseReport(
     }
 
     public enum SkipReason {
-        BUDGET
+        BUDGET,
+        AGENT_INCOMPATIBLE
     }
 
     public enum PassAtKVerdict {

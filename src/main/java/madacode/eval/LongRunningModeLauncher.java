@@ -12,6 +12,7 @@ import madacode.longrunning.LongRunningTaskStore;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -19,8 +20,8 @@ import java.util.Optional;
  *
  * <p>Flow, all on the production components:
  * <ol>
- *   <li>Run one planning turn through {@link QueryEngine#runTurn} so the Controller
- *       initializes the long-running environment and applies RUNNING through the
+ *   <li>Run scripted Controller turns through {@link QueryEngine#runTurn} so the Controller
+ *       can clarify, initialize the long-running environment, and apply RUNNING through the
  *       interactive state-transition tool.</li>
  *   <li>Drive bounded worker cycles via {@link LongRunningLauncher#run} until terminal
  *       or the cycle cap ({@code maxCycles}).</li>
@@ -46,38 +47,58 @@ public final class LongRunningModeLauncher implements ModeLauncher {
 
         // The production lifecycle requires DRAFT planning to initialize the
         // long-running environment through longrun_environment_update and then
-        // apply RUNNING through longrun_state_transition.
+        // apply RUNNING through longrun_state_transition. Cases may script multiple
+        // user turns (clarification + confirmation) just like common-mode eval.
         QueryEngine engine = context.runtime().newEngine(context.budget().maxIterations());
-        TurnResult planning;
+        List<ConversationTurn> conversation = evalCase.effectiveConversation();
+        int planningIterations = 0;
+        TurnResult planning = null;
+        String finalText = "";
         try {
-            planning = context.runtime().runTurn(
-                    engine,
-                    session,
-                    evalCase.instruction(),
-                    context.remainingTime(),
-                    AutoApprovePromptChannel.INSTANCE);
+            for (ConversationTurn scriptedTurn : conversation) {
+                if (session.longRunningStage() == LongRunningStage.RUNNING) {
+                    break;
+                }
+                if (scriptedTurn.trigger() == ConversationTurn.Trigger.WHEN_AGENT_ASKS
+                        && !looksLikeQuestion(finalText)) {
+                    break;
+                }
+                planning = context.runtime().runTurn(
+                        engine,
+                        session,
+                        scriptedTurn.text(),
+                        context.remainingTime(),
+                        AutoApprovePromptChannel.INSTANCE);
+                planningIterations += planning.iterations();
+                if (context.traceCollector() != null) {
+                    context.traceCollector().recordSession(session, ToolInvocation.Phase.CONTROL);
+                }
+                finalText = planning.finalText();
+                if (planning.finishReason() != FinishReason.COMPLETED) {
+                    return new LaunchOutcome(
+                            executionStatus(planning.finishReason()),
+                            RunMetrics.fromSession(session, planningIterations),
+                            "plan=" + terminalSummary(planning),
+                            detail(planning),
+                            planning.finalText(),
+                            true,
+                            planning.apiFailure());
+                }
+            }
         } catch (madacode.bootstrap.HeadlessAgentRuntime.HeadlessTurnTimeoutException e) {
             return new LaunchOutcome(
                     EvalResult.ExecutionStatus.TIMED_OUT,
-                    RunMetrics.fromSession(session, 0),
+                    RunMetrics.fromSession(session, planningIterations),
                     "plan=TIMED_OUT",
                     e.getMessage(),
+                    finalText,
                     e.quiescent());
         }
-        RunMetrics planningMetrics = RunMetrics.fromSession(session, planning.iterations());
-        if (context.traceCollector() != null) {
-            context.traceCollector().recordSession(session, ToolInvocation.Phase.CONTROL);
+        if (planning == null) {
+            throw new IllegalStateException("conversation did not execute a user turn");
         }
-        if (planning.finishReason() != FinishReason.COMPLETED) {
-            return new LaunchOutcome(
-                    executionStatus(planning.finishReason()),
-                    planningMetrics,
-                    "plan=" + terminalSummary(planning),
-                    detail(planning),
-                    planning.finalText(),
-                    true,
-                    planning.apiFailure());
-        }
+        RunMetrics planningMetrics = RunMetrics.fromSession(session, planningIterations);
+
         String taskId = session.longRunningTaskId();
         if (taskId == null || taskId.isBlank()) {
             return new LaunchOutcome(
@@ -136,6 +157,16 @@ public final class LongRunningModeLauncher implements ModeLauncher {
                 result.quiescent());
     }
 
+    private static boolean looksLikeQuestion(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = text.strip().toLowerCase(Locale.ROOT);
+        return normalized.contains("?")
+                || normalized.contains("？")
+                || normalized.matches("(?s).*(请问|能否|可以提供|需要.*吗|which|what|could you|can you).*");
+    }
+
     private static EvalResult.ExecutionStatus executionStatus(FinishReason reason) {
         return switch (reason) {
             case COMPLETED -> EvalResult.ExecutionStatus.COMPLETED;
@@ -169,12 +200,37 @@ public final class LongRunningModeLauncher implements ModeLauncher {
                 : turn.finalText() + "\n" + turn.apiFailure().detail();
     }
 
+    /**
+     * Headless stand-in for interactive prompts during long-running eval planning.
+     *
+     * <p>{@code ask_user_question} calls {@link #askQuestion(QuestionForm)}, not the
+     * older chooseOne/chooseMany helpers. The default {@code askQuestion} returns empty,
+     * which the tool records as {@code (no answer)} and steers the Controller into
+     * guessing — so this channel must implement the unified API.
+     */
     private enum AutoApprovePromptChannel implements UserPromptChannel {
         INSTANCE;
 
         @Override
         public boolean isAvailable() {
             return true;
+        }
+
+        @Override
+        public Optional<List<String>> askQuestion(QuestionForm form) {
+            if (form == null) {
+                return Optional.of(List.of());
+            }
+            List<ChannelOption> options = form.options();
+            if (options.isEmpty()) {
+                // Free-text clarification: affirm so planning can proceed to initialize.
+                return Optional.of(List.of("yes, proceed with the recommended defaults"));
+            }
+            if (form.multiSelect()) {
+                return Optional.of(options.stream().map(ChannelOption::label).toList());
+            }
+            // Tool docs put the recommended option first.
+            return Optional.of(List.of(options.getFirst().label()));
         }
 
         @Override
@@ -189,7 +245,7 @@ public final class LongRunningModeLauncher implements ModeLauncher {
 
         @Override
         public Optional<String> freeText(String prompt) {
-            return Optional.empty();
+            return Optional.of("yes, proceed with the recommended defaults");
         }
 
         @Override

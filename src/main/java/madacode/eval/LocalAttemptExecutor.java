@@ -27,16 +27,27 @@ final class LocalAttemptExecutor implements AttemptExecutor {
     private final ModeLauncherRegistry launchers;
     private final EvalExecutionEnvironmentFactory environments;
     private final String scorerFingerprint;
+    private final EvalAgent agent;
 
     LocalAttemptExecutor(
             HeadlessAgentRuntime runtime,
             ModeLauncherRegistry launchers,
             EvalExecutionEnvironmentFactory environments,
             String scorerFingerprint) {
+        this(runtime, launchers, environments, scorerFingerprint, EvalAgent.MADACODE);
+    }
+
+    LocalAttemptExecutor(
+            HeadlessAgentRuntime runtime,
+            ModeLauncherRegistry launchers,
+            EvalExecutionEnvironmentFactory environments,
+            String scorerFingerprint,
+            EvalAgent agent) {
         this.runtime = runtime;
         this.launchers = Objects.requireNonNull(launchers, "launchers");
         this.environments = Objects.requireNonNull(environments, "environments");
         this.scorerFingerprint = scorerFingerprint == null ? "(none)" : scorerFingerprint;
+        this.agent = agent == null ? EvalAgent.MADACODE : agent;
     }
 
     @Override
@@ -55,7 +66,8 @@ final class LocalAttemptExecutor implements AttemptExecutor {
                     runtime,
                     environment.isolationProfile(),
                     scorerFingerprint,
-                    startedAt);
+                    startedAt,
+                    agent);
             ConversationSession session = new ConversationSession(environment.workspace());
             session.setPermissionMode(evalCase.permissionMode());
             session.setIsolationProfile(environment.isolationProfile());

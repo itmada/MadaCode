@@ -27,7 +27,26 @@ final class EvalRunManifestFactory {
                 isolationProfile,
                 scorerFingerprint,
                 startedAt,
-                EvalBackendManifest.localUnsafe());
+                EvalAgent.MADACODE);
+    }
+
+    static EvalRunManifest capture(
+            Path projectDir,
+            EvalCaseLoader.LoadedCase loaded,
+            HeadlessAgentRuntime runtime,
+            IsolationProfile isolationProfile,
+            String scorerFingerprint,
+            Instant startedAt,
+            EvalAgent agent) {
+        return capture(
+                projectDir,
+                loaded,
+                runtime,
+                isolationProfile,
+                scorerFingerprint,
+                startedAt,
+                EvalBackendManifest.localUnsafe(),
+                agent);
     }
 
     static EvalRunManifest capture(
@@ -38,8 +57,29 @@ final class EvalRunManifestFactory {
             String scorerFingerprint,
             Instant startedAt,
             EvalBackendManifest backend) {
+        return capture(
+                projectDir,
+                loaded,
+                runtime,
+                isolationProfile,
+                scorerFingerprint,
+                startedAt,
+                backend,
+                EvalAgent.MADACODE);
+    }
+
+    static EvalRunManifest capture(
+            Path projectDir,
+            EvalCaseLoader.LoadedCase loaded,
+            HeadlessAgentRuntime runtime,
+            IsolationProfile isolationProfile,
+            String scorerFingerprint,
+            Instant startedAt,
+            EvalBackendManifest backend,
+            EvalAgent agent) {
         GitState git = gitState(projectDir);
         EvalBackendManifest safeBackend = backend == null ? EvalBackendManifest.localUnsafe() : backend;
+        EvalAgent safeAgent = agent == null ? EvalAgent.MADACODE : agent;
         return new EvalRunManifest(
                 startedAt,
                 loaded.caseHash(),
@@ -61,9 +101,22 @@ final class EvalRunManifestFactory {
                 safeBackend.networkPolicy(),
                 safeBackend.providerConfigMaterialization(),
                 safeBackend.projectExtensionMounts(),
+                safeAgent.name().toLowerCase(java.util.Locale.ROOT),
                 System.getProperty("java.version", "(unknown)"),
                 System.getProperty("os.name", "(unknown)") + " "
-                        + System.getProperty("os.version", ""));
+                        + System.getProperty("os.version", ""),
+                loaded.evalCase().repository(),
+                loaded.evalCase().baseCommit(),
+                workspaceProtocol(loaded.evalCase(), safeBackend));
+    }
+
+    private static String workspaceProtocol(EvalCase evalCase, EvalBackendManifest backend) {
+        if (!evalCase.hasGitBaseline()) {
+            return "workspace-copy";
+        }
+        return "local".equals(backend.executionBackend())
+                ? "git-worktree-clean-judge"
+                : "workspace-copy";
     }
 
     private static GitState gitState(Path projectDir) {

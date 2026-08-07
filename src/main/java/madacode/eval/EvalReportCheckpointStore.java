@@ -17,21 +17,15 @@ public final class EvalReportCheckpointStore {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final Path runDir;
-    private final Path htmlOut;
-    private final Path jsonOut;
     private final EvalCostEstimator costEstimator;
     private final int plannedCases;
     private final Instant startedAt;
 
     public EvalReportCheckpointStore(
             Path runDir,
-            Path htmlOut,
-            Path jsonOut,
             EvalCostEstimator costEstimator,
             int plannedCases) {
         this.runDir = normalize(runDir);
-        this.htmlOut = normalize(htmlOut);
-        this.jsonOut = normalize(jsonOut);
         this.costEstimator = costEstimator == null ? EvalCostEstimator.none() : costEstimator;
         this.plannedCases = plannedCases;
         this.startedAt = existingStartedAt(this.runDir.resolve("report.json"));
@@ -87,17 +81,11 @@ public final class EvalReportCheckpointStore {
         Path canonicalJson = runDir.resolve("report.json");
         atomicWrite(canonicalHtml, html);
         atomicWrite(canonicalJson, json);
-        if (!htmlOut.equals(canonicalHtml)) {
-            atomicWrite(htmlOut, html);
-        }
-        if (!jsonOut.equals(canonicalJson)) {
-            atomicWrite(jsonOut, json);
-        }
     }
 
     private void printTargets() {
-        System.out.println("可视化报告：" + htmlOut);
-        System.out.println("机器报告：" + jsonOut);
+        System.out.println("可视化报告：" + runDir.resolve("report.html"));
+        System.out.println("机器报告：" + runDir.resolve("report.json"));
         System.out.println("Case 与 Attempt 产物：" + runDir.resolve("cases"));
     }
 

@@ -279,6 +279,11 @@ public final class HeadlessAgentRuntime implements AutoCloseable {
         return env.providerRegistry().active().currentModel().name();
     }
 
+    /** The active provider (base URL, auth token, default model) for the current session. */
+    public madacode.provider.Provider provider() {
+        return env.providerRegistry().active().provider();
+    }
+
     public Path projectDir() {
         return env.projectDir();
     }

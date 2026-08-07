@@ -331,8 +331,8 @@ class DockerAttemptExecutorTest {
                             *:/output:rw)
                               out="${1%%:/output:rw}"
                               ;;
-                            *:/judge/verify.sh:ro)
-                              verify="${1%%:/judge/verify.sh:ro}"
+                            *:/judge:ro|*:/judge/verify.sh:ro)
+                              verify="${1%%:/judge*}"
                               ;;
                           esac
                           ;;

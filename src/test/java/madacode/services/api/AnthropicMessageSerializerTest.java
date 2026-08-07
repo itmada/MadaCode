@@ -34,6 +34,7 @@ class AnthropicMessageSerializerTest {
 
         JsonNode root = mapper.readTree(body);
         assertEquals("system prompt", root.path("system").asText());
+        assertEquals("max", root.path("output_config").path("effort").asText());
         assertEquals(1, root.path("messages").size());
         String serializedMessages = root.path("messages").toString();
         assertTrue(serializedMessages.contains("CompactBoundary"));

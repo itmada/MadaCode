@@ -20,13 +20,12 @@ import java.util.List;
  *   bin/eval --unsafe-local --mode &lt;mode&gt;
  *   bin/eval --unsafe-local --capability &lt;tag&gt;
  *   bin/eval --cases-dir &lt;path&gt;   override the cases directory (default: ./eval/cases)
- *   bin/eval --out &lt;file&gt;         write the HTML report to a file
- *   bin/eval --json-out &lt;file&gt;    write the JSON report to a file
  *   bin/eval --max-total-tokens &lt;n&gt; skip remaining cases after the run reaches n tokens
- *   bin/eval --concurrency &lt;n&gt;    run attempts with bounded parallelism
+ *   bin/eval --concurrency &lt;n&gt;    run cases with bounded parallelism
  *   bin/eval --resume &lt;run-dir&gt;   reuse complete cases from a previous run directory
  *   bin/eval --backend docker      run no-model self-test attempts through Docker
  *   bin/eval --compare &lt;baseline.json&gt; &lt;candidate.json&gt;
+ *   bin/eval --compare ... --out &lt;file&gt;  optionally write the compare markdown report
  * </pre>
  */
 public final class CapabilityEvalMain {
@@ -63,9 +62,15 @@ public final class CapabilityEvalMain {
             System.exit(2);
         }
         validateConcurrency(opts, selected);
+        validateBackend(opts, selected);
 
-        ReportTargets targets = ReportTargets.resolve(projectDir, opts.out, opts.jsonOut, opts.resumeDir);
-        AttemptArtifactWriter artifactWriter = new FileAttemptArtifactWriter(targets.runDir());
+        if (opts.out != null) {
+            throw new IllegalArgumentException(
+                    "--out is only valid with --compare; eval HTML/JSON reports are written under "
+                            + "eval/reports/run-<timestamp>/");
+        }
+        Path runDir = resolveRunDir(projectDir, opts.resumeDir);
+        AttemptArtifactWriter artifactWriter = new FileAttemptArtifactWriter(runDir);
         EvalRunLimit runLimit = opts.maxTotalTokens == null
                 ? EvalRunLimit.NONE
                 : EvalRunLimit.maxTotalTokens(opts.maxTotalTokens);
@@ -73,9 +78,7 @@ public final class CapabilityEvalMain {
         ScorerPipeline scorers = defaultScorerPipeline();
         EvalResumeStore resumeStore = opts.resumeDir == null ? null : EvalResumeStore.open(opts.resumeDir);
         EvalReportCheckpointStore reportStore = new EvalReportCheckpointStore(
-                targets.runDir(),
-                targets.htmlOut(),
-                targets.jsonOut(),
+                runDir,
                 costEstimator,
                 selected.size());
 
@@ -128,7 +131,8 @@ public final class CapabilityEvalMain {
                 scorers,
                 resumeStore,
                 opts.backend,
-                reportStore);
+                reportStore,
+                opts.agent);
         printRunSummary(results);
 
         long gateFailures = results.stream()
@@ -146,7 +150,7 @@ public final class CapabilityEvalMain {
     private static void runCompare(Options opts) {
         if (opts.selfTest || opts.unsafeLocal || opts.caseId != null
                 || opts.mode != null || opts.capability != null || opts.casesDir != null
-                || opts.jsonOut != null || opts.maxTotalTokens != null
+                || opts.maxTotalTokens != null
                 || opts.concurrency != 1 || opts.resumeDir != null
                 || opts.backend != EvalBackend.LOCAL) {
             throw new IllegalArgumentException(
@@ -178,7 +182,8 @@ public final class CapabilityEvalMain {
                     scorers,
                     new DockerAttemptExecutor(null, scorers.reproducibilityFingerprint()),
                     artifactWriter);
-            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore);
+            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore,
+                    EvalAgent.MADACODE);
         }
         ModeLauncherRegistry registry = new ModeLauncherRegistry();
         cases.stream()
@@ -191,7 +196,8 @@ public final class CapabilityEvalMain {
                 scorers,
                 Sandbox::of,
                 artifactWriter);
-        return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore);
+        return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore,
+                EvalAgent.MADACODE);
     }
 
     private static List<EvalCaseReport> runWithModel(
@@ -203,10 +209,15 @@ public final class CapabilityEvalMain {
             ScorerPipeline scorers,
             EvalResumeStore resumeStore,
             EvalBackend backend,
-            EvalReportCheckpointStore reportStore) {
-        ModeLauncherRegistry registry = ModeLauncherRegistry.defaults();
+            EvalReportCheckpointStore reportStore,
+            EvalAgent agent) {
+        ModeLauncherRegistry registry = agent == EvalAgent.CLAUDE
+                ? claudeRegistry(cases)
+                : ModeLauncherRegistry.defaults();
         cases.forEach(evalCase -> registry.resolve(evalCase.evalCase().mode()));
         try (HeadlessAgentRuntime runtime = HeadlessAgentRuntime.create(projectDir)) {
+            EvalExecutionEnvironmentFactory localEnvironments =
+                    GitWorktreeEvalExecutionEnvironment.factory(projectDir);
             EvalRunner runner = backend == EvalBackend.DOCKER
                     ? new EvalRunner(
                             runtime,
@@ -217,10 +228,22 @@ public final class CapabilityEvalMain {
                             runtime,
                             registry,
                             scorers,
-                            Sandbox::of,
-                            artifactWriter);
-            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore);
+                            localEnvironments,
+                            artifactWriter,
+                            agent);
+            return runCases(runner, cases, runLimit, concurrency, resumeStore, scorers, reportStore, agent);
         }
+    }
+
+    /** Registers the Claude Code CLI launcher under every distinct mode present in the cases. */
+    private static ModeLauncherRegistry claudeRegistry(List<EvalCaseLoader.LoadedCase> cases) {
+        ModeLauncherRegistry registry = new ModeLauncherRegistry();
+        cases.stream()
+                .map(c -> c.evalCase().mode())
+                .distinct()
+                .forEach(mode -> registry.register(
+                        new ClaudeCodeModeLauncher("claude", new ProcessSupervisor(), mode)));
+        return registry;
     }
 
     private static List<EvalCaseReport> runCases(
@@ -230,7 +253,18 @@ public final class CapabilityEvalMain {
             int concurrency,
             EvalResumeStore resumeStore,
             ScorerPipeline scorers,
-            EvalReportCheckpointStore reportStore) {
+            EvalReportCheckpointStore reportStore,
+            EvalAgent agent) {
+        if (concurrency > 1 && runLimit.maxTotalTokens() == null) {
+            return runCasesParallel(
+                    runner,
+                    cases,
+                    concurrency,
+                    resumeStore,
+                    scorers,
+                    reportStore,
+                    agent);
+        }
         List<EvalCaseReport> reports = new java.util.ArrayList<>();
         RunMetrics accumulated = RunMetrics.ZERO;
         String scorerFingerprint = scorers.reproducibilityFingerprint();
@@ -243,6 +277,11 @@ public final class CapabilityEvalMain {
                 EvalCaseReport report;
                 if (resumed.isPresent()) {
                     report = resumed.get();
+                } else if (agent == EvalAgent.CLAUDE && isClaudeIncompatible(loaded)) {
+                    report = runner.skippedCase(
+                            loaded,
+                            EvalCaseReport.SkipReason.AGENT_INCOMPATIBLE,
+                            "gating process dimension is MadaCode-specific; skipped under --agent claude");
                 } else if (runLimit.shouldSkipNextCase(accumulated)) {
                     report = runner.skippedCase(
                             loaded,
@@ -270,6 +309,87 @@ public final class CapabilityEvalMain {
         }
     }
 
+    private static List<EvalCaseReport> runCasesParallel(
+            EvalRunner runner,
+            List<EvalCaseLoader.LoadedCase> cases,
+            int concurrency,
+            EvalResumeStore resumeStore,
+            ScorerPipeline scorers,
+            EvalReportCheckpointStore reportStore,
+            EvalAgent agent) {
+        java.util.concurrent.ExecutorService executor =
+                java.util.concurrent.Executors.newFixedThreadPool(
+                        concurrency,
+                        Thread.ofVirtual().name("mada-eval-case-", 0).factory());
+        String scorerFingerprint = scorers.reproducibilityFingerprint();
+        List<EvalCaseReport> prepared = new java.util.ArrayList<>();
+        List<java.util.concurrent.Future<EvalCaseReport>> futures = new java.util.ArrayList<>();
+        List<EvalCaseReport> reports = new java.util.ArrayList<>();
+        try {
+            for (EvalCaseLoader.LoadedCase loaded : cases) {
+                java.util.Optional<EvalCaseReport> resumed = resumeStore == null
+                        ? java.util.Optional.empty()
+                        : resumeStore.reusableCase(loaded, scorerFingerprint);
+                if (resumed.isPresent()) {
+                    prepared.add(resumed.get());
+                    futures.add(null);
+                    continue;
+                }
+                if (agent == EvalAgent.CLAUDE && isClaudeIncompatible(loaded)) {
+                    prepared.add(runner.skippedCase(
+                            loaded,
+                            EvalCaseReport.SkipReason.AGENT_INCOMPATIBLE,
+                            "gating process dimension is MadaCode-specific; skipped under --agent claude"));
+                    futures.add(null);
+                    continue;
+                }
+                prepared.add(null);
+                futures.add(executor.submit(() -> {
+                    // The outer executor owns the global request budget. Keep attempts within
+                    // one case sequential so concurrency is the total number of active cases.
+                    return runner.runCase(loaded, 1);
+                }));
+            }
+
+            for (int caseIndex = 0; caseIndex < cases.size(); caseIndex++) {
+                EvalCaseReport report;
+                if (prepared.get(caseIndex) != null) {
+                    report = prepared.get(caseIndex);
+                } else {
+                    try {
+                        report = futures.get(caseIndex).get();
+                    } catch (InterruptedException e) {
+                        futures.stream().filter(java.util.Objects::nonNull).forEach(f -> f.cancel(true));
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("parallel eval case interrupted", e);
+                    } catch (java.util.concurrent.ExecutionException e) {
+                        Throwable cause = e.getCause() == null ? e : e.getCause();
+                        throw cause instanceof RuntimeException runtimeException
+                                ? runtimeException
+                                : new IllegalStateException("parallel eval case failed", cause);
+                    }
+                }
+                reports.add(report);
+                String nextCaseId = caseIndex + 1 < cases.size()
+                        ? cases.get(caseIndex + 1).evalCase().id()
+                        : null;
+                reportStore.caseCompleted(report, List.copyOf(reports), nextCaseId);
+            }
+            reportStore.completed(List.copyOf(reports));
+            return reports;
+        } catch (RuntimeException e) {
+            futures.stream().filter(java.util.Objects::nonNull).forEach(f -> f.cancel(true));
+            try {
+                reportStore.aborted(List.copyOf(reports), e);
+            } catch (RuntimeException checkpointFailure) {
+                e.addSuppressed(checkpointFailure);
+            }
+            throw e;
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static void validateConcurrency(
             Options opts,
             List<EvalCaseLoader.LoadedCase> selected) {
@@ -281,6 +401,36 @@ public final class CapabilityEvalMain {
             throw new IllegalArgumentException("--concurrency > 1 is not enabled for long-running cases "
                     + "until shared runtime and worker storage thread-safety are audited");
         }
+    }
+
+    private static void validateBackend(
+            Options opts,
+            List<EvalCaseLoader.LoadedCase> selected) {
+        if (opts.backend == EvalBackend.DOCKER
+                && selected.stream().anyMatch(c -> c.evalCase().hasGitBaseline())) {
+            throw new IllegalArgumentException(
+                    "--backend docker does not yet provide clean Git worktree judging for SWE cases; "
+                            + "use the local backend with --unsafe-local");
+        }
+    }
+
+    /**
+     * True when a case gates on a process dimension (trajectory / safety / dialog) that the
+     * external Claude Code CLI cannot evidence, because it does not flow through MadaCode's
+     * tool pipeline. Such cases are skipped under {@code --agent claude}.
+     */
+    private static boolean isClaudeIncompatible(EvalCaseLoader.LoadedCase loaded) {
+        EvalChecks checks = loaded.evalCase().checks();
+        if (checks == null || checks.isEmpty()) {
+            return false;
+        }
+        if (checks.trajectory() != null && checks.trajectory().gatingOrDefault()) {
+            return true;
+        }
+        if (checks.safety() != null && checks.safety().gatingOrDefault()) {
+            return true;
+        }
+        return checks.dialog() != null && checks.dialog().gatingOrDefault();
     }
 
     /**
@@ -297,21 +447,13 @@ public final class CapabilityEvalMain {
                 new SafetyScorer());
     }
 
-    private record ReportTargets(Path runDir, Path htmlOut, Path jsonOut) {
-        static ReportTargets resolve(
-                Path projectDir,
-                Path explicitHtmlOut,
-                Path explicitJsonOut,
-                Path resumeDir) {
-            Path runDir = resumeDir == null
-                    ? projectDir.resolve("eval/reports/run-" + DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
-                            .format(ZonedDateTime.now(ZoneId.systemDefault())))
-                    : resumeDir.toAbsolutePath().normalize();
-            return new ReportTargets(
-                    runDir,
-                    explicitHtmlOut == null ? runDir.resolve("report.html") : explicitHtmlOut,
-                    explicitJsonOut == null ? runDir.resolve("report.json") : explicitJsonOut);
+    private static Path resolveRunDir(Path projectDir, Path resumeDir) {
+        if (resumeDir != null) {
+            return resumeDir.toAbsolutePath().normalize();
         }
+        String stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+                .format(ZonedDateTime.now(ZoneId.systemDefault()));
+        return projectDir.resolve("eval/reports/run-" + stamp);
     }
 
     private static void printRunSummary(List<EvalCaseReport> reports) {
@@ -336,6 +478,7 @@ public final class CapabilityEvalMain {
             int concurrency,
             Path resumeDir,
             EvalBackend backend,
+            EvalAgent agent,
             Path compareBaseline,
             Path compareCandidate) {
 
@@ -352,6 +495,7 @@ public final class CapabilityEvalMain {
             int concurrency = 1;
             Path resumeDir = null;
             EvalBackend backend = EvalBackend.LOCAL;
+            EvalAgent agent = EvalAgent.MADACODE;
             Path compareBaseline = null;
             Path compareCandidate = null;
             for (int i = 0; i < args.length; i++) {
@@ -370,6 +514,7 @@ public final class CapabilityEvalMain {
                             positiveInt(value(args, ++i, "--concurrency"), "--concurrency");
                     case "--resume" -> resumeDir = Path.of(value(args, ++i, "--resume"));
                     case "--backend" -> backend = EvalBackend.parse(value(args, ++i, "--backend"));
+                    case "--agent" -> agent = EvalAgent.parse(value(args, ++i, "--agent"));
                     case "--compare" -> {
                         compareBaseline = Path.of(value(args, ++i, "--compare"));
                         compareCandidate = Path.of(value(args, ++i, "--compare"));
@@ -380,7 +525,7 @@ public final class CapabilityEvalMain {
             return new Options(
                     selfTest, unsafeLocal, caseId, mode, capability,
                     casesDir, out, jsonOut, maxTotalTokens, concurrency, resumeDir,
-                    backend, compareBaseline, compareCandidate);
+                    backend, agent, compareBaseline, compareCandidate);
         }
 
         private static String value(String[] args, int index, String option) {

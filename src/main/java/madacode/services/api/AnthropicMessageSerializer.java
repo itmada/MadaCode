@@ -54,6 +54,9 @@ final class AnthropicMessageSerializer {
         ObjectNode body = mapper.createObjectNode();
         body.put("model", model);
         body.put("max_tokens", maxTokens);
+        ObjectNode outputConfig = mapper.createObjectNode();
+        outputConfig.put("effort", "max");
+        body.set("output_config", outputConfig);
         if (promptCaching) {
             body.set("system", systemPromptBlock(systemPrompt));
         } else {

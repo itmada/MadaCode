@@ -1,0 +1,28 @@
+{
+  "instance_id": "briannesbitt__carbon-2813",
+  "repo": "briannesbitt/carbon",
+  "base_commit": "8c019924327fe0251294adb61543981e3d27652c",
+  "language": "php",
+  "FAIL_TO_PASS": [
+    "Factory > Psr clock"
+  ],
+  "PASS_TO_PASS": [
+    "Factory > Factory",
+    "Factory > Factory modification",
+    "Factory > Factory timezone"
+  ],
+  "install": [
+    "composer update",
+    "composer install"
+  ],
+  "build": [
+    "composer update",
+    "composer install"
+  ],
+  "test_cmd": [
+    "vendor/bin/phpunit --testdox --colors=never tests/Factory/FactoryTest.php"
+  ],
+  "docker_specs": {
+    "php_version": "8.3.16"
+  }
+}

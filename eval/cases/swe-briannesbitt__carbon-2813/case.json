@@ -1,0 +1,20 @@
+{
+  "id": "swe-briannesbitt__carbon-2813",
+  "description": "SWE-bench Multilingual: briannesbitt__carbon-2813",
+  "mode": "common",
+  "permissionMode": "bypass",
+  "capabilities": [
+    "swe-bench",
+    "multilingual",
+    "php",
+    "briannesbitt__carbon"
+  ],
+  "instruction": "⭐ Implement `Psr\\Clock\\ClockInterface`\nAllow to use `Carbon\\FactoryImmutable` where `Psr\\Clock\\ClockInterface` is expected.",
+  "samples": 3,
+  "maxIterations": 60,
+  "timeoutSeconds": 3600,
+  "verifyTimeoutSeconds": 1800,
+  "maxProcessOutputBytes": 8388608,
+  "repository": "briannesbitt/carbon",
+  "baseCommit": "8c019924327fe0251294adb61543981e3d27652c"
+}

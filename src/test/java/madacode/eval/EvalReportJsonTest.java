@@ -118,7 +118,7 @@ class EvalReportJsonTest {
     }
 
     @Test
-    void rendersSkippedCasesWithoutAttempts() throws Exception {
+    void omitsSkippedCasesFromRootReport() throws Exception {
         EvalCaseReport skipped = new EvalCaseReport(
                 "case-skip",
                 "common",
@@ -130,14 +130,10 @@ class EvalReportJsonTest {
                 3);
 
         JsonNode root = mapper.readTree(EvalReportJson.render(List.of(skipped)));
-        JsonNode caseNode = root.path("cases").get(0);
 
         assertEquals(1, root.path("run").path("skippedCases").asInt());
         assertEquals(0, root.path("run").path("attemptTotal").asInt());
-        assertEquals(3, caseNode.path("samples").asInt());
-        assertTrue(caseNode.path("skipped").asBoolean());
-        assertEquals("BUDGET", caseNode.path("skipReason").asText());
-        assertEquals("SKIPPED", caseNode.path("gateVerdict").asText());
+        assertTrue(root.path("cases").isEmpty());
     }
 
     @Test

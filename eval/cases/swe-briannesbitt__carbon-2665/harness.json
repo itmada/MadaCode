@@ -1,0 +1,32 @@
+{
+  "instance_id": "briannesbitt__carbon-2665",
+  "repo": "briannesbitt/carbon",
+  "base_commit": "01bc4cdefe98ef58d1f9cb31bdbbddddf2a88f7a",
+  "language": "php",
+  "FAIL_TO_PASS": [
+    "Round > Floor year"
+  ],
+  "PASS_TO_PASS": [
+    "Round > Round with default unit",
+    "Round > Round with strings",
+    "Round > Round with strings exception",
+    "Round > Round with interval",
+    "Round > Round with interval exception",
+    "Round > Round with base unit",
+    "Round > Round with meta unit",
+    "Round > Round week",
+    "Round > Ceil month",
+    "Round > Round invalid argument"
+  ],
+  "install": [
+    "composer update",
+    "composer install"
+  ],
+  "build": [],
+  "test_cmd": [
+    "vendor/bin/phpunit --testdox --colors=never tests/Carbon/RoundTest.php"
+  ],
+  "docker_specs": {
+    "php_version": "8.3.16"
+  }
+}

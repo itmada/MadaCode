@@ -21,6 +21,7 @@ bin/eval --unsafe-local --case common-bugfix-001
 bin/eval --unsafe-local --capability bug-fix
 bin/eval --unsafe-local --out report.html
 bin/eval --unsafe-local --json-out report.json
+bin/eval --unsafe-local --agent claude
 bin/eval --unsafe-local --concurrency 4
 bin/eval --unsafe-local --resume eval/reports/run-YYYYMMDD-HHMMSS
 bin/eval --unsafe-local --max-total-tokens 200000
@@ -29,6 +30,17 @@ bin/eval --self-test --backend docker
 bin/eval --compare baseline.json candidate.json
 ```
 
+`--agent madacode|claude` 选择驱动 case 的 agent，默认 `madacode`（MadaCode 自己的模型循环）。
+`--agent claude` 让同一批 case 通过外部 Claude Code CLI（`claude -p`）运行，case.json 无需改动，
+报告 `environment.agent` 会标注所用 agent，便于用 `--compare` 对比两份报告。Claude Code 是独立
+进程，不经过 MadaCode 的工具管道，因此 trajectory / safety / dialog 等过程维度没有证据：声明了
+gating 过程维度的 case 在 `--agent claude` 下会以 `SKIPPED (AGENT_INCOMPATIBLE)` 跳过，其余 case
+只按 VERIFY（产物正确性）判分。
+
+带 `repository` / `baseCommit` 的 SWE case 当前只支持本地后端：它会从
+`eval/_cache/repos/<owner>__<name>` 创建同基线的 agent/judge worktree。`--backend docker`
+目前没有实现这一 clean-judge 协议，会直接拒绝这类 case，而不是输出不可比的分数。
+
 跑前需在 `~/.mada/providers.json` 配置好可用 provider（eval 连真实模型）。每次运行会创建
 `eval/reports/run-<timestamp>/`（已 gitignore），默认写入中文可视化 `report.html` 和机器接口
 `report.json`。可视化提供 Run → Case → Attempt → Trace 下钻，保留 Gate、pass@k、k/N、
@@ -36,9 +48,30 @@ Wilson 95% CI、token、成本和耗时等标准指标。Case 诊断页还提供
 多 Attempt 横向对比、执行环境与可复现性字段；Trace 页按工具时间线、输入/输出、访问证据、
 文件变化、对话和最终回复组织，并支持按需展开完整 `trace.json`，避免大 Trace 阻塞 Case 切换。
 
+`--agent madacode|claude` 选择驱动 case 的 agent，默认 `madacode`（MadaCode 自己的模型循环）。
+`--agent claude` 让同一批 case 通过外部 Claude Code CLI（`claude -p`）运行，case.json 无需改动，
+报告 `environment.agent` 会标注所用 agent，便于用 `--compare` 对比两份报告。claude 后端是外部
+进程，不经过 MadaCode 的工具管道，因此 trajectory / safety / dialog 等过程维度没有证据：声明了
+gating 过程维度的 case 会以 `SKIPPED (AGENT_INCOMPATIBLE)` 跳过，其余 case 只按 VERIFY（产物
+正确性）判分。
+
 每个 case 完成后会先原子写入 `cases/<caseId>/case-report.json`，再原子刷新根报告；
 `cases/<caseId>/attempts/attempt-<n>/` 下原子写入 `result.json`、`trace.json`、`verify.txt`。
 `--out` 和 `--json-out` 会额外导出 HTML/JSON，但 run 目录中的规范报告始终保留。
+
+`--agent madacode|claude` 选择驱动 case 的 agent，默认 `madacode`（MadaCode 自己的模型循环）。
+`--agent claude` 让同一批 case 通过外部 Claude Code CLI（`claude -p`）运行，case.json 无需改动，
+报告 `environment.agent` 会记录所用 agent，便于用 `--compare` 对比两份报告。Claude Code 是独立
+进程，不经过 MadaCode 的工具管道，因此 trajectory / safety / dialog 等过程维度没有证据：声明了
+gating 过程维度的 case 在 `--agent claude` 下会以 `SKIPPED (AGENT_INCOMPATIBLE)` 跳过，其余 case
+只按 VERIFY（产物正确性）判分。
+
+`--agent madacode|claude` 选择驱动 case 的 agent，默认 `madacode`（MadaCode 自己的模型循环）。
+`--agent claude` 让同一批 case 通过外部 Claude Code CLI（`claude -p`）运行，case.json 零改动，
+报告 `environment.agent` 会记录所用 agent，便于用 `--compare` 对比两份报告。Claude Code 是独立
+进程，不经过 MadaCode 的工具管道，因此 trajectory / safety / dialog 等过程维度没有证据；声明了
+gating 过程维度的 case 在 `--agent claude` 下会以 `SKIPPED (AGENT_INCOMPATIBLE)` 跳过，其余 case
+只按 VERIFY（产物正确性）判分。
 
 两个 JSON 报告可用 `bin/eval --compare <baseline.json> <candidate.json>` 对比。Compare 按 case id
 对齐，报告 gate/pass@k/k/N 变化、新增/移除 case，以及平均工具调用、token、耗时变化。
@@ -71,11 +104,15 @@ SKIPPED，compare 会按 gate regression 处理。
   猜测。长任务运行时自己的 `.mada/long-running/` 状态不计入候选文件改动，避免 `fileWhitelist`
   被框架内部持久化误伤。
 - **多轮输入**通过结构化 `conversation` 执行；旧的 `instruction` case 自动退化为单轮。
-- **采样**：`EvalRunner` 对每个 case 跑 `samples` 次独立 attempt（各自独立沙箱），
-  聚合成 `EvalCaseReport`（pass@k + k/N + stable）。单次 attempt 若在管线外异常（如沙箱创建失败）
+- **采样**：`EvalRunner` 对每个 case 跑 `samples` 次独立 attempt（各自独立执行环境），
+  聚合成 `EvalCaseReport`（pass@k + k/N + stable）。声明 `repository` 和 `baseCommit` 的 SWE
+  case 会为每个 attempt 创建独立 Git worktree；Agent 与 Judge 都从该 commit 开始，Judge 仅应用
+  Agent 的 Git diff，不复用 `node_modules`、`vendor` 或构建产物。单次 attempt 若在管线外异常（如
+  worktree 创建失败）
   降级为该 attempt 的 INFRA_ERROR，**一个坏 case 不会中断整轮**。
-- **并发与续跑**：`--concurrency <n>` 以 attempt 为单位做有界并发，默认 1，报告仍按 case
-  声明顺序和 attempt 序号稳定输出。真实 long-running case 在共享 runtime/worker 存储完成线程
+- **并发与续跑**：`--concurrency <n>` 以 case 为单位做全局有界并发，单个 case 的 attempt 顺序执行，
+  因而同时在跑的模型请求不会超过该值；报告仍按 case 声明顺序和 attempt 序号稳定输出。真实
+  long-running case 在共享 runtime/worker 存储完成线程
   安全审计前会拒绝 `--concurrency > 1`；deterministic/fake launcher 路径已有并发测试。
   根 `report.json` 记录 `RUNNING` / `COMPLETED` / `ABORTED`、计划和已完成 case 数以及更新时间。
   `--resume <run-dir>` 使用原子写入的 `cases/<caseId>/case-report.json`；schema/case hash/
@@ -138,8 +175,8 @@ case 全部零改动。系统正确性（权限拦截、长任务状态机、工
 
 ```
 case.json     题目元信息（见下）
-workspace/    Agent 起始文件（会被拷进临时沙箱）
-verify.sh     验收脚本，cwd=沙箱，exit 0 = 通过
+workspace/    普通 case 的 Agent 起始文件
+verify.sh     验收脚本，exit 0 = 通过
 ```
 
 `case.json` 字段：
@@ -161,6 +198,7 @@ verify.sh     验收脚本，cwd=沙箱，exit 0 = 通过
 | `verifyTimeoutSeconds` | Judge 进程上限（默认 300） |
 | `maxProcessOutputBytes` | Judge 捕获输出上限（默认 1 MiB） |
 | `expectedVerdict` | 仅 self-test case 使用，显式声明 `PASS` / `FAIL` 期望 |
+| `repository` + `baseCommit` | 可选但成对出现；SWE case 的固定 `owner/name` 与 Git 基线。运行前仓库须位于 `eval/_cache/repos/<owner>__<name>`，可用 `MADA_EVAL_REPO_CACHE` 覆盖缓存根目录。 |
 | `conversation` | 可选多轮脚本；元素可为字符串，或 `{text, trigger}`，trigger 为 `always` / `whenAgentAsks` |
 | `checks` | 可选多维声明：`trajectory` / `efficiency` / `dialog` / `safety` |
 
@@ -210,12 +248,15 @@ inputJson 文本启发式匹配；启发式命中会在 detail 中标明 `heuris
 不可用，不把空证据伪装成覆盖完整。`SAFETY.mustRefuse` 同样支持可注入 `DialogJudgeClient`；
 默认 CLI 无真实 judge client 时使用关键词启发式并在 detail/scorer fingerprint 中标明。
 
-Schema 是 fail-closed：未知字段、重复 ID、目录名与 ID 不一致、非正预算、缺失 workspace/
-verify.sh、self-test 缺少 `expectedVerdict`、case 内符号链接都会在模型调用前失败。
+Schema 是 fail-closed：未知字段、重复 ID、目录名与 ID 不一致、非正预算、只声明了 `repository` /
+`baseCommit` 其中之一、缺失 workspace/（普通 case）或 verify.sh、self-test 缺少
+`expectedVerdict`、case 内符号链接都会在模型调用前失败。
 `permissionMode` 必填，不再隐式升级到 BYPASS。
 
-`verify.sh` 位于 Agent workspace 外，并在 workspace 的独立快照中运行。Judge 的编译产物不会
-污染 Agent 结果。进程输出被并发消费并限长，超时会终止整个子进程树。
+`verify.sh` 位于 Agent workspace 外。普通 case 在 Agent workspace 的独立快照中运行；带 Git
+基线的 SWE case 则由 Judge 从同一 `baseCommit` 重建 worktree，并只应用候选 Git diff。Judge 的
+依赖和编译产物不会污染 Agent 结果，也不能反向让 Agent 的依赖污染判分。进程输出被并发消费并限长，
+超时会终止整个子进程树。
 
 ## 安全与成本
 

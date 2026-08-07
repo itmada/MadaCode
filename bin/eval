@@ -9,6 +9,7 @@
 #   bin/eval --unsafe-local --capability <tag>
 #   bin/eval --unsafe-local --out report.md
 #   bin/eval --unsafe-local --json-out report.json
+#   bin/eval --unsafe-local --agent claude
 #   bin/eval --unsafe-local --concurrency 4
 #   bin/eval --unsafe-local --resume eval/reports/run-YYYYMMDD-HHMMSS
 #   bin/eval --unsafe-local --max-total-tokens 200000

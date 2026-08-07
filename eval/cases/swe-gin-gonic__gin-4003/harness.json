@@ -1,0 +1,20 @@
+{
+  "instance_id": "gin-gonic__gin-4003",
+  "repo": "gin-gonic/gin",
+  "base_commit": "9c081de9cdd1948f521d47d170d18cbc2981c33a",
+  "language": "go",
+  "FAIL_TO_PASS": [
+    "TestMethodNotAllowedNoRoute"
+  ],
+  "PASS_TO_PASS": [],
+  "install": [
+    "go test -c ."
+  ],
+  "build": [],
+  "test_cmd": [
+    "go test . -v -run \"TestMethodNotAllowedNoRoute\""
+  ],
+  "docker_specs": {
+    "go_version": "1.23.8"
+  }
+}

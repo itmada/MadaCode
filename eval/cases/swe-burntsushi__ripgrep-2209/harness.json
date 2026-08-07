@@ -1,0 +1,20 @@
+{
+  "instance_id": "burntsushi__ripgrep-2209",
+  "repo": "burntsushi/ripgrep",
+  "base_commit": "4dc6c73c5a9203c5a8a89ce2161feca542329812",
+  "language": "rust",
+  "FAIL_TO_PASS": [
+    "regression::r2208"
+  ],
+  "PASS_TO_PASS": [],
+  "install": [
+    "RUSTFLAGS=-Awarnings cargo test --package ripgrep --test integration --no-run"
+  ],
+  "build": [],
+  "test_cmd": [
+    "RUSTFLAGS=-Awarnings cargo test --package ripgrep --test integration -- regression::r2208 --exact"
+  ],
+  "docker_specs": {
+    "rust_version": "1.81"
+  }
+}

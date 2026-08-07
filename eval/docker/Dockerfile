@@ -9,9 +9,21 @@ RUN apt-get update \
         findutils \
         gawk \
         git \
+        golang-go \
         grep \
+        jq \
         netcat-openbsd \
+        nodejs \
+        npm \
+        patch \
+        php-cli \
+        php-mbstring \
+        php-xml \
+        composer \
         procps \
+        python3 \
+        rustc \
+        cargo \
         sed \
     && rm -rf /var/lib/apt/lists/*
 

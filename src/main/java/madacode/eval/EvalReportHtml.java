@@ -28,9 +28,11 @@ public final class EvalReportHtml {
             EvalRunProgress progress,
             EvalCostEstimator costEstimator,
             Path runDir) {
+        // Escape '<' as a JSON unicode escape so embedded data cannot terminate the
+        // surrounding <script> (</script>) or open an HTML comment (<!--), while remaining
+        // valid JSON for JSON.parse.
         String data = json(viewData(reports, progress, costEstimator, runDir))
-                .replace("</", "<\\/")
-                .replace("<!--", "<\\!--");
+                .replace("<", "\\u003c");
         return TEMPLATE.replace("__EVAL_DATA__", data);
     }
 
@@ -44,6 +46,9 @@ public final class EvalReportHtml {
         root.put("report", EvalReportJson.from(reports, estimator, progress));
         List<Map<String, Object>> cases = new ArrayList<>();
         for (EvalCaseReport report : reports) {
+            if (report.skipped()) {
+                continue;
+            }
             Map<String, Object> caseData = new LinkedHashMap<>();
             String caseReportPath = "cases/" + report.id() + "/case-report.json";
             caseData.put("report", readJsonFile(runDir, caseReportPath)
@@ -247,10 +252,14 @@ public final class EvalReportHtml {
                   const t=m?.tokenUsage||{};
                   return '<div class="data-grid">'+datum("Control iterations",fmt(m?.controlIterations))+datum("Worker iterations",fmt(m?.workerIterations))+datum("Total iterations",fmt(m?.totalIterations))+datum("Worker cycles",fmt(m?.workerCycles))+datum("Tool calls",fmt(m?.toolCalls))+datum("Input token",fmt(t.inputTokens))+datum("Output token",fmt(t.outputTokens))+datum("Cache create",fmt(t.cacheCreationTokens))+datum("Cache read",fmt(t.cacheReadTokens))+datum("Total token",fmt(t.totalTokens))+"</div>";
                 }
+                function sourceRows(c){
+                  if(!c.repository)return "";
+                  return '<tr><td>Repository</td><td>'+esc(c.repository)+'</td></tr><tr><td>Base commit</td><td>'+esc(c.baseCommit||"—")+'</td></tr><tr><td>Workspace protocol</td><td>'+esc(c.workspaceProtocol||"—")+'</td></tr>';
+                }
                 function renderOverview(){
                   const d=cases[selectedCase],r=d.report,c=r.evalCase,total=Math.max(1,c.validAttempts);
                   const dimensions=(r.dimensions||[]).map(x=>'<tr><td class="mono">'+esc(x.dimension)+'</td><td class="good">'+x.pass+'</td><td class="bad">'+x.fail+'</td><td class="bad">'+x.error+'</td><td class="muted">'+x.notRun+'</td><td><div class="bar"><i style="width:'+Math.round(x.pass*100/total)+'%"></i></div></td></tr>').join("");
-                  $("tab-content").innerHTML='<div class="panel-grid"><article class="panel span-7"><h3>判定与统计</h3><div class="data-grid">'+datum("Samples",fmt(c.samples))+datum("Valid attempts",fmt(c.validAttempts))+datum("Passes",fmt(c.passes))+datum("Infra errors",fmt(c.infraErrors))+datum("Stable",c.stable?"是":"否")+datum("Passed",c.passed?"是":"否")+datum("Skipped",c.skipped?"是":"否")+datum("Pass rate",pct(c.passRate))+'</div>'+(c.skipDetail?'<div class="notice" style="margin-top:10px">'+esc(c.skipReason)+" · "+esc(c.skipDetail)+"</div>":"")+'</article><article class="panel span-5"><h3>身份与来源</h3><table class="kv"><tr><td>Case hash</td><td>'+esc(c.caseHash)+'</td></tr><tr><td>schemaVersion</td><td>'+esc(r.schemaVersion)+'</td></tr><tr><td>Case report</td><td>'+esc(d.sourcePath)+'</td></tr></table><div style="margin-top:10px">'+sourceLinks(d)+'</div></article><article class="panel span-7"><h3>维度聚合（跨 Attempt）</h3><div class="table-wrap"><table><thead><tr><th>维度</th><th>PASS</th><th>FAIL</th><th>ERROR</th><th>NOT RUN</th><th>通过占比</th></tr></thead><tbody>'+dimensions+'</tbody></table></div></article><article class="panel span-5"><h3>Case 资源消耗</h3>'+metricGrid(c.totalMetrics)+'<div class="section-title"><h3>成本估算</h3></div><div class="data-grid">'+datum("Input USD",usd(c.costEstimate?.inputUsd))+datum("Output USD",usd(c.costEstimate?.outputUsd))+datum("Total USD",usd(c.costEstimate?.totalUsd))+'</div><div class="mono muted" style="margin-top:9px">未配置价格时保留 token 事实，不推测成本。</div></article></div>';
+                  $("tab-content").innerHTML='<div class="panel-grid"><article class="panel span-7"><h3>判定与统计</h3><div class="data-grid">'+datum("Samples",fmt(c.samples))+datum("Valid attempts",fmt(c.validAttempts))+datum("Passes",fmt(c.passes))+datum("Infra errors",fmt(c.infraErrors))+datum("Stable",c.stable?"是":"否")+datum("Passed",c.passed?"是":"否")+datum("Skipped",c.skipped?"是":"否")+datum("Pass rate",pct(c.passRate))+'</div>'+(c.skipDetail?'<div class="notice" style="margin-top:10px">'+esc(c.skipReason)+" · "+esc(c.skipDetail)+"</div>":"")+'</article><article class="panel span-5"><h3>身份与来源</h3><table class="kv"><tr><td>Case hash</td><td>'+esc(c.caseHash)+'</td></tr>'+sourceRows(c)+'<tr><td>schemaVersion</td><td>'+esc(r.schemaVersion)+'</td></tr><tr><td>Case report</td><td>'+esc(d.sourcePath)+'</td></tr></table><div style="margin-top:10px">'+sourceLinks(d)+'</div></article><article class="panel span-7"><h3>维度聚合（跨 Attempt）</h3><div class="table-wrap"><table><thead><tr><th>维度</th><th>PASS</th><th>FAIL</th><th>ERROR</th><th>NOT RUN</th><th>通过占比</th></tr></thead><tbody>'+dimensions+'</tbody></table></div></article><article class="panel span-5"><h3>Case 资源消耗</h3>'+metricGrid(c.totalMetrics)+'<div class="section-title"><h3>成本估算</h3></div><div class="data-grid">'+datum("Input USD",usd(c.costEstimate?.inputUsd))+datum("Output USD",usd(c.costEstimate?.outputUsd))+datum("Total USD",usd(c.costEstimate?.totalUsd))+'</div><div class="mono muted" style="margin-top:9px">未配置价格时保留 token 事实，不推测成本。</div></article></div>';
                 }
                 function attemptSelector(d){
                   return '<div class="attempt-strip" id="attempt-strip">'+(d.attempts||[]).map((a,index)=>'<button class="attempt-btn '+(index===selectedAttempt?"active":"")+'" data-attempt="'+index+'">#'+a.result.attemptNumber+" "+zh(a.result.verdict)+" · "+ms(a.result.durationMs)+"</button>").join("")+"</div>";

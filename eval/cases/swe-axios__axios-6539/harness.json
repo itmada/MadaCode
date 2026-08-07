@@ -1,0 +1,21 @@
+{
+  "instance_id": "axios__axios-6539",
+  "repo": "axios/axios",
+  "base_commit": "c6cce43cd94489f655f4488c5a50ecaf781c94f2",
+  "language": "javascript",
+  "FAIL_TO_PASS": [
+    "Server-Side Request Forgery (SSRF) should not fetch bad server"
+  ],
+  "PASS_TO_PASS": [],
+  "install": [
+    "npm install --ignore-scripts"
+  ],
+  "build": [],
+  "test_cmd": [
+    "npx mocha -R tap test/unit/regression/SNYK-JS-AXIOS-7361793.js --timeout 20000"
+  ],
+  "docker_specs": {
+    "node_version": "20",
+    "_variant": "js_2"
+  }
+}

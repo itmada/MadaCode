@@ -37,7 +37,9 @@ public record EvalCase(
         Integer maxProcessOutputBytes,
         String expectedVerdict,
         EvalChecks checks,
-        List<ConversationTurn> conversation) {
+        List<ConversationTurn> conversation,
+        String repository,
+        String baseCommit) {
 
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
 
@@ -95,6 +97,66 @@ public record EvalCase(
         requirePositive(id, "timeoutSeconds", timeoutSeconds);
         requirePositive(id, "verifyTimeoutSeconds", verifyTimeoutSeconds);
         requirePositive(id, "maxProcessOutputBytes", maxProcessOutputBytes);
+        repository = repository == null || repository.isBlank() ? null : repository.strip();
+        baseCommit = baseCommit == null || baseCommit.isBlank() ? null : baseCommit.strip();
+        if ((repository == null) != (baseCommit == null)) {
+            throw new IllegalArgumentException(
+                    "case " + id + ": repository and baseCommit must be declared together");
+        }
+        if (repository != null && !repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
+            throw new IllegalArgumentException(
+                    "case " + id + ": repository must use the owner/name form");
+        }
+        if (baseCommit != null && !baseCommit.matches("[0-9a-fA-F]{7,64}")) {
+            throw new IllegalArgumentException(
+                    "case " + id + ": baseCommit must be a Git commit hash");
+        }
+    }
+
+    /** Backward-compatible constructor for ordinary cases without a pinned Git baseline. */
+    public EvalCase(
+            String id,
+            String description,
+            String mode,
+            String permissionModeId,
+            List<String> capabilities,
+            String instruction,
+            boolean planMode,
+            Integer samples,
+            Integer maxIterations,
+            Integer maxCycles,
+            Integer workerMaxIterations,
+            Integer timeoutSeconds,
+            Integer verifyTimeoutSeconds,
+            Integer maxProcessOutputBytes,
+            String expectedVerdict,
+            EvalChecks checks,
+            List<ConversationTurn> conversation) {
+        this(
+                id,
+                description,
+                mode,
+                permissionModeId,
+                capabilities,
+                instruction,
+                planMode,
+                samples,
+                maxIterations,
+                maxCycles,
+                workerMaxIterations,
+                timeoutSeconds,
+                verifyTimeoutSeconds,
+                maxProcessOutputBytes,
+                expectedVerdict,
+                checks,
+                conversation,
+                null,
+                null);
+    }
+
+    /** Whether this case must be executed from its declared repository baseline. */
+    public boolean hasGitBaseline() {
+        return repository != null && baseCommit != null;
     }
 
     /** Scripted user turns, with legacy instruction-only cases represented as one turn. */

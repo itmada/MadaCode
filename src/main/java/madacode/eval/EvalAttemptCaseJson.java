@@ -20,7 +20,9 @@ public record EvalAttemptCaseJson(
         Integer maxProcessOutputBytes,
         String expectedVerdict,
         ChecksJson checks,
-        List<ConversationJson> conversation) {
+        List<ConversationJson> conversation,
+        String repository,
+        String baseCommit) {
 
     public EvalAttemptCaseJson {
         capabilities = capabilities == null ? List.of() : List.copyOf(capabilities);
@@ -46,7 +48,9 @@ public record EvalAttemptCaseJson(
                 evalCase.maxProcessOutputBytes(),
                 evalCase.expectedVerdict(),
                 ChecksJson.from(evalCase.checks()),
-                evalCase.conversation().stream().map(ConversationJson::from).toList());
+                evalCase.conversation().stream().map(ConversationJson::from).toList(),
+                evalCase.repository(),
+                evalCase.baseCommit());
     }
 
     EvalCase toEvalCase() {
@@ -67,7 +71,9 @@ public record EvalAttemptCaseJson(
                 maxProcessOutputBytes,
                 expectedVerdict,
                 checks.toEvalChecks(),
-                conversation.stream().map(ConversationJson::toConversationTurn).toList());
+                conversation.stream().map(ConversationJson::toConversationTurn).toList(),
+                repository,
+                baseCommit);
     }
 
     public record ChecksJson(

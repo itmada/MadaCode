@@ -64,6 +64,8 @@ final class DockerEvalExecutionEnvironment implements EvalExecutionEnvironment {
         try {
             judgeDir = Files.createTempDirectory("mada-eval-docker-judge-");
             copyTree(workspace, judgeDir);
+            // Mount the case directory (verify.sh + test.patch + harness siblings) at /judge.
+            Path judgeBundle = verifyScript.toAbsolutePath().normalize().getParent();
             List<String> command = DockerRunCommand.shell(
                     dockerCommand,
                     image,
@@ -72,7 +74,7 @@ final class DockerEvalExecutionEnvironment implements EvalExecutionEnvironment {
                     List.of(),
                     List.of(
                             "-v", judgeDir.toAbsolutePath() + ":/workspace:rw",
-                            "-v", verifyScript.toAbsolutePath() + ":/judge/verify.sh:ro"),
+                            "-v", judgeBundle + ":/judge:ro"),
                     "/workspace",
                     "if command -v bash >/dev/null 2>&1; then "
                             + "bash /judge/verify.sh; else sh /judge/verify.sh; fi");

@@ -1,0 +1,24 @@
+{
+  "instance_id": "sharkdp__bat-2260",
+  "repo": "sharkdp/bat",
+  "base_commit": "c14ce4f7caa36fe524975c51f7aae3d5a852d1f9",
+  "language": "rust",
+  "FAIL_TO_PASS": [
+    "map_syntax_and_ignored_suffix_work_together"
+  ],
+  "PASS_TO_PASS": [
+    "no_first_line_fallback_when_mapping_to_invalid_syntax",
+    "do_not_detect_different_syntax_for_stdin_and_files",
+    "all_global_git_config_locations_syntax_mapping_work"
+  ],
+  "install": [
+    "RUSTFLAGS=-Awarnings cargo test --package bat --test integration_tests syntax --no-run"
+  ],
+  "build": [],
+  "test_cmd": [
+    "RUSTFLAGS=-Awarnings cargo test --package bat --test integration_tests syntax"
+  ],
+  "docker_specs": {
+    "rust_version": "1.81"
+  }
+}

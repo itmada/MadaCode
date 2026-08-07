@@ -33,6 +33,7 @@ public final class EvalRunner {
     private final ScorerPipeline scorers;
     private final AttemptExecutor attemptExecutor;
     private final AttemptArtifactWriter artifactWriter;
+    private final EvalAgent agent;
 
     public EvalRunner(HeadlessAgentRuntime runtime, ModeLauncherRegistry launchers, Scorer scorer) {
         this(runtime, launchers, ScorerPipeline.of(scorer), Sandbox::of);
@@ -67,15 +68,27 @@ public final class EvalRunner {
             ScorerPipeline scorers,
             EvalExecutionEnvironmentFactory environments,
             AttemptArtifactWriter artifactWriter) {
+        this(runtime, launchers, scorers, environments, artifactWriter, EvalAgent.MADACODE);
+    }
+
+    public EvalRunner(
+            HeadlessAgentRuntime runtime,
+            ModeLauncherRegistry launchers,
+            ScorerPipeline scorers,
+            EvalExecutionEnvironmentFactory environments,
+            AttemptArtifactWriter artifactWriter,
+            EvalAgent agent) {
         this.runtime = runtime;
         this.scorers = Objects.requireNonNull(scorers, "scorers");
         Objects.requireNonNull(launchers, "launchers");
         Objects.requireNonNull(environments, "environments");
+        this.agent = agent == null ? EvalAgent.MADACODE : agent;
         this.attemptExecutor = new LocalAttemptExecutor(
                 runtime,
                 launchers,
                 environments,
-                this.scorers.reproducibilityFingerprint());
+                this.scorers.reproducibilityFingerprint(),
+                this.agent);
         this.artifactWriter = artifactWriter == null ? AttemptArtifactWriter.NOOP : artifactWriter;
     }
 
@@ -88,6 +101,7 @@ public final class EvalRunner {
         this.scorers = Objects.requireNonNull(scorers, "scorers");
         this.attemptExecutor = Objects.requireNonNull(attemptExecutor, "attemptExecutor");
         this.artifactWriter = artifactWriter == null ? AttemptArtifactWriter.NOOP : artifactWriter;
+        this.agent = EvalAgent.MADACODE;
     }
 
     public List<EvalCaseReport> runAll(List<EvalCaseLoader.LoadedCase> cases) {
@@ -225,7 +239,8 @@ public final class EvalRunner {
                 runtime,
                 IsolationProfile.localUnsafe(),
                 scorers.reproducibilityFingerprint(),
-                Instant.now());
+                Instant.now(),
+                agent);
         return EvalCaseReport.skipped(loaded, manifest, reason, detail);
     }
 
@@ -316,7 +331,8 @@ public final class EvalRunner {
                 projectDir, loaded, runtime,
                 IsolationProfile.localUnsafe(),
                 scorers.reproducibilityFingerprint(),
-                Instant.now());
+                Instant.now(),
+                agent);
         EvalResult result = new EvalResult(
                 evalCase.id(),
                 evalCase.mode(),

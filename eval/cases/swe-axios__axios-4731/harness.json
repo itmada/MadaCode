@@ -1,0 +1,23 @@
+{
+  "instance_id": "axios__axios-4731",
+  "repo": "axios/axios",
+  "base_commit": "c30252f685e8f4326722de84923fcbc8cf557f06",
+  "language": "javascript",
+  "FAIL_TO_PASS": [
+    "supports http with nodejs should properly support default max body length (follow-redirects as well)"
+  ],
+  "PASS_TO_PASS": [
+    "supports http with nodejs should support max body length"
+  ],
+  "install": [
+    "npm install --ignore-scripts"
+  ],
+  "build": [],
+  "test_cmd": [
+    "npx mocha -R tap test/unit/adapters/http.js -g 'body length' --timeout 20000"
+  ],
+  "docker_specs": {
+    "node_version": "20",
+    "_variant": "js_2"
+  }
+}
