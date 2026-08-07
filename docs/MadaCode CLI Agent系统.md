@@ -543,7 +543,7 @@ MadaCode 的工具谱系反映了 Agent 需要的几种基本能力：
 | 持久记忆     | MemorySaveTool                                | Agent 需要跨会话记住信息       |
 | 能力扩展     | SkillTool                                     | Agent 需要加载领域专用指令     |
 
-这就是为什么 Tool<I> 接口有 isReadOnly() — 它区分了感知（只读）和行动（写入）。Plan mode 下只允许感知类工具，因为规划阶段 Agent 应该只观察、不动手。
+这就是为什么 `Tool<I>` 接口有 `isReadOnly()` — 它区分了感知（只读）和行动（写入）。Plan mode 下只允许感知类工具，因为规划阶段 Agent 应该只观察、不动手。
 
 ### Tool Schema
 
@@ -907,7 +907,7 @@ MadaCode 把每个 MCP server 当成一个子进程的远程对象，用 JSON-RP
 
 MadaCode 通过定义 McpToolAdapter 来将 mcp server 暴露工具包装成正常的 Tool 工具暴露给模型，模型会将这些包装好的mcp tool 视为正常的系统 tool 进行调用。
 
-McpToolAdapter 是一层透明的远程代理（Proxy）—— 对 ToolExecutor 和 LLM 来说，它就是一个普通的 Tool<I>，跟 BashTool、FileEditTool、完全对等地走完整的执行管线（schema 校验 → 权限审批 → plan mode 检查 → hook → execute）。
+McpToolAdapter 是一层透明的远程代理（Proxy）—— 对 ToolExecutor 和 LLM 来说，它就是一个普通的 `Tool<I>`，跟 BashTool、FileEditTool、完全对等地走完整的执行管线（schema 校验 → 权限审批 → plan mode 检查 → hook → execute）。
 
 但 execute() 内部没有任何业务逻辑——它的全部职责就是：
 
